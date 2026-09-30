@@ -16,6 +16,8 @@ anything. Running the same command again upgrades to the latest stable release.
 | Variable | Effect |
 |---|---|
 | `SHAKERPROXY_VERSION=1.2.3` | Install this release instead of the latest stable one |
+| `SHAKERPROXY_VERSION=1.2.3-beta.1` | Install a beta release (the `-beta` suffix selects the beta channel) |
+| `SHAKERPROXY_CHANNEL=beta` | Release channel, only when it differs from what the version implies |
 | `SHAKERPROXY_DRY_RUN=1` | Check the machine and the signed release; change nothing |
 | `SHAKERPROXY_OFFLINE_BUNDLE=/dir` | Install from a signed release copied to this machine (no internet needed for ShakerProxy files) |
 | `SHAKERPROXY_GITHUB_USER`, `SHAKERPROXY_GITHUB_TOKEN` | Read access while the repository is private |

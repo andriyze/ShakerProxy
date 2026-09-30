@@ -129,6 +129,10 @@ openssl dgst -sha256 -verify "$TEMP_DIR/release-public.pem" \
   -signature "$TEMP_DIR/manifest.json.sig" "$TEMP_DIR/manifest.json" >/dev/null \
   || die "release manifest signature verification failed"
 
+manifest_channel="$(jq -r '.channel | select(. == "stable" or . == "beta" or . == "nightly")' "$TEMP_DIR/manifest.json" 2>/dev/null || true)"
+[[ -z "$manifest_channel" || "$manifest_channel" == "$EXPECTED_CHANNEL" ]] \
+  || die "this is a $manifest_channel release; run again with --channel $manifest_channel"
+
 jq -e --arg key "$TRUSTED_RELEASE_KEY_SHA256" --arg channel "$EXPECTED_CHANNEL" '
   .schema == 1 and
   .channel == $channel and

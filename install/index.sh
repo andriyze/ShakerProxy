@@ -12,6 +12,8 @@
 #
 # Options (environment variables, all optional):
 #   SHAKERPROXY_VERSION=1.2.3        install this release instead of the latest stable one
+#                                (a version such as 1.2.3-beta.1 is a beta release)
+#   SHAKERPROXY_CHANNEL=beta         the release channel, when it differs from what the version implies
 #   SHAKERPROXY_DRY_RUN=1            check this machine and the release; change nothing
 #   SHAKERPROXY_OFFLINE_BUNDLE=/dir  install from signed release files already on this machine
 #   SHAKERPROXY_GITHUB_USER, SHAKERPROXY_GITHUB_TOKEN
@@ -27,6 +29,19 @@ main() {
     RELEASES_URL="https://github.com/$REPOSITORY/releases"
     DOCS_URL="https://github.com/$REPOSITORY/blob/main/docs/installation.md"
     VERSION="${SHAKERPROXY_VERSION:-}"
+    VERSION="${VERSION#v}"
+    CHANNEL="${SHAKERPROXY_CHANNEL:-}"
+    # Releases tagged with a prerelease suffix (1.2.3-beta.1) are published as betas.
+    if [ -z "$CHANNEL" ]; then
+        case "$VERSION" in
+            *-*) CHANNEL=beta ;;
+            *) CHANNEL=stable ;;
+        esac
+    fi
+    case "$CHANNEL" in
+        stable|beta|nightly) ;;
+        *) fail "SHAKERPROXY_CHANNEL must be stable, beta or nightly, not '$CHANNEL'." ;;
+    esac
     DRY_RUN="${SHAKERPROXY_DRY_RUN:-0}"
     OFFLINE_BUNDLE="${SHAKERPROXY_OFFLINE_BUNDLE:-}"
     WORK_DIR=""
@@ -121,12 +136,13 @@ valid_version() {
 
 install_online() {
     if [ -n "$VERSION" ]; then
-        VERSION="${VERSION#v}"
         valid_version "$VERSION" || fail "SHAKERPROXY_VERSION must look like 1.2.3, not '$VERSION'."
         url="$RELEASES_URL/download/v$VERSION/bootstrap.sh"
         label="ShakerProxy $VERSION"
-        set -- --release "$VERSION" -- "$@"
+        set -- --release "$VERSION" --channel "$CHANNEL" -- "$@"
     else
+        [ "$CHANNEL" = stable ] || fail "a $CHANNEL release needs an exact version." \
+            "Set SHAKERPROXY_VERSION, for example SHAKERPROXY_VERSION=1.2.3-beta.1."
         # The bootstrap accepts only a release whose signed manifest says "stable".
         url="$RELEASES_URL/latest/download/bootstrap.sh"
         label="the latest stable ShakerProxy release"
@@ -161,6 +177,8 @@ install_offline() {
     [ -f "$OFFLINE_BUNDLE/install.sh" ] || fail "$OFFLINE_BUNDLE has no install.sh." \
         "Copy every file of one ShakerProxy release into that directory."
     step "Verifying and installing from $OFFLINE_BUNDLE"
+    set -- --channel "$CHANNEL" "$@"
+    [ -z "$VERSION" ] || set -- --version "$VERSION" "$@"
     as_root bash "$OFFLINE_BUNDLE/install.sh" --offline-bundle "$OFFLINE_BUNDLE" "$@" < /dev/null
 }
 
