@@ -10,7 +10,7 @@
     "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$"},
     "channel": {"enum": ["stable", "beta", "nightly"]},
     "profiles": {"type": "array", "items": {"enum": ["core", "observe", "dns", "mitm", "search"]}, "minItems": 1, "maxItems": 5, "uniqueItems": true, "contains": {"const": "core"}},
-    "release_public_key_sha256": {"const": "3ff54cdd5135a4a85eb04f9780b56689046904c25f78062d95a6d2f940db434a"},
+    "release_public_key_sha256": {"const": "e8c3c965ed4859f55e69af55ccb03d20d297843104b611f0a754072694dafdcb"},
     "supported": {
       "type": "object",
       "additionalProperties": false,

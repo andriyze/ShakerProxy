@@ -24,7 +24,7 @@ import (
 
 const maxReleaseMetadataBytes = 32 << 10
 
-const trustedReleaseKeySHA256 = "3ff54cdd5135a4a85eb04f9780b56689046904c25f78062d95a6d2f940db434a"
+const trustedReleaseKeySHA256 = "e8c3c965ed4859f55e69af55ccb03d20d297843104b611f0a754072694dafdcb"
 
 var (
 	versionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[-.][0-9A-Za-z.-]+)?$`)

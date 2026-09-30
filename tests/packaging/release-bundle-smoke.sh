@@ -5,7 +5,7 @@ IFS=$'\n\t'
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 readonly ROOT
 readonly BUNDLE="${1:-}"
-readonly TRUSTED_KEY_SHA256="3ff54cdd5135a4a85eb04f9780b56689046904c25f78062d95a6d2f940db434a"
+readonly TRUSTED_KEY_SHA256="e8c3c965ed4859f55e69af55ccb03d20d297843104b611f0a754072694dafdcb"
 EXPECTED_DATABASE_SCHEMA="$(awk '$1 == "const" && $2 == "postgresSchemaVersion" && $3 == "=" && $4 ~ /^[0-9]+$/ { print $4 }' "$ROOT/internal/ingest/postgres.go")"
 readonly EXPECTED_DATABASE_SCHEMA
 TEMP_DIRECTORY=""
@@ -26,7 +26,7 @@ openssl dgst -sha256 -verify "$BUNDLE/release-public.pem" -signature "$BUNDLE/ma
 [[ "$(sha256_file "$BUNDLE/shakerproxy-host.deb")" == "$(jq -er '.host_package.sha256' "$BUNDLE/manifest.json")" ]]
 [[ "$(sha256_file "$BUNDLE/compose-bundle.tar.zst")" == "$(jq -er '.compose_bundle.sha256' "$BUNDLE/manifest.json")" ]]
 jq -e --argjson database_schema "$EXPECTED_DATABASE_SCHEMA" '
-  .schema == 1 and .database_schema == $database_schema and .release_public_key_sha256 == "3ff54cdd5135a4a85eb04f9780b56689046904c25f78062d95a6d2f940db434a" and
+  .schema == 1 and .database_schema == $database_schema and .release_public_key_sha256 == "e8c3c965ed4859f55e69af55ccb03d20d297843104b611f0a754072694dafdcb" and
   (.installer.url | test("^https://github.com/andriyze/ShakerProxy/releases/download/v[0-9A-Za-z.-]+/install\\.sh$")) and
   (.installer.sha256 | test("^[a-f0-9]{64}$")) and
   (.supported.ubuntu == ["24.04","26.04"]) and (.profiles | index("core") != null) and (.profiles | index("mitm") != null) and
