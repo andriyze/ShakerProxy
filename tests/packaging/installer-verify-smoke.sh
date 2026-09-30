@@ -12,6 +12,9 @@ docker run --rm --platform linux/amd64 \
   -v "$BUNDLE:/release:ro" \
   -e SHAKERPROXY_INSTALL_VERIFY_ONLY=1 \
   "$UBUNTU_IMAGE" \
-  bash -c 'set -e; apt-get update >/dev/null; apt-get install -y ca-certificates coreutils curl jq openssl zstd >/dev/null; bash /release/install.sh --offline-bundle /release --developer-unsupported --yes'
+  bash -c 'set -e; apt-get update >/dev/null; apt-get install -y ca-certificates coreutils curl jq openssl zstd >/dev/null
+    # Install the bundle the way an operator would: a beta needs its channel and exact version.
+    channel="$(jq -er .channel /release/manifest.json)"; version="$(jq -er .version /release/manifest.json)"
+    bash /release/install.sh --offline-bundle /release --channel "$channel" --version "$version" --developer-unsupported --yes'
 
 printf '%s\n' 'Installer signed offline verification smoke passed'

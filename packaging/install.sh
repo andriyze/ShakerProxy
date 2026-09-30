@@ -262,13 +262,19 @@ resolve_download_root() {
 # and host compatibility. It only reads its source directory and returns 1 with
 # MANIFEST_ERROR set on failure; callers decide whether that is fatal.
 verify_signed_manifest() {
-  local source="$1" required actual_key
+  local source="$1" required actual_key release_channel
   for required in manifest.json manifest.json.sig release-public.pem; do
     [[ -f "$source/$required" && ! -L "$source/$required" ]] || { MANIFEST_ERROR="release is missing $required"; return 1; }
   done
   actual_key="$(openssl pkey -pubin -in "$source/release-public.pem" -outform DER 2>/dev/null | openssl dgst -sha256 | awk '{print $NF}')"
   [[ "$actual_key" == "$TRUSTED_RELEASE_KEY_SHA256" ]] || { MANIFEST_ERROR="release public key is not the pinned ShakerProxy key"; return 1; }
   openssl dgst -sha256 -verify "$source/release-public.pem" -signature "$source/manifest.json.sig" "$source/manifest.json" >/dev/null 2>&1 || { MANIFEST_ERROR="release manifest signature verification failed"; return 1; }
+  # Name a channel mismatch plainly instead of calling the release malformed.
+  release_channel="$(jq -r '.channel | select(. == "stable" or . == "beta" or . == "nightly")' "$source/manifest.json" 2>/dev/null || true)"
+  if [[ -n "$release_channel" && "$release_channel" != "$CHANNEL" ]]; then
+    MANIFEST_ERROR="this is a $release_channel release; run again with --channel $release_channel"
+    return 1
+  fi
   jq -e --arg os "$OS_VERSION" --arg arch "$ARCH" --arg channel "$CHANNEL" --arg key "$TRUSTED_RELEASE_KEY_SHA256" '
     .schema == 1 and .channel == $channel and .release_public_key_sha256 == $key and
     (.supported.ubuntu | index($os)) != null and (.supported.architectures | index($arch)) != null and
