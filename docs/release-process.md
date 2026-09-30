@@ -10,7 +10,7 @@ artifacts pass the declared clean-VM matrix.
 SHA-256 fingerprint is:
 
 ```text
-3ff54cdd5135a4a85eb04f9780b56689046904c25f78062d95a6d2f940db434a
+e8c3c965ed4859f55e69af55ccb03d20d297843104b611f0a754072694dafdcb
 ```
 
 The matching private RSA-3072 key must be held outside the repository. GitHub
@@ -18,6 +18,10 @@ Actions expects its base64 encoding only in the protected `release`
 environment secret `SHAKERPROXY_RELEASE_SIGNING_KEY_B64`. Require reviewer approval
 for that environment, restrict tag creation, and keep the secret unavailable to
 pull-request workflows. Never print, upload, cache, or package the private key.
+
+The earlier development key (fingerprint `3ff54cdd…434a`) was retired on
+2026-09-30, before any release was published; nothing signed with it is
+trusted.
 
 Key rotation is a source release: commit a new public key and fingerprint,
 review every pinned-fingerprint location, ship the new installer through an
