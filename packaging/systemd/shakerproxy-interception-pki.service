@@ -1,0 +1,32 @@
+[Unit]
+Description=ShakerProxy TLS interception certificate authority provisioning
+Documentation=https://github.com/andriyze/ShakerProxy
+Before=shakerproxy-traffic-policy.service docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-interception-pki
+Environment=SHAKERPROXY_INTERCEPTION_UID=65532
+Environment=SHAKERPROXY_INTERCEPTION_GID=65532
+RemainAfterExit=yes
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/shakerproxy/mitmproxy /var/lib/shakerproxy/public
+
+[Install]
+WantedBy=multi-user.target

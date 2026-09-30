@@ -1,0 +1,348 @@
+name: shakerproxy
+services:
+  postgres:
+    image: ${SHAKERPROXY_POSTGRES_IMAGE:?set immutable PostgreSQL image digest}
+    profiles: [core]
+    user: "999:999"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+      - /run/postgresql:rw,noexec,nosuid,size=8m
+    volumes:
+      - /var/lib/shakerproxy/postgres:/var/lib/postgresql/data
+      - /etc/shakerproxy/secrets/postgres-password:/run/secrets/postgres_password:ro
+    environment:
+      POSTGRES_USER: shakerproxy
+      POSTGRES_DB: shakerproxy
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    healthcheck:
+      test: [CMD, pg_isready, -U, shakerproxy, -d, shakerproxy]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    networks: [control]
+    restart: unless-stopped
+
+  control-api:
+    image: ${SHAKERPROXY_CONTROL_API_IMAGE:?set immutable control API image digest}
+    profiles: [core]
+    user: "65532:65532"
+    # The gateway daemon socket is 0660 root:shakerproxy-host.
+    group_add: ["${SHAKERPROXY_HOST_GID:?set shakerproxy-host group ID}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    volumes:
+      - /run/shakerproxy/gatewayd.sock:/run/shakerproxy/gatewayd.sock
+      - /var/lib/shakerproxy/control-api:/var/lib/shakerproxy/control-api
+      - /var/lib/shakerproxy/content-policy:/var/lib/shakerproxy/content-policy
+      - /var/lib/shakerproxy/forwarders:/var/lib/shakerproxy/forwarders
+      - /var/lib/shakerproxy/inventory:/var/lib/shakerproxy/inventory
+      - /var/lib/kea:/var/lib/shakerproxy/kea:ro
+      - /var/lib/ieee-data:/var/lib/shakerproxy/ieee:ro
+      - /etc/shakerproxy/secrets/setup-token.sha256:/run/secrets/setup_token_sha256:ro
+      - /etc/shakerproxy/secrets/event-query-token:/run/secrets/event_query_token:ro
+      - /etc/shakerproxy/secrets/saved-view-token:/run/secrets/saved_view_token:ro
+      - /etc/shakerproxy/secrets/event-deletion-token:/run/secrets/event_deletion_token:ro
+      - /var/lib/shakerproxy/public/management-ca.crt:/var/lib/shakerproxy/public/management-ca.crt:ro
+      - /var/lib/shakerproxy/public/management-pki.json:/var/lib/shakerproxy/public/management-pki.json:ro
+      - /var/lib/shakerproxy/public/interception-ca.pem:/var/lib/shakerproxy/public/interception-ca.pem:ro
+      - /var/lib/shakerproxy/public/interception-ca.der:/var/lib/shakerproxy/public/interception-ca.der:ro
+      - /var/lib/shakerproxy/public/interception-ca.json:/var/lib/shakerproxy/public/interception-ca.json:ro
+    environment:
+      SHAKERPROXY_API_BIND: 0.0.0.0:8080
+      SHAKERPROXY_ALLOWED_HOSTS: ${SHAKERPROXY_ALLOWED_HOSTS:-localhost:8443,127.0.0.1:8443}
+      SHAKERPROXY_INVENTORY_PATH: /var/lib/shakerproxy/inventory/inventory.json
+      SHAKERPROXY_IEEE_REGISTRY_DIR: /var/lib/shakerproxy/ieee
+      SHAKERPROXY_EVENT_QUERY_TOKEN_FILE: /run/secrets/event_query_token
+      SHAKERPROXY_SAVED_VIEW_TOKEN_FILE: /run/secrets/saved_view_token
+      SHAKERPROXY_EVENT_DELETION_TOKEN_FILE: /run/secrets/event_deletion_token
+      SHAKERPROXY_INGEST_QUERY_URL: http://ingestd:8081
+      SHAKERPROXY_ZEEK_MAINTENANCE_URL: http://zeek:8082
+      SHAKERPROXY_SURICATA_MAINTENANCE_URL: http://suricata:8082
+      SHAKERPROXY_FORWARDER_ROOT: /var/lib/shakerproxy/forwarders
+      SHAKERPROXY_HTTP_CONTENT_POLICY_PATH: /var/lib/shakerproxy/content-policy/policy.json
+    healthcheck:
+      test: [CMD, /usr/local/bin/control-api, -healthcheck]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    networks: [control]
+    restart: unless-stopped
+
+  web-ui:
+    image: ${SHAKERPROXY_WEB_UI_IMAGE:?set immutable web UI image digest}
+    profiles: [core]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    networks: [control]
+    restart: unless-stopped
+
+  ingestd:
+    image: ${SHAKERPROXY_INGESTD_IMAGE:?set immutable ingestd image digest}
+    profiles: [observe]
+    depends_on:
+      postgres: {condition: service_started}
+    user: "65532:65532"
+    group_add: ["${SHAKERPROXY_CLOUD_GID:?set shakerproxy-cloud group ID}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    volumes:
+      - /var/lib/shakerproxy/spool:/var/lib/shakerproxy/spool
+      - /var/lib/shakerproxy/forwarders:/var/lib/shakerproxy/forwarders
+      - /var/lib/shakerproxy/inventory:/var/lib/shakerproxy/inventory:ro
+      - /etc/shakerproxy/secrets/ingest-token:/run/secrets/ingest_token:ro
+      - /etc/shakerproxy/secrets/database-url:/run/secrets/database_url:ro
+      - /etc/shakerproxy/secrets/event-query-token:/run/secrets/event_query_token:ro
+      - /etc/shakerproxy/secrets/saved-view-token:/run/secrets/saved_view_token:ro
+      - /etc/shakerproxy/secrets/event-deletion-token:/run/secrets/event_deletion_token:ro
+      - /run/shakerproxy-cloud:/run/shakerproxy-cloud:ro
+    environment:
+      SHAKERPROXY_INGEST_BIND: 0.0.0.0:8081
+      SHAKERPROXY_INGEST_MAX_BYTES: ${SHAKERPROXY_INGEST_MAX_BYTES:-1073741824}
+      SHAKERPROXY_DATABASE_URL_FILE: /run/secrets/database_url
+      SHAKERPROXY_INVENTORY_PATH: /var/lib/shakerproxy/inventory/inventory.json
+      SHAKERPROXY_EVENT_QUERY_TOKEN_FILE: /run/secrets/event_query_token
+      SHAKERPROXY_SAVED_VIEW_TOKEN_FILE: /run/secrets/saved_view_token
+      SHAKERPROXY_EVENT_DELETION_TOKEN_FILE: /run/secrets/event_deletion_token
+      SHAKERPROXY_FORWARDER_ROOT: /var/lib/shakerproxy/forwarders
+      SHAKERPROXY_DETECTION_STATE: /var/lib/shakerproxy/spool/detections.json
+      SHAKERPROXY_AUTHORIZED_DHCP_SERVERS: ${SHAKERPROXY_AUTHORIZED_DHCP_SERVERS:-}
+      SHAKERPROXY_AUTHORIZED_ROUTER_ADVERTISEMENTS: ${SHAKERPROXY_AUTHORIZED_ROUTER_ADVERTISEMENTS:-}
+      SHAKERPROXY_GATEWAY_BINDINGS: ${SHAKERPROXY_GATEWAY_BINDINGS:-}
+      SHAKERPROXY_CLOUD_CONNECTOR_SOCKET: /run/shakerproxy-cloud/connector.sock
+    healthcheck:
+      test: [CMD, /usr/local/bin/ingestd, -healthcheck]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    networks: [control]
+    restart: unless-stopped
+
+  forwarderd:
+    image: ${SHAKERPROXY_INGESTD_IMAGE:?set immutable ingest/forwarder image digest}
+    profiles: [observe]
+    depends_on:
+      ingestd: {condition: service_started}
+    entrypoint: [/usr/local/bin/forwarderd]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    volumes:
+      - /var/lib/shakerproxy/forwarders:/var/lib/shakerproxy/forwarders
+    environment:
+      SHAKERPROXY_FORWARDER_ROOT: /var/lib/shakerproxy/forwarders
+    healthcheck:
+      test: [CMD, /usr/local/bin/forwarderd, -healthcheck]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    networks: [forwarding]
+    restart: unless-stopped
+
+  zeek:
+    image: ${SHAKERPROXY_ZEEK_IMAGE:?set immutable ShakerProxy Zeek image digest}
+    profiles: [observe]
+    depends_on:
+      ingestd: {condition: service_started}
+    user: "0:0"
+    group_add: ["${SHAKERPROXY_CAPTURE_GID:?set shakerproxy-capture group ID}"]
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2.0
+    tmpfs:
+      - /work:rw,noexec,nosuid,size=384m,uid=0,gid=0,mode=0711
+    volumes:
+      - /var/lib/shakerproxy/pcap:/var/lib/shakerproxy/pcap:ro
+      - /var/lib/shakerproxy/zeek:/var/lib/shakerproxy/analyzer
+      - /etc/shakerproxy/secrets/analyzer-ingest-token:/run/secrets/ingest_token:ro
+      - /etc/shakerproxy/secrets/event-deletion-token:/run/secrets/event_deletion_token:ro
+    environment:
+      SHAKERPROXY_ANALYZER_ENGINE: ZEEK
+      SHAKERPROXY_ANALYZER_SOURCE_VERSION: 8.2.1
+      SHAKERPROXY_ANALYZER_MAX_OUTPUT_BYTES: "268435456"
+      SHAKERPROXY_ANALYZER_MAINTENANCE_BIND: 0.0.0.0:8082
+      SHAKERPROXY_ANALYZER_MAINTENANCE_TOKEN_FILE: /run/secrets/event_deletion_token
+    expose: ["8082"]
+    healthcheck:
+      test: [CMD, /usr/local/bin/analyzer-worker, -healthcheck]
+      interval: 30s
+      timeout: 3s
+      retries: 4
+      start_period: 30s
+    networks: [control]
+    restart: unless-stopped
+
+  suricata:
+    image: ${SHAKERPROXY_SURICATA_IMAGE:?set immutable ShakerProxy Suricata image digest}
+    profiles: [observe]
+    depends_on:
+      ingestd: {condition: service_started}
+    user: "0:0"
+    group_add: ["${SHAKERPROXY_CAPTURE_GID:?set shakerproxy-capture group ID}"]
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /work:rw,noexec,nosuid,size=384m,uid=0,gid=0,mode=0711
+      - /etc/suricata:ro,noexec,nosuid,size=1m
+      - /var/lib/suricata:rw,noexec,nosuid,size=8m,uid=65532,gid=65532
+      - /var/log/suricata:rw,noexec,nosuid,size=8m,uid=65532,gid=65532
+      - /var/run/suricata:rw,noexec,nosuid,size=1m,uid=65532,gid=65532
+    volumes:
+      - /var/lib/shakerproxy/pcap:/var/lib/shakerproxy/pcap:ro
+      - /var/lib/shakerproxy/suricata:/var/lib/shakerproxy/analyzer
+      - /etc/shakerproxy/secrets/analyzer-ingest-token:/run/secrets/ingest_token:ro
+      - /etc/shakerproxy/secrets/event-deletion-token:/run/secrets/event_deletion_token:ro
+    environment:
+      SHAKERPROXY_ANALYZER_ENGINE: SURICATA
+      SHAKERPROXY_ANALYZER_SOURCE_VERSION: 8.0.6
+      SHAKERPROXY_ANALYZER_MAX_OUTPUT_BYTES: "268435456"
+      SHAKERPROXY_ANALYZER_MAINTENANCE_BIND: 0.0.0.0:8082
+      SHAKERPROXY_ANALYZER_MAINTENANCE_TOKEN_FILE: /run/secrets/event_deletion_token
+    expose: ["8082"]
+    healthcheck:
+      test: [CMD, /usr/local/bin/analyzer-worker, -healthcheck]
+      interval: 30s
+      timeout: 3s
+      retries: 4
+      start_period: 30s
+    networks: [control]
+    restart: unless-stopped
+
+  mitmproxy:
+    image: ${SHAKERPROXY_MITMPROXY_IMAGE:?set immutable ShakerProxy mitmproxy image digest}
+    profiles: [mitm]
+    network_mode: host
+    user: "65532:65532"
+    group_add: ["${SHAKERPROXY_CLOUD_GID:?set shakerproxy-cloud group ID}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2.0
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    environment:
+      HOME: /tmp
+      PYTHONPATH: /opt/shakerproxy
+    volumes:
+      - /var/lib/shakerproxy/traffic:/var/lib/shakerproxy/traffic:ro
+      - /var/lib/shakerproxy/content-policy:/var/lib/shakerproxy/content-policy:ro
+      - /var/lib/shakerproxy/mitmproxy:/var/lib/shakerproxy/mitmproxy
+      - /var/lib/shakerproxy/mitmproxy-state:/var/lib/shakerproxy/mitmproxy-state
+      - /var/lib/shakerproxy/mitmproxy-events:/var/lib/shakerproxy/mitmproxy-events
+    healthcheck:
+      test: [CMD, /usr/local/bin/python, -c, "import socket; socket.create_connection(('127.0.0.1',8085),2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+  mitm-event-forwarder:
+    image: ${SHAKERPROXY_INGESTD_IMAGE:?set immutable ingest/forwarder image digest}
+    profiles: [mitm]
+    depends_on:
+      ingestd: {condition: service_started}
+    entrypoint: [/usr/local/bin/mitm-event-forwarderd]
+    user: "65532:65532"
+    group_add: ["${SHAKERPROXY_CLOUD_GID:?set shakerproxy-cloud group ID}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    environment:
+      SHAKERPROXY_MITM_EVENT_SPOOL: /var/lib/shakerproxy/mitmproxy-events/pending
+      SHAKERPROXY_INGEST_URL: http://ingestd:8081/v1/events
+      SHAKERPROXY_INGEST_TOKEN_FILE: /run/secrets/ingest_token
+      SHAKERPROXY_CLOUD_CONNECTOR_SOCKET: /run/shakerproxy-cloud/connector.sock
+    volumes:
+      - /var/lib/shakerproxy/mitmproxy-events:/var/lib/shakerproxy/mitmproxy-events
+      - /etc/shakerproxy/secrets/ingest-token:/run/secrets/ingest_token:ro
+      - /run/shakerproxy-cloud:/run/shakerproxy-cloud:ro
+    healthcheck:
+      test: [CMD, /usr/local/bin/mitm-event-forwarderd, healthcheck]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+    networks: [control]
+    restart: unless-stopped
+
+  inventory-cloud-forwarder:
+    image: ${SHAKERPROXY_INGESTD_IMAGE:?set immutable ingest/forwarder image digest}
+    profiles: [core]
+    depends_on:
+      control-api: {condition: service_started}
+    entrypoint: [/usr/local/bin/inventory-cloud-forwarderd]
+    user: "65532:65532"
+    group_add: ["${SHAKERPROXY_CLOUD_GID:?set shakerproxy-cloud group ID}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    network_mode: none
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    environment:
+      SHAKERPROXY_INVENTORY_PATH: /var/lib/shakerproxy/inventory/inventory.json
+      SHAKERPROXY_DEVICE_CLOUD_STATE: /var/lib/shakerproxy/forwarders/device-cloud-state.json
+      SHAKERPROXY_CLOUD_CONNECTOR_SOCKET: /run/shakerproxy-cloud/connector.sock
+    volumes:
+      - /var/lib/shakerproxy/inventory:/var/lib/shakerproxy/inventory:ro
+      - /var/lib/shakerproxy/forwarders:/var/lib/shakerproxy/forwarders
+      - /run/shakerproxy-cloud:/run/shakerproxy-cloud:ro
+    healthcheck:
+      test: [CMD, /usr/local/bin/inventory-cloud-forwarderd, healthcheck]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+    restart: unless-stopped
+
+  edge:
+    image: ${SHAKERPROXY_EDGE_IMAGE:?set immutable ShakerProxy edge image digest}
+    profiles: [core]
+    read_only: true
+    group_add: ["${SHAKERPROXY_EDGE_GID:?set shakerproxy-edge group ID}"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    environment:
+      XDG_CONFIG_HOME: /tmp/config
+      XDG_DATA_HOME: /tmp/data
+    volumes:
+      - ./caddy/Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - /etc/shakerproxy/pki/management/current/tls.crt:/run/secrets/management_tls_cert:ro
+      - /etc/shakerproxy/pki/management/current/tls.key:/run/secrets/management_tls_key:ro
+    ports:
+      - 127.0.0.1:8443:8443
+    networks: [control, management]
+    restart: unless-stopped
+
+networks:
+  control:
+    internal: true
+  management: {}
+  forwarding: {}

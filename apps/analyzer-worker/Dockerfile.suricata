@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1.12
+FROM golang:1.25.1-bookworm@sha256:c423747fbd96fd8f0b1102d947f51f9b266060217478e5f9bf86f145969562ee AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY apps/analyzer-worker apps/analyzer-worker
+COPY internal internal
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/analyzer-worker ./apps/analyzer-worker/cmd/analyzer-worker
+
+FROM jasonish/suricata@sha256:cc7fdda42b6aec84c7c0bb08109df56e339c5585e2f32f1a91522dda081d4cd9
+RUN mkdir -p /etc/shakerproxy/suricata \
+    && cp /etc/suricata/suricata.yaml /etc/suricata/classification.config /etc/suricata/reference.config /etc/suricata/threshold.config /etc/shakerproxy/suricata/ \
+    && sed -i 's#/etc/suricata/#/etc/shakerproxy/suricata/#g' /etc/shakerproxy/suricata/suricata.yaml \
+    && sed -i 's/^  sgh-mpm-caching: yes$/  sgh-mpm-caching: no/' /etc/shakerproxy/suricata/suricata.yaml \
+    && sed -i 's#^\# threshold-file: /etc/shakerproxy/suricata/threshold.config$#threshold-file: /etc/shakerproxy/suricata/threshold.config#' /etc/shakerproxy/suricata/suricata.yaml \
+    && chmod 0555 /etc/shakerproxy/suricata \
+    && chmod 0444 /etc/shakerproxy/suricata/*
+COPY apps/analyzer-worker/suricata.rules /etc/shakerproxy/suricata/suricata.rules
+COPY apps/analyzer-worker/suricata-ruleset.json /etc/shakerproxy/suricata/suricata-ruleset.json
+RUN suricata -T -c /etc/shakerproxy/suricata/suricata.yaml -S /etc/shakerproxy/suricata/suricata.rules \
+    && chmod 0444 /etc/shakerproxy/suricata/suricata.rules /etc/shakerproxy/suricata/suricata-ruleset.json
+COPY --from=build /out/analyzer-worker /usr/local/bin/analyzer-worker
+USER 0:0
+ENTRYPOINT ["/usr/local/bin/analyzer-worker"]

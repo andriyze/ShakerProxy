@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "revision": 2,
+  "name": "Netlab local DNS enforcement",
+  "encrypted_dns": {
+    "mode": "ENFORCE_LOCAL",
+    "block_dot": false,
+    "block_doq": false,
+    "block_known_doh": false,
+    "block_known_doh3": false,
+    "redirect_plain_dns": true,
+    "local_listen_port": 1053,
+    "upstream_servers": ["10.81.0.53:53"]
+  },
+  "tls_interception": {
+    "enabled": false,
+    "transparent_port": 8085,
+    "auto_bypass_pinned": false,
+    "auto_bypass_ttl_seconds": 86400,
+    "max_dynamic_bypasses": 1024
+  }
+}

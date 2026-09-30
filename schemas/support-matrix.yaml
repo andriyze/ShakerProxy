@@ -1,0 +1,578 @@
+{
+  "schema": 1,
+  "revision": "2026-09-29.2",
+  "certification_levels": [
+    "not-certified",
+    "installable",
+    "safe-runtime",
+    "gateway-certified",
+    "interception-certified"
+  ],
+  "environments": [
+    {
+      "id": "ubuntu-24-04-amd64-iptables-two-nic",
+      "os": "ubuntu-24.04",
+      "architecture": "amd64",
+      "docker_firewall_backend": "iptables",
+      "topology": "two-nic-vm",
+      "capabilities": [
+        {
+          "feature_id": "capability_registry",
+          "level": "safe-runtime",
+          "evidence": [
+            "docs/testing/evidence/foundation/CAP-001"
+          ]
+        },
+        {
+          "feature_id": "appliance_configuration_lock",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/CFL-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "management_tls_pki",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/PKI-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "production_release_lifecycle",
+          "level": "installable",
+          "evidence": [
+            "tests/packaging/deb-smoke.sh",
+            "docs/testing/evidence/foundation/REL-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "transactional_ipv4_gateway",
+          "level": "gateway-certified",
+          "evidence": [
+            "tests/vm/ubuntu-24.04/acceptance.sh"
+          ]
+        },
+        {
+          "feature_id": "bounded_packet_capture",
+          "level": "gateway-certified",
+          "evidence": [
+            "tests/vm/ubuntu-24.04/acceptance.sh"
+          ]
+        },
+        {
+          "feature_id": "passive_analysis",
+          "level": "safe-runtime",
+          "evidence": [
+            "tests/integration/analyzer-smoke.sh"
+          ]
+        },
+        {
+          "feature_id": "device_inventory",
+          "level": "safe-runtime",
+          "evidence": [
+            "tests/ui/device-filters.test.mjs"
+          ]
+        },
+        {
+          "feature_id": "traffic_retention_deletion",
+          "level": "safe-runtime",
+          "evidence": [
+            "docs/testing/capture-event-deletion.md"
+          ]
+        },
+        {
+          "feature_id": "dns_visibility",
+          "level": "not-certified",
+          "evidence": [
+            "tests/netlab/dns-forwarding.sh",
+            "docs/testing/evidence/foundation/DNS-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "native_detection_pressure",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/DET-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "recovery_objectives",
+          "level": "not-certified",
+          "evidence": [
+            "docs/recovery-objectives.md"
+          ]
+        },
+        {
+          "feature_id": "wan_topology_planner",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/WAN-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "tls_interception",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/mitmproxy-netlab.md"
+          ]
+        },
+        {
+          "feature_id": "ipv6_gateway",
+          "level": "not-certified",
+          "evidence": [
+            "docs/ipv6.md",
+            "tests/netlab/ipv6-lab.sh"
+          ]
+        },
+        {
+          "feature_id": "cases_and_holds",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/CASE-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "api_tokens_and_forwarding",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/TOK-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "signed_content_lifecycle",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/SIG-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "decrypted_http_retention",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/MCP-CONTENT-BETA/README.md"
+          ]
+        },
+        {
+          "feature_id": "local_mcp_agent",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/MCP-CONTENT-BETA/README.md"
+          ]
+        },
+        {
+          "feature_id": "wifi_access_point",
+          "level": "not-certified",
+          "evidence": [
+            "docs/wifi-access-point.md"
+          ]
+        },
+        {
+          "feature_id": "protocol_discovery",
+          "level": "not-certified",
+          "evidence": [
+            "docs/protocol-discovery.md"
+          ]
+        },
+        {
+          "feature_id": "device_security_reports",
+          "level": "not-certified",
+          "evidence": [
+            "docs/device-reports.md"
+          ]
+        },
+        {
+          "feature_id": "cloud_protocol_summary",
+          "level": "not-certified",
+          "evidence": [
+            "internal/cloudconnector/protocol_summary_test.go"
+          ]
+        },
+        {
+          "feature_id": "device_lab_controls",
+          "level": "not-certified",
+          "evidence": [
+            "docs/device-testing-quickstart.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ubuntu-26-04-amd64-iptables-shared-vps",
+      "os": "ubuntu-26.04",
+      "architecture": "amd64",
+      "docker_firewall_backend": "iptables",
+      "topology": "shared-vps-safe-mode",
+      "capabilities": [
+        {
+          "feature_id": "capability_registry",
+          "level": "safe-runtime",
+          "evidence": [
+            "docs/testing/evidence/foundation/CAP-001",
+            "docs/testing/evidence/foundation/UBU2604-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "appliance_configuration_lock",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/CFL-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "management_tls_pki",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/PKI-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "production_release_lifecycle",
+          "level": "installable",
+          "evidence": [
+            "docs/testing/evidence/foundation/UBU2604-001/README.md",
+            "docs/testing/evidence/foundation/REL-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "passive_analysis",
+          "level": "safe-runtime",
+          "evidence": [
+            "docs/testing/evidence/foundation/UBU2604-001/README.md",
+            "tests/integration/analyzer-smoke.sh"
+          ]
+        },
+        {
+          "feature_id": "device_inventory",
+          "level": "safe-runtime",
+          "evidence": [
+            "docs/testing/evidence/foundation/UBU2604-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "traffic_retention_deletion",
+          "level": "safe-runtime",
+          "evidence": [
+            "docs/capture-and-storage.md"
+          ]
+        },
+        {
+          "feature_id": "transactional_ipv4_gateway",
+          "level": "not-certified",
+          "evidence": [
+            "docs/networking.md"
+          ]
+        },
+        {
+          "feature_id": "bounded_packet_capture",
+          "level": "not-certified",
+          "evidence": [
+            "docs/capture-and-storage.md"
+          ]
+        },
+        {
+          "feature_id": "dns_visibility",
+          "level": "safe-runtime",
+          "evidence": [
+            "tests/netlab/dns-forwarding.sh",
+            "docs/testing/evidence/foundation/DNS-001/README.md",
+            "docs/testing/evidence/foundation/UBU2604-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "native_detection_pressure",
+          "level": "safe-runtime",
+          "evidence": [
+            "docs/testing/evidence/foundation/DET-001/README.md",
+            "docs/testing/evidence/foundation/UBU2604-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "recovery_objectives",
+          "level": "safe-runtime",
+          "evidence": [
+            "docs/recovery-objectives.md",
+            "docs/testing/evidence/foundation/UBU2604-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "wan_topology_planner",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/WAN-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "tls_interception",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/mitmproxy-netlab.md"
+          ]
+        },
+        {
+          "feature_id": "ipv6_gateway",
+          "level": "not-certified",
+          "evidence": [
+            "docs/ipv6.md",
+            "tests/netlab/ipv6-lab.sh"
+          ]
+        },
+        {
+          "feature_id": "cases_and_holds",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/CASE-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "api_tokens_and_forwarding",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/TOK-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "signed_content_lifecycle",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/SIG-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "decrypted_http_retention",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/MCP-CONTENT-BETA/README.md"
+          ]
+        },
+        {
+          "feature_id": "local_mcp_agent",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/MCP-CONTENT-BETA/README.md"
+          ]
+        },
+        {
+          "feature_id": "wifi_access_point",
+          "level": "not-certified",
+          "evidence": [
+            "docs/wifi-access-point.md"
+          ]
+        },
+        {
+          "feature_id": "protocol_discovery",
+          "level": "not-certified",
+          "evidence": [
+            "docs/protocol-discovery.md"
+          ]
+        },
+        {
+          "feature_id": "device_security_reports",
+          "level": "not-certified",
+          "evidence": [
+            "docs/device-reports.md"
+          ]
+        },
+        {
+          "feature_id": "cloud_protocol_summary",
+          "level": "not-certified",
+          "evidence": [
+            "internal/cloudconnector/protocol_summary_test.go"
+          ]
+        },
+        {
+          "feature_id": "device_lab_controls",
+          "level": "not-certified",
+          "evidence": [
+            "docs/device-testing-quickstart.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ubuntu-26-04-amd64-nftables-two-nic",
+      "os": "ubuntu-26.04",
+      "architecture": "amd64",
+      "docker_firewall_backend": "nftables-experimental",
+      "topology": "two-nic",
+      "capabilities": [
+        {
+          "feature_id": "capability_registry",
+          "level": "not-certified",
+          "evidence": [
+            "docs/adr/0002-firewall-backend.md"
+          ]
+        },
+        {
+          "feature_id": "appliance_configuration_lock",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/CFL-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "management_tls_pki",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/PKI-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "production_release_lifecycle",
+          "level": "not-certified",
+          "evidence": [
+            "docs/adr/0002-firewall-backend.md"
+          ]
+        },
+        {
+          "feature_id": "transactional_ipv4_gateway",
+          "level": "not-certified",
+          "evidence": [
+            "docs/adr/0002-firewall-backend.md"
+          ]
+        },
+        {
+          "feature_id": "bounded_packet_capture",
+          "level": "not-certified",
+          "evidence": [
+            "docs/adr/0002-firewall-backend.md"
+          ]
+        },
+        {
+          "feature_id": "passive_analysis",
+          "level": "not-certified",
+          "evidence": [
+            "docs/adr/0002-firewall-backend.md"
+          ]
+        },
+        {
+          "feature_id": "device_inventory",
+          "level": "not-certified",
+          "evidence": [
+            "docs/adr/0002-firewall-backend.md"
+          ]
+        },
+        {
+          "feature_id": "traffic_retention_deletion",
+          "level": "not-certified",
+          "evidence": [
+            "docs/adr/0002-firewall-backend.md"
+          ]
+        },
+        {
+          "feature_id": "dns_visibility",
+          "level": "not-certified",
+          "evidence": [
+            "tests/netlab/dns-forwarding.sh",
+            "docs/testing/evidence/foundation/DNS-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "native_detection_pressure",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/DET-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "recovery_objectives",
+          "level": "not-certified",
+          "evidence": [
+            "docs/recovery-objectives.md"
+          ]
+        },
+        {
+          "feature_id": "wan_topology_planner",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/WAN-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "tls_interception",
+          "level": "not-certified",
+          "evidence": [
+            "docs/adr/0002-firewall-backend.md"
+          ]
+        },
+        {
+          "feature_id": "ipv6_gateway",
+          "level": "not-certified",
+          "evidence": [
+            "docs/ipv6.md",
+            "tests/netlab/ipv6-lab.sh"
+          ]
+        },
+        {
+          "feature_id": "cases_and_holds",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/CASE-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "api_tokens_and_forwarding",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/TOK-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "signed_content_lifecycle",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/foundation/SIG-001/README.md"
+          ]
+        },
+        {
+          "feature_id": "decrypted_http_retention",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/MCP-CONTENT-BETA/README.md"
+          ]
+        },
+        {
+          "feature_id": "local_mcp_agent",
+          "level": "not-certified",
+          "evidence": [
+            "docs/testing/evidence/MCP-CONTENT-BETA/README.md"
+          ]
+        },
+        {
+          "feature_id": "wifi_access_point",
+          "level": "not-certified",
+          "evidence": [
+            "docs/wifi-access-point.md"
+          ]
+        },
+        {
+          "feature_id": "protocol_discovery",
+          "level": "not-certified",
+          "evidence": [
+            "docs/protocol-discovery.md"
+          ]
+        },
+        {
+          "feature_id": "device_security_reports",
+          "level": "not-certified",
+          "evidence": [
+            "docs/device-reports.md"
+          ]
+        },
+        {
+          "feature_id": "cloud_protocol_summary",
+          "level": "not-certified",
+          "evidence": [
+            "internal/cloudconnector/protocol_summary_test.go"
+          ]
+        },
+        {
+          "feature_id": "device_lab_controls",
+          "level": "not-certified",
+          "evidence": [
+            "docs/device-testing-quickstart.md"
+          ]
+        }
+      ]
+    }
+  ]
+}

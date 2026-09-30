@@ -1,0 +1,40 @@
+[Unit]
+Description=ShakerProxy application stack
+Documentation=https://github.com/andriyze/ShakerProxy
+Requires=docker.service shakerproxy-gatewayd.service
+After=docker.service shakerproxy-gatewayd.service network-online.target
+ConditionPathIsSymbolicLink=/opt/shakerproxy/current
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStartPre=/usr/libexec/shakerproxy/shakerproxy-app validate
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-app start
+ExecStop=/usr/libexec/shakerproxy/shakerproxy-app stop
+TimeoutStartSec=180s
+TimeoutStopSec=60s
+User=root
+Group=root
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="PKI-001" tests="9" failures="0" errors="0" skipped="0" time="0">
+  <testcase classname="managementpki" name="purpose-constrained-authority-and-leaf"/>
+  <testcase classname="managementpki" name="idempotent-provisioning-and-modes"/>
+  <testcase classname="managementpki" name="near-expiry-leaf-rotation-preserves-root"/>
+  <testcase classname="managementpki" name="authority-reuse-rejected"/>
+  <testcase classname="managementpki" name="corrupt-material-rejected"/>
+  <testcase classname="control-api" name="authenticated-public-certificate-and-status"/>
+  <testcase classname="cli" name="verified-non-overwriting-export"/>
+  <testcase classname="compose" name="leaf-only-edge-mount-boundary"/>
+  <testcase classname="packaging" name="ubuntu-amd64-provision-and-cli-export"/>
+</testsuite>

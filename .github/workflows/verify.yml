@@ -1,0 +1,109 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  public-repo-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - run: bash -n tests/security/public-repo-history-scan.sh
+      - run: bash tests/security/public-repo-history-scan.sh
+
+  go:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres@sha256:421b84e07a72bb8f3715f20501a1fdbe1219aad1fa4af7786a49d9a3f2480296
+        env:
+          POSTGRES_USER: shakerproxy_test
+          POSTGRES_PASSWORD: shakerproxy-test-password
+          POSTGRES_DB: shakerproxy_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shakerproxy_test -d shakerproxy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      SHAKERPROXY_TEST_DATABASE_URL: postgres://shakerproxy_test:shakerproxy-test-password@127.0.0.1:5432/shakerproxy_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: {go-version: "1.25.1", cache: true}
+      - run: go mod tidy && git diff --exit-code
+      - run: gofmt -w apps host internal && git diff --exit-code
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go build ./apps/shakerproxy-mcp/cmd/shakerproxy-mcp
+
+  web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run: {working-directory: apps/web-ui}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: "26.7.0", cache: npm, cache-dependency-path: apps/web-ui/package-lock.json}
+      - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  mitm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: PYTHONPATH=apps/mitmproxy python3 -m unittest discover -s apps/mitmproxy -p 'test_*.py'
+      - run: python3 -m py_compile apps/mitmproxy/shakerproxy_policy.py apps/mitmproxy/shakerproxy_stable_bypass.py apps/mitmproxy/shakerproxy_content_policy.py apps/mitmproxy/shakerproxy_addon.py apps/mitmproxy/shakerproxy_entrypoint.py
+      - run: docker build --file apps/mitmproxy/Dockerfile --tag shakerproxy-mitmproxy:test .
+      - run: docker run --rm --entrypoint /usr/local/bin/python shakerproxy-mitmproxy:test -c "import sys; sys.path.insert(0,'/opt/shakerproxy'); import shakerproxy_policy, shakerproxy_stable_bypass, shakerproxy_content_policy, shakerproxy_addon, shakerproxy_entrypoint; assert len(shakerproxy_entrypoint.addons) == 2"
+      # Hook-level tests (mitmproxy.test.taddons) need the pinned mitmproxy.
+      - run: docker run --rm -v "$PWD/apps/mitmproxy:/tests:ro" --entrypoint /usr/local/bin/python shakerproxy-mitmproxy:test -m unittest discover -s /tests -p 'test_*.py'
+
+  packaging-static:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: bash -n packaging/bootstrap.sh packaging/install.sh packaging/build-deb.sh packaging/build-release-bundle.sh tests/packaging/release-bundle-smoke.sh tests/security/content-policy-boundary.sh tests/security/public-repo-history-scan.sh
+      - run: make shell-check
+      - run: python3 tests/security/test_beta_safety.py
+      - run: python3 -m json.tool packaging/release-manifest.schema.json >/dev/null
+      - run: |
+          grep -q '"installer"' packaging/release-manifest.schema.json
+          grep -q 'INSTALLER_SHA256' packaging/build-release-bundle.sh
+          grep -q 'shakerproxy-mvp-preflight' packaging/build-deb.sh
+          grep -q 'shakerproxy-mcp' packaging/build-deb.sh
+          grep -q 'TRUSTED_RELEASE_KEY_SHA256' packaging/bootstrap.sh
+
+  compose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+      - run: ./tests/security/compose-policy.sh
+      - run: bash ./tests/security/content-policy-boundary.sh
+      - run: docker compose -f deploy/compose.dev.yaml config --quiet
+      - run: >-
+          SHAKERPROXY_POSTGRES_IMAGE=postgres@sha256:421b84e07a72bb8f3715f20501a1fdbe1219aad1fa4af7786a49d9a3f2480296
+          SHAKERPROXY_CONTROL_API_IMAGE=registry.invalid/control-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          SHAKERPROXY_WEB_UI_IMAGE=registry.invalid/web-ui@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          SHAKERPROXY_EDGE_IMAGE=registry.invalid/edge@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+          SHAKERPROXY_INGESTD_IMAGE=registry.invalid/ingestd@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          SHAKERPROXY_ZEEK_IMAGE=registry.invalid/zeek@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+          SHAKERPROXY_SURICATA_IMAGE=registry.invalid/suricata@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+          SHAKERPROXY_MITMPROXY_IMAGE=registry.invalid/mitmproxy@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          SHAKERPROXY_CAPTURE_GID=2000
+          SHAKERPROXY_EDGE_GID=2001
+          SHAKERPROXY_CLOUD_GID=2002
+          SHAKERPROXY_HOST_GID=2003
+          docker compose -f deploy/compose.yaml --profile core --profile observe --profile mitm config --quiet

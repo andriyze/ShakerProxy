@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.shakerproxy.local/release-manifest.schema.json",
+  "title": "ShakerProxy release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "channel", "supported", "profiles", "release_public_key_sha256", "installer", "host_package", "images", "compose_bundle", "config_schema", "database_schema", "minimum"],
+  "properties": {
+    "schema": {"const": 1},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$"},
+    "channel": {"enum": ["stable", "beta", "nightly"]},
+    "profiles": {"type": "array", "items": {"enum": ["core", "observe", "dns", "mitm", "search"]}, "minItems": 1, "maxItems": 5, "uniqueItems": true, "contains": {"const": "core"}},
+    "release_public_key_sha256": {"const": "3ff54cdd5135a4a85eb04f9780b56689046904c25f78062d95a6d2f940db434a"},
+    "supported": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ubuntu", "architectures"],
+      "properties": {
+        "ubuntu": {"type": "array", "items": {"enum": ["24.04", "26.04"]}, "minItems": 1, "uniqueItems": true},
+        "architectures": {"type": "array", "items": {"const": "amd64"}, "minItems": 1, "uniqueItems": true}
+      }
+    },
+    "installer": {"$ref": "#/$defs/artifact"},
+    "host_package": {"$ref": "#/$defs/artifact"},
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["SHAKERPROXY_POSTGRES_IMAGE", "SHAKERPROXY_CONTROL_API_IMAGE", "SHAKERPROXY_WEB_UI_IMAGE", "SHAKERPROXY_EDGE_IMAGE", "SHAKERPROXY_INGESTD_IMAGE", "SHAKERPROXY_ZEEK_IMAGE", "SHAKERPROXY_SURICATA_IMAGE", "SHAKERPROXY_MITMPROXY_IMAGE"],
+      "properties": {
+        "SHAKERPROXY_POSTGRES_IMAGE": {"$ref": "#/$defs/image"},
+        "SHAKERPROXY_CONTROL_API_IMAGE": {"$ref": "#/$defs/image"},
+        "SHAKERPROXY_WEB_UI_IMAGE": {"$ref": "#/$defs/image"},
+        "SHAKERPROXY_EDGE_IMAGE": {"$ref": "#/$defs/image"},
+        "SHAKERPROXY_INGESTD_IMAGE": {"$ref": "#/$defs/image"},
+        "SHAKERPROXY_ZEEK_IMAGE": {"$ref": "#/$defs/image"},
+        "SHAKERPROXY_SURICATA_IMAGE": {"$ref": "#/$defs/image"},
+        "SHAKERPROXY_MITMPROXY_IMAGE": {"$ref": "#/$defs/image"}
+      }
+    },
+    "compose_bundle": {"$ref": "#/$defs/artifact"},
+    "config_schema": {"type": "integer", "minimum": 1},
+    "database_schema": {"type": "integer", "minimum": 1},
+    "minimum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disk_gib", "memory_mib"],
+      "properties": {"disk_gib": {"type": "integer", "minimum": 40}, "memory_mib": {"type": "integer", "minimum": 4096}}
+    }
+  },
+  "$defs": {
+    "image": {"type": "string", "pattern": "^[A-Za-z0-9./_-]+@sha256:[a-f0-9]{64}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "sha256"],
+      "properties": {"url": {"type": "string", "format": "uri", "pattern": "^https://"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+    }
+  }
+}

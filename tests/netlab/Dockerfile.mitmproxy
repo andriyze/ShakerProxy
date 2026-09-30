@@ -1,0 +1,21 @@
+FROM mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f
+
+USER root
+
+# The upstream image records these immutable snapshot dates in its Debian
+# source file. Use those snapshots rather than the moving stable mirrors so
+# this disposable proof retains the same native networking tools over time.
+RUN sed -i \
+      -e 's|http://deb.debian.org/debian$|https://snapshot.debian.org/archive/debian/20260505T000000Z|' \
+      -e 's|http://deb.debian.org/debian-security$|https://snapshot.debian.org/archive/debian-security/20260505T000000Z|' \
+      -e 's|Suites: trixie trixie-updates|Suites: trixie|' \
+      /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Check-Valid-Until=false update \
+    && apt-get install -y --no-install-recommends \
+      curl=8.14.1-2+deb13u2 \
+      iproute2=6.15.0-1 \
+      iptables=1.8.11-2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+ENTRYPOINT ["/src/tests/netlab/mitmproxy-proof.sh"]

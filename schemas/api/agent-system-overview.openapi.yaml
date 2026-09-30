@@ -1,0 +1,151 @@
+openapi: 3.1.0
+info:
+  title: ShakerProxy Agent System Overview API
+  version: 0.1.0-beta
+  description: >-
+    Read-only evidence-readiness contract for local automation and MCP. The
+    endpoint reports unknown, stale, queued, quarantined, bypassed, or unhealthy
+    components as limitations and never upgrades missing evidence to READY.
+servers:
+  - url: https://127.0.0.1:8443/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /agent/system-overview:
+    get:
+      operationId: getAgentSystemOverview
+      summary: Read a bounded conservative evidence-readiness overview
+      description: >-
+        Requires system:read for API-token clients. The response combines
+        gateway mode, ingestion/database state, Zeek and Suricata health, and a
+        fixed allowlist of capability states. Analyzer error text and host
+        diagnostics are not returned.
+      responses:
+        "200":
+          description: Current overview, including degraded and unavailable states
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SystemOverview"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: ShakerProxy session or scoped lgt_ API token
+  schemas:
+    SystemOverview:
+      type: object
+      additionalProperties: false
+      required: [schema, generated_at, overall, evidence_ready, gateway, ingest, analyzers, capabilities, limitations]
+      properties:
+        schema: {type: integer, const: 1}
+        generated_at: {type: string, format: date-time}
+        overall: {type: string, enum: [READY, DEGRADED, UNAVAILABLE]}
+        evidence_ready:
+          type: boolean
+          description: True only when limitations is empty and overall is READY.
+        gateway: {$ref: "#/components/schemas/GatewayOverview"}
+        ingest: {$ref: "#/components/schemas/IngestOverview"}
+        analyzers:
+          type: array
+          minItems: 2
+          maxItems: 2
+          prefixItems:
+            - allOf:
+                - {$ref: "#/components/schemas/AnalyzerOverview"}
+                - properties: {engine: {const: ZEEK}}
+            - allOf:
+                - {$ref: "#/components/schemas/AnalyzerOverview"}
+                - properties: {engine: {const: SURICATA}}
+        capabilities: {$ref: "#/components/schemas/CapabilityOverview"}
+        limitations:
+          type: array
+          maxItems: 16
+          items: {type: string, minLength: 1, maxLength: 160}
+    GatewayOverview:
+      type: object
+      additionalProperties: false
+      required: [available, emergency_bypass, network_activation_available, capture_available, traffic_policy_available, active_capture]
+      properties:
+        available: {type: boolean}
+        operating_mode: {type: string, enum: [SETUP_SAFE, ROUTED_PASSTHROUGH, EMERGENCY_BYPASS]}
+        emergency_bypass: {type: boolean}
+        network_activation_available: {type: boolean}
+        capture_available: {type: boolean}
+        traffic_policy_available: {type: boolean}
+        active_capture: {type: boolean}
+        lab_interface: {type: string, minLength: 1, maxLength: 15}
+    IngestOverview:
+      type: object
+      additionalProperties: false
+      required: [available, pending_records, pending_bytes, quarantined_records, quarantined_bytes, ingest_lag_seconds, storage_pressure, database_configured, database_connected]
+      properties:
+        available: {type: boolean}
+        generated_at: {type: string, format: date-time}
+        pending_records: {type: integer, minimum: 0}
+        pending_bytes: {type: integer, format: int64, minimum: 0}
+        quarantined_records: {type: integer, minimum: 0}
+        quarantined_bytes: {type: integer, format: int64, minimum: 0}
+        ingest_lag_seconds: {type: number, minimum: 0}
+        storage_pressure: {type: boolean}
+        database_configured: {type: boolean}
+        database_connected: {type: boolean}
+    AnalyzerOverview:
+      type: object
+      additionalProperties: false
+      required: [engine, available, healthy, scan_in_progress]
+      properties:
+        engine: {type: string, enum: [ZEEK, SURICATA]}
+        available: {type: boolean}
+        state: {type: string, enum: [HEALTHY, SCANNING, STALE]}
+        healthy: {type: boolean}
+        scan_in_progress: {type: boolean}
+        heartbeat_age_millis: {type: integer, format: int64, minimum: 0}
+        delivered_events: {type: integer, format: int64, minimum: 0}
+        completed_captures: {type: integer, format: int64, minimum: 0}
+        last_success_at: {type: string, format: date-time}
+    CapabilityOverview:
+      type: object
+      additionalProperties: false
+      required: [available, features]
+      properties:
+        available: {type: boolean}
+        revision: {type: string, minLength: 1, maxLength: 64}
+        features:
+          type: array
+          maxItems: 7
+          items: {$ref: "#/components/schemas/CapabilityFeature"}
+    CapabilityFeature:
+      type: object
+      additionalProperties: false
+      required: [id, status, badge, enabled_by_default]
+      properties:
+        id:
+          type: string
+          enum: [bounded_packet_capture, decrypted_http_retention, device_inventory, dns_visibility, local_mcp_agent, passive_analysis, tls_interception]
+        status: {type: string, enum: [supported, experimental, capture-only, unavailable]}
+        badge: {type: string, minLength: 1, maxLength: 32}
+        enabled_by_default: {type: boolean}
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string}
+            message: {type: string}
+  responses:
+    Error:
+      description: ShakerProxy API error
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}

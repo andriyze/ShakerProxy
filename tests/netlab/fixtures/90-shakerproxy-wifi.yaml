@@ -1,0 +1,11 @@
+network:
+  version: 2
+  ethernets:
+    wlan0:
+      renderer: networkd
+      addresses: [10.77.0.1/24]
+      dhcp6: false
+      accept-ra: false
+      link-local: []
+      ignore-carrier: true
+      optional: true

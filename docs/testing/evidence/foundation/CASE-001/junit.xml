@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="CASE-001" tests="9" failures="0" errors="0" skipped="0" time="0">
+  <testcase classname="casework" name="durable-hash-chained-lifecycle"/>
+  <testcase classname="casework" name="partial-hold-and-optimistic-revision"/>
+  <testcase classname="capture" name="post-finalization-hold-blocks-deletion-and-retention"/>
+  <testcase classname="capture" name="hold-idempotency-owner-and-history"/>
+  <testcase classname="gatewayd" name="audited-bounded-hold-rpc"/>
+  <testcase classname="control-api" name="verified-reference-hold-release-and-replay"/>
+  <testcase classname="control-api" name="unsafe-operation-identity-rejected-before-host-rpc"/>
+  <testcase classname="web-ui" name="partial-hold-never-presented-as-protected"/>
+  <testcase classname="registry" name="experimental-claim-and-platform-boundaries"/>
+</testsuite>

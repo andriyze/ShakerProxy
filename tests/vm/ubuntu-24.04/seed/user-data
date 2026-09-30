@@ -1,0 +1,5 @@
+#cloud-config
+runcmd:
+  - [mkdir, -p, /mnt/shakerproxy-test]
+  - [mount, -L, SHAKERPROXY_TEST, /mnt/shakerproxy-test]
+  - [bash, /mnt/shakerproxy-test/acceptance.sh]

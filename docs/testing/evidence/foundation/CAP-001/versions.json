@@ -1,0 +1,10 @@
+{
+  "criterion": "CAP-001",
+  "result": "PASS",
+  "date": "2026-09-01",
+  "source_revision_before_change": "0c3803209f5bdd097f5d70f5a3a6d5d805039df4",
+  "go_toolchain": "1.25.1-bookworm container",
+  "node": "26.7.0",
+  "npm": "11.19.0",
+  "registry_revision": "2026-09-01.1"
+}

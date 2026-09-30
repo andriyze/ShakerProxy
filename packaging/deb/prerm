@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
+  if [ -d /run/systemd/system ]; then
+    systemctl stop shakerproxy-testlab.service >/dev/null 2>&1 || true
+    systemctl disable shakerproxy-testlab.service >/dev/null 2>&1 || true
+    systemctl stop shakerproxy-cloud-connector.service >/dev/null 2>&1 || true
+    systemctl disable shakerproxy-cloud-connector.service >/dev/null 2>&1 || true
+    systemctl stop shakerproxy-traffic-policy.service >/dev/null 2>&1 || true
+    systemctl disable shakerproxy-traffic-policy.service >/dev/null 2>&1 || true
+    systemctl stop shakerproxy-ca-onboarding.service >/dev/null 2>&1 || true
+    systemctl disable shakerproxy-ca-onboarding.service >/dev/null 2>&1 || true
+    systemctl stop shakerproxy-interception-pki.service >/dev/null 2>&1 || true
+    systemctl disable shakerproxy-interception-pki.service >/dev/null 2>&1 || true
+    systemctl stop shakerproxy-encrypted-dns-event-forwarder.service >/dev/null 2>&1 || true
+    systemctl disable shakerproxy-encrypted-dns-event-forwarder.service >/dev/null 2>&1 || true
+    systemctl stop shakerproxy-app.service >/dev/null 2>&1 || true
+    systemctl disable shakerproxy-app.service >/dev/null 2>&1 || true
+    systemctl stop shakerproxy-dnsd.service >/dev/null 2>&1 || true
+    systemctl disable shakerproxy-dnsd.service >/dev/null 2>&1 || true
+    systemctl stop shakerproxy-gatewayd.service || true
+    systemctl disable shakerproxy-gatewayd.service >/dev/null || true
+    systemctl disable --now shakerproxy-dhcp4.service >/dev/null 2>&1 || true
+    systemctl disable --now shakerproxy-hostapd.service >/dev/null 2>&1 || true
+    systemctl disable --now shakerproxy-radvd.service >/dev/null 2>&1 || true
+    systemctl stop 'shakerproxy-capture@*.service' >/dev/null 2>&1 || true
+  fi
+fi
+
+exit 0

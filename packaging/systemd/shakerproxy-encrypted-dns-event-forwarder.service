@@ -1,0 +1,38 @@
+[Unit]
+Description=ShakerProxy encrypted DNS block event forwarder
+Documentation=https://github.com/andriyze/ShakerProxy
+After=shakerproxy-cloud-connector.service shakerproxy-gatewayd.service systemd-journald.service
+Wants=shakerproxy-cloud-connector.service shakerproxy-gatewayd.service
+
+[Service]
+Type=simple
+User=shakerproxy-cloud
+Group=shakerproxy-cloud
+SupplementaryGroups=systemd-journal
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-encrypted-dns-event-forwarder
+Restart=on-failure
+RestartSec=3s
+EnvironmentFile=-/etc/shakerproxy/connector.env
+Environment=SHAKERPROXY_CLOUD_CONNECTOR_SOCKET=/run/shakerproxy-cloud/connector.sock
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+ReadOnlyPaths=/run/shakerproxy-cloud -/run/log/journal -/var/log/journal
+
+[Install]
+WantedBy=multi-user.target

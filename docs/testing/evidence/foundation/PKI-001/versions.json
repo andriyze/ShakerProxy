@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-09-02T05:10:00Z",
+  "source_revision_before_change": "0e6eada",
+  "registry_revision": "2026-09-01.4",
+  "go_build_image": "golang:1.25.1-bookworm@sha256:c423747fbd96fd8f0b1102d947f51f9b266060217478e5f9bf86f145969562ee",
+  "production_management_port": 8443,
+  "interception_authority_state": "unprovisioned"
+}

@@ -1,0 +1,13 @@
+# ShakerProxy first-party cleartext-service policy. This deliberately small pack is
+# versioned and hash-bound by suricata-ruleset.json; it is not a comprehensive
+# threat-intelligence feed.
+alert http any any -> any any (msg:"SHAKERPROXY Cleartext HTTP Basic authorization observed"; flow:established,to_server; http.header; content:"Authorization|3a| Basic "; nocase; classtype:policy-violation; sid:9900001; rev:1;)
+alert tcp any any -> any 23 (msg:"SHAKERPROXY Cleartext Telnet destination observed"; flow:to_server; classtype:policy-violation; sid:9900002; rev:1;)
+alert tcp any any -> any 21 (msg:"SHAKERPROXY Cleartext FTP destination observed"; flow:to_server; classtype:policy-violation; sid:9900003; rev:1;)
+alert tcp any any -> any 110 (msg:"SHAKERPROXY Cleartext POP3 destination observed"; flow:to_server; classtype:policy-violation; sid:9900004; rev:1;)
+alert tcp any any -> any 143 (msg:"SHAKERPROXY Cleartext IMAP destination observed"; flow:to_server; classtype:policy-violation; sid:9900005; rev:1;)
+alert tcp any any -> any 1883 (msg:"SHAKERPROXY Cleartext MQTT destination observed"; flow:to_server; classtype:policy-violation; sid:9900006; rev:1;)
+alert tcp any any -> any 554 (msg:"SHAKERPROXY Cleartext RTSP destination observed"; flow:to_server; classtype:policy-violation; sid:9900007; rev:1;)
+alert tcp any any -> any 5060 (msg:"SHAKERPROXY Cleartext SIP over TCP destination observed"; flow:to_server; classtype:policy-violation; sid:9900008; rev:1;)
+alert udp any any -> any 5060 (msg:"SHAKERPROXY Cleartext SIP over UDP destination observed"; classtype:policy-violation; sid:9900009; rev:1;)
+alert udp any any -> any 5683 (msg:"SHAKERPROXY Cleartext CoAP destination observed"; classtype:policy-violation; sid:9900010; rev:1;)

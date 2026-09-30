@@ -1,0 +1,14 @@
+network:
+  version: 2
+  ethernets:
+    enp2s0: {}
+  bridges:
+    lgbr0:
+      interfaces: [enp2s0]
+      addresses: [10.77.0.1/24]
+      dhcp6: false
+      accept-ra: false
+      link-local: []
+      parameters:
+        stp: false
+      optional: true

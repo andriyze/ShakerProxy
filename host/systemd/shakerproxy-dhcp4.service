@@ -1,0 +1,44 @@
+[Unit]
+Description=ShakerProxy managed Kea DHCPv4 service
+Documentation=man:kea-dhcp4(8)
+Wants=network-online.target
+After=network-online.target shakerproxy-gatewayd.service time-sync.target
+ConditionPathExists=/etc/kea/kea-dhcp4.conf
+
+[Service]
+Type=simple
+User=_kea
+Group=shakerproxy-host
+UMask=0027
+Environment=KEA_LOCKFILE_DIR=/run/lock/kea
+RuntimeDirectory=kea lock/kea
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+StateDirectory=kea
+StateDirectoryMode=0750
+ExecStartPre=/usr/sbin/kea-dhcp4 -t /etc/kea/kea-dhcp4.conf
+ExecStart=/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4.conf
+Restart=on-failure
+RestartSec=2s
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectClock=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_PACKET
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

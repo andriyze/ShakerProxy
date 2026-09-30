@@ -1,0 +1,13 @@
+#include <tunables/global>
+
+/usr/libexec/shakerproxy/shakerproxy-gatewayd flags=(attach_disconnected) {
+  #include <abstractions/base>
+  /usr/libexec/shakerproxy/shakerproxy-gatewayd mr,
+  /proc/sys/kernel/osrelease r,
+  /run/shakerproxy/ rw,
+  /run/shakerproxy/gatewayd.sock rw,
+  /var/lib/shakerproxy/gatewayd/ rw,
+  /var/lib/shakerproxy/gatewayd/** rwk,
+  /var/lib/shakerproxy/pcap/ rw,
+  /var/lib/shakerproxy/pcap/** rwk,
+}

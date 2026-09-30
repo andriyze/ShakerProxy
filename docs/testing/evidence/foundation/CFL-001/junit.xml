@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="CFL-001" tests="6" failures="0" errors="0" skipped="0" time="0">
+  <testcase classname="configlock" name="exclusive-cross-manager-contention"/>
+  <testcase classname="configlock" name="exclusive-cross-process-contention"/>
+  <testcase classname="configlock" name="stale-crash-metadata-recovery"/>
+  <testcase classname="configlock" name="unsafe-path-and-identity-rejection"/>
+  <testcase classname="gatewayd" name="privileged-mutation-contention-and-read-status"/>
+  <testcase classname="systemd" name="watchdog-lock-write-boundary"/>
+</testsuite>

@@ -1,0 +1,407 @@
+{
+  "schema": 1,
+  "revision": "2026-09-29.2",
+  "status_vocabulary": [
+    "supported",
+    "experimental",
+    "capture-only",
+    "unavailable"
+  ],
+  "features": [
+    {
+      "id": "capability_registry",
+      "name": "Capability and evidence registry",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Machine-validated capability claims, shared vocabulary, and platform certification evidence.",
+      "owning_document": "docs/architecture.md",
+      "evidence": [
+        "internal/capabilityregistry/registry_test.go",
+        "tools/registrycheck/main.go"
+      ],
+      "promotion_gate": "Registry validation and authenticated UI presentation pass in every release build.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "transactional_ipv4_gateway",
+      "name": "Transactional IPv4 gateway",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Rollback-protected two-interface or guarded single-arm IPv4 routing with DHCPv4 and emergency bypass.",
+      "owning_document": "docs/adr/0002-firewall-backend.md",
+      "evidence": [
+        "tests/vm/ubuntu-24.04/network-transaction.py",
+        "tests/netlab/firewall-coexistence.sh"
+      ],
+      "promotion_gate": "The complete clean-VM networking, reboot, upgrade, and rollback matrix passes.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "bounded_packet_capture",
+      "name": "Bounded packet capture",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Quota-bound lab-ingress PCAPNG capture with rotation, hashes, and verified export.",
+      "owning_document": "docs/adr/0004-capture-ingestion.md",
+      "evidence": [
+        "docs/capture-and-storage.md",
+        "tests/vm/ubuntu-24.04/acceptance.sh"
+      ],
+      "promotion_gate": "Reference-hardware packet-drop, disk-pressure, and reboot evidence passes.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "passive_analysis",
+      "name": "Passive Zeek and Suricata analysis",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Pinned analyzers consume only safely closed rotations and finalized captures.",
+      "owning_document": "docs/architecture.md",
+      "evidence": [
+        "tests/integration/analyzer-smoke.sh",
+        "docs/suricata-rules.md"
+      ],
+      "promotion_gate": "Sustained capture fan-out and engine-loss reconciliation pass on reference hardware.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "protocol_discovery",
+      "name": "Protocol discovery",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Every analyzed flow is classified into a bounded protocol catalog with category, evidence, visibility, and exotic/novel flags, with per-device inventories and opaque-traffic coverage.",
+      "owning_document": "docs/protocol-discovery.md",
+      "evidence": [
+        "internal/protocolclass/classify_test.go",
+        "internal/ingest/protocol_summary_test.go",
+        "internal/ingest/protocol_summary_postgres_integration_test.go",
+        "apps/control-api/internal/server/protocols_test.go",
+        "docs/protocol-discovery.md"
+      ],
+      "promotion_gate": "Recorded captures of each catalog category classify correctly end to end, and coverage figures match hand-verified packet totals.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "device_inventory",
+      "name": "Device inventory and attribution",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Time-bounded DHCPv4 identity, address attribution, friendly names, and merge/split history.",
+      "owning_document": "docs/device-inventory.md",
+      "evidence": [
+        "tests/ui/device-filters.test.mjs",
+        "docs/testing/device-matrix.md"
+      ],
+      "promotion_gate": "IPv6 and multi-source identity evidence pass conflict and address-reuse tests.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "device_security_reports",
+      "name": "Device reports and test runs",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Per-device reports with domain ownership, protocols, TLS and HTTP outcomes, and evidence-backed findings; named test runs; and run-to-run comparison, referenced by name, IP, or MAC.",
+      "owning_document": "docs/device-reports.md",
+      "evidence": [
+        "internal/devicereport/devicereport_test.go",
+        "internal/domainclass/domainclass_test.go",
+        "internal/testsession/store_test.go",
+        "apps/control-api/internal/server/device_report_test.go",
+        "apps/control-api/internal/server/device_resolve_test.go",
+        "apps/control-api/internal/server/test_sessions_test.go",
+        "docs/device-reports.md"
+      ],
+      "promotion_gate": "Each finding rule is confirmed against recorded traffic from physical devices, with no false positives in a reviewed benign corpus.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "traffic_retention_deletion",
+      "name": "Traffic retention and verified deletion",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Dry-run-first multi-backend retention and deletion with replay tombstones.",
+      "owning_document": "docs/capture-and-storage.md",
+      "evidence": [
+        "docs/testing/capture-event-deletion.md",
+        "tests/ui/capture-deletion.test.mjs"
+      ],
+      "promotion_gate": "All configured storage classes and derived indexes participate in verified deletion.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "dns_visibility",
+      "name": "DNS visibility and local enforcement",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Known Zeek and Suricata schemas project bounded DNS metadata; installed hosts can explicitly enable local UDP/TCP DNS forwarding after a confirmed IPv4 plan.",
+      "owning_document": "docs/protocol-support.md",
+      "evidence": [
+        "internal/ingest/dns_projection_test.go",
+        "internal/dnsproxy/dnsproxy_test.go",
+        "host/gatewayd/internal/daemon/traffic_policy_test.go",
+        "apps/control-api/internal/server/traffic_policy_test.go",
+        "tests/netlab/dns-forwarding.sh",
+        "docs/testing/evidence/foundation/DNS-001/README.md"
+      ],
+      "promotion_gate": "Clean-VM forwarding, provider-restriction, restart, fail-open, load, parser-compatibility, and privacy tests pass on every claimed platform.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "native_detection_pressure",
+      "name": "Native integrity detections and resource pressure",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Durable bounded open/resolved findings for explicit network baselines, clock/capture loss, and CPU, memory, or storage pressure.",
+      "owning_document": "docs/native-detections.md",
+      "evidence": [
+        "internal/detection/detection_test.go",
+        "internal/resourcepressure/pressure_test.go",
+        "docs/testing/evidence/foundation/DET-001/README.md"
+      ],
+      "promotion_gate": "Pinned analyzer packet fixtures and reference-hardware pressure, restart, and forwarding-survival matrices pass on every supported platform.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "recovery_objectives",
+      "name": "Machine-validated recovery objectives",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Authenticated verified, target, and not-offered RTO/RPO contracts with explicit data-loss and environment boundaries.",
+      "owning_document": "docs/recovery-objectives.md",
+      "evidence": [
+        "internal/recoveryobjectives/registry_test.go",
+        "apps/control-api/internal/server/capabilities_test.go",
+        "tests/ui/recovery-objectives.test.mjs"
+      ],
+      "promotion_gate": "Timed reboot, process-loss, backup, restore, and deleted-data reappearance matrices pass for every objective promoted to verified.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "tls_interception",
+      "name": "TLS interception",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Disabled-by-default installed-host TLS interception with a separate CA, a lab-side certificate onboarding page, per-device selection, QUIC blocking for decrypted clients, private destinations excluded by default, metadata-only event ingestion, pinning-aware bypass, and emergency fail-open behavior.",
+      "owning_document": "docs/protocol-support.md",
+      "evidence": [
+        "internal/interceptionpki/pki_test.go",
+        "internal/trafficpolicy/manager_test.go",
+        "apps/mitmproxy/test_shakerproxy_policy.py",
+        "apps/control-api/internal/server/interception_ca_test.go",
+        "tests/netlab/mitmproxy-proof.sh",
+        "docs/testing/mitmproxy-netlab.md",
+        "host/ca-onboarding/cmd/shakerproxy-ca-onboarding/main_test.go",
+        "internal/interceptionpki/onboarding_test.go"
+      ],
+      "promotion_gate": "The packaged two-NIC clean-host matrix proves enrolled physical Android, iOS, Smart TV, and desktop clients, pinning recovery, reboot, load, revocation, and emergency bypass.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "device_lab_controls",
+      "name": "Per-device lab controls",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Per-device switches to decrypt HTTPS, block internet access, and block domains, matched by MAC and current addresses, plus one-click TLS bypass for a host.",
+      "owning_document": "docs/device-testing-quickstart.md",
+      "evidence": [
+        "apps/control-api/internal/server/lab_controls_test.go",
+        "apps/control-api/internal/server/lab_controls_routes_test.go",
+        "internal/trafficpolicy/device_runtime_beta_test.go",
+        "internal/dnsproxy/dnsproxy_test.go",
+        "docs/device-testing-quickstart.md"
+      ],
+      "promotion_gate": "Physical phones, TVs, and IoT devices on a packaged host show each control taking effect and reverting, over IPv4 and IPv6, including after reboot.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "ipv6_gateway",
+      "name": "IPv6 gateway",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Opt-in lab IPv6 with a private ULA prefix and NAT66 or a routed upstream prefix, SLAAC and RDNSS via radvd, NDP-based device attribution, and an active forwarding block when IPv6 is disabled.",
+      "owning_document": "docs/ipv6.md",
+      "evidence": [
+        "internal/networkplan/ipv6_test.go",
+        "internal/networkplan/ipv6_wifi_test.go",
+        "internal/networkapply/ipv6_test.go",
+        "internal/inventory/ndp_test.go",
+        "host/gatewayd/internal/daemon/neighbors_test.go",
+        "tests/netlab/ipv6-lab.sh",
+        "docs/ipv6.md"
+      ],
+      "promotion_gate": "A packaged clean-host matrix proves ULA and routed-prefix labs with real phones and TVs, privacy-address attribution, reboot restore, rollback, and no IPv6 bypass when disabled.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "cases_and_holds",
+      "name": "Cases and evidence holds",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Durable case workspaces reference verified captures and exports; post-capture host holds block capture deletion and automatic retention with explicit partial outcomes.",
+      "owning_document": "docs/cases-and-holds.md",
+      "evidence": [
+        "internal/casework/casework_test.go",
+        "internal/capture/hold_test.go",
+        "apps/control-api/internal/server/cases_test.go",
+        "tests/ui/cases.test.mjs",
+        "docs/testing/evidence/foundation/CASE-001/README.md"
+      ],
+      "promotion_gate": "Multi-artifact holds, notes/devices/flows, encrypted bundles, backup/index propagation, and clean-VM power-loss recovery pass.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "api_tokens_and_forwarding",
+      "name": "API tokens and event forwarding",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Expiring scope-bound API tokens and disabled-by-default bounded metadata-only JSONL, HMAC webhook, and syslog-TLS forwarding.",
+      "owning_document": "docs/integrations.md",
+      "evidence": [
+        "internal/apitoken/store_test.go",
+        "internal/forwarder/forwarder_test.go",
+        "apps/control-api/internal/server/api_tokens_test.go",
+        "apps/control-api/internal/server/forwarders_test.go",
+        "docs/testing/evidence/foundation/TOK-001/README.md"
+      ],
+      "promotion_gate": "Clean-VM external receiver, TLS failure, load, power-loss, and credential-rotation matrices pass.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "cloud_protocol_summary",
+      "name": "Cloud protocol summaries",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Enrolled sensors roll up hourly per-device protocol usage into bounded protocol.summary metadata, sent only to a control plane that advertises support.",
+      "owning_document": "docs/protocol-discovery.md",
+      "evidence": [
+        "internal/cloudconnector/protocol_rollup_test.go",
+        "internal/cloudconnector/protocol_summary_test.go"
+      ],
+      "promotion_gate": "A compatible control-plane release accepts, retains, and deletes summaries end to end, and counts match the local protocol inventory.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "signed_content_lifecycle",
+      "name": "Signed rules and catalog lifecycle",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "RSA-3072-signed Suricata rules, Zeek package locks, and resolver catalogs support verified preview/diff, pin, update, rollback, and last-known-good recovery.",
+      "owning_document": "docs/signed-content.md",
+      "evidence": [
+        "internal/signedcontent/lifecycle_test.go",
+        "docs/testing/evidence/foundation/SIG-001/README.md"
+      ],
+      "promotion_gate": "Clean-VM consumer reload, failed-load auto-rollback, offline update, and power-loss matrices pass for every content kind.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "wan_topology_planner",
+      "name": "WAN and topology planner",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Responsive topology templates and typed WAN choices preserve working/default-route and active-SSH paths unless a bounded change is explicitly reviewed.",
+      "owning_document": "docs/networking.md",
+      "evidence": [
+        "internal/networkplan/validate_test.go",
+        "host/gatewayd/internal/daemon/diagnostics_test.go",
+        "tests/ui/wan-topology.test.mjs",
+        "docs/testing/evidence/foundation/WAN-001/README.md"
+      ],
+      "promotion_gate": "Every supported topology and WAN mode passes clean-VM apply, connectivity, reboot, rollback, and cloud-init/renderer ownership matrices.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "wifi_access_point",
+      "name": "Wi-Fi access point",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "An AP-capable adapter can serve the lab as a WPA2/WPA3 Wi-Fi network, alone or bridged with a wired lab port, under the same rollback-protected network transaction.",
+      "owning_document": "docs/wifi-access-point.md",
+      "evidence": [
+        "internal/networkplan/wifi_test.go",
+        "internal/networkapply/hostapd_test.go",
+        "host/gatewayd/internal/daemon/wireless_test.go",
+        "docs/wifi-access-point.md"
+      ],
+      "promotion_gate": "Named adapters pass AP bring-up, regulatory country enforcement, client association, capture, reboot restore, and rollback on packaged Ubuntu hosts.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "appliance_configuration_lock",
+      "name": "Appliance-wide configuration lock",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "One observable cross-process lock serializes first-party privileged network, lifecycle, watchdog, and capture-service mutations.",
+      "owning_document": "docs/configuration-lock.md",
+      "evidence": [
+        "internal/configlock/lock_test.go",
+        "host/gatewayd/internal/daemon/server_test.go",
+        "docs/testing/evidence/foundation/CFL-001/README.md"
+      ],
+      "promotion_gate": "Crash, contention, watchdog-priority, update, DNS, restore, and ruleset mutations pass the clean-VM matrix.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "management_tls_pki",
+      "name": "Separate management TLS authority",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Production management HTTPS uses a purpose-constrained local CA and leaf isolated from the unprovisioned interception authority namespace.",
+      "owning_document": "docs/management-tls.md",
+      "evidence": [
+        "internal/managementpki/pki_test.go",
+        "apps/control-api/internal/server/management_pki_test.go",
+        "docs/testing/evidence/foundation/PKI-001/README.md"
+      ],
+      "promotion_gate": "Clean-VM install, renewal, recovery, browser enrollment, and authority non-reuse tests pass on every supported platform.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "decrypted_http_retention",
+      "name": "Independent decrypted HTTP retention control",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "A revisioned local control changes future bounded decrypted HTTP header/body-preview retention without disabling TLS interception or metadata collection.",
+      "owning_document": "docs/decrypted-content-retention.md",
+      "evidence": [
+        "internal/contentpolicy/policy_test.go",
+        "apps/mitmproxy/test_shakerproxy_content_policy.py",
+        "tests/security/content-policy-boundary.sh",
+        "docs/testing/evidence/MCP-CONTENT-BETA/README.md"
+      ],
+      "promotion_gate": "Clean-package restart, corruption, concurrent-update, metadata-only, historical-deletion, and physical-client matrices pass on every claimed platform.",
+      "enabled_by_default": true
+    },
+    {
+      "id": "local_mcp_agent",
+      "name": "Local read-only MCP agent interface",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "A packaged stdio MCP server exposes bounded, metadata-only system, device, DNS, TLS, pinning-candidate, HTTP, and event evidence through scoped local API tokens.",
+      "owning_document": "docs/mcp-agent-integration.md",
+      "evidence": [
+        "internal/mcpserver/server_test.go",
+        "internal/mcpserver/protocol_test.go",
+        "apps/shakerproxy-mcp/cmd/shakerproxy-mcp/main_test.go",
+        "docs/testing/evidence/MCP-CONTENT-BETA/README.md"
+      ],
+      "promotion_gate": "Packaged local and restricted-SSH client compatibility, token revocation, prompt-injection, load, restart, and audit evidence pass on every claimed platform.",
+      "enabled_by_default": false
+    },
+    {
+      "id": "production_release_lifecycle",
+      "name": "Production release lifecycle",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "Signed versioned install, repair, update, schema-safe rollback, and guarded uninstall are implemented; public release evidence is incomplete.",
+      "owning_document": "docs/installation.md",
+      "evidence": [
+        "internal/applifecycle/controller_test.go",
+        "tests/packaging/release-bundle-smoke.sh",
+        "docs/testing/evidence/foundation/REL-001/README.md"
+      ],
+      "promotion_gate": "Signed online and offline release channels pass clean-VM install, repair, update, and rollback.",
+      "enabled_by_default": false
+    }
+  ]
+}

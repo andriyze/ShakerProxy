@@ -1,0 +1,67 @@
+openapi: 3.1.0
+info:
+  title: ShakerProxy AI investigator connection extension
+  version: 0.1.0-beta
+  description: >-
+    Session-only helper for creating a short-lived, fixed-scope read-only AI
+    investigator credential. This extension never accepts caller-selected scopes.
+paths:
+  /api/v1/agent-connections/investigator:
+    post:
+      operationId: createAgentInvestigatorConnection
+      summary: Create a 24-hour read-only AI investigator token
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                name:
+                  type: string
+                  maxLength: 128
+                  default: AI investigator
+                password:
+                  type: string
+                  minLength: 1
+      responses:
+        '201':
+          description: Display-once investigator credential
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+            X-ShakerProxy-Secret-Handling:
+              schema: {type: string, const: display-once}
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [profile, token, secret, fixed_scopes, expires_in_seconds]
+                properties:
+                  profile: {type: string, const: INVESTIGATOR}
+                  token: {type: object}
+                  secret:
+                    type: string
+                    pattern: '^lgt_[A-Za-z0-9_-]{40,124}$'
+                  fixed_scopes:
+                    type: array
+                    prefixItems:
+                      - {type: string, const: 'system:read'}
+                      - {type: string, const: 'devices:read'}
+                      - {type: string, const: 'traffic:read'}
+                    minItems: 3
+                    maxItems: 3
+                  expires_in_seconds: {type: integer, const: 86400}
+        '401': {description: Fresh administrator authentication failed}
+        '503': {description: API-token storage unavailable}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Authenticated ShakerProxy browser session token only.

@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-09-02T04:16:14Z",
+  "source_revision_before_change": "8fd046589ea78d2f98ce6ab4c77a3fd6fe821012",
+  "candidate_version": "0.1.0-dev.3",
+  "registry_revision": "2026-09-01.2",
+  "release_public_key_sha256": "3ff54cdd5135a4a85eb04f9780b56689046904c25f78062d95a6d2f940db434a",
+  "ubuntu_verification_image": "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517",
+  "go_build_image": "golang:1.25.1-bookworm@sha256:c423747fbd96fd8f0b1102d947f51f9b266060217478e5f9bf86f145969562ee"
+}

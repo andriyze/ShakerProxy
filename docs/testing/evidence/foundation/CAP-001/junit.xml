@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="CAP-001" tests="4" failures="0" errors="0" skipped="0">
+  <testcase classname="capabilityregistry" name="strict-registry-validation"/>
+  <testcase classname="control-api" name="authenticated-no-store-capability-endpoint"/>
+  <testcase classname="web-ui" name="typescript-capability-contract"/>
+  <testcase classname="web-ui" name="existing-behavior-regression-suite"/>
+</testsuite>

@@ -1,0 +1,37 @@
+[Unit]
+Description=ShakerProxy IPv6 router advertisements for the lab network
+Documentation=man:radvd(8) man:radvd.conf(5)
+Wants=network-online.target
+After=network-online.target shakerproxy-gatewayd.service
+ConditionPathExists=/etc/shakerproxy/radvd/shakerproxy.conf
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/radvd --configtest --config /etc/shakerproxy/radvd/shakerproxy.conf --logmethod stderr
+ExecStart=/usr/sbin/radvd --nodaemon --config /etc/shakerproxy/radvd/shakerproxy.conf --pidfile /run/shakerproxy-radvd/radvd.pid --logmethod stderr --username radvd
+Restart=on-failure
+RestartSec=2s
+UMask=0027
+RuntimeDirectory=shakerproxy-radvd
+RuntimeDirectoryMode=0750
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_SETUID CAP_SETGID
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

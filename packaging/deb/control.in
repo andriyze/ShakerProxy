@@ -1,0 +1,12 @@
+Package: shakerproxy-host
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: ShakerProxy Maintainers <maintainers@shakerproxy.invalid>
+Depends: adduser, curl, ieee-data, iproute2, iptables, jq, kea-dhcp4-server (>= 2.4.1), netplan.io, nftables, openssl, procps, python3-minimal, systemd (>= 255), util-linux, wireshark-common (>= 4.2.2), zstd
+Recommends: hostapd (>= 2:2.10), iw, radvd
+Description: ShakerProxy privileged host boundary
+ Small, auditable host daemon, local CLI, and independent rollback watchdog for
+ the ShakerProxy authorized traffic-analysis appliance. Network changes still
+ require a reviewed, health-checked, explicitly confirmed transaction.

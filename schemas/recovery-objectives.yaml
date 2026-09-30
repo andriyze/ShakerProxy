@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "revision": "2026-09-02.1",
+  "statuses": ["verified", "target", "not-offered"],
+  "objectives": [
+    {
+      "id": "ubuntu-24-04-network-rollback",
+      "name": "Unconfirmed network activation rollback",
+      "status": "verified",
+      "environment": "ubuntu-24.04-amd64-iptables-two-nic",
+      "scope": "Restore the exact pre-activation Netplan, ShakerProxy firewall hooks, IPv4 forwarding state, and Kea state after an unconfirmed apply.",
+      "rto_seconds": 150,
+      "rpo_seconds": 0,
+      "data_loss_contract": "The last known-good network configuration is restored; traffic during the interruption is not replayed.",
+      "evidence": ["tests/vm/ubuntu-24.04/network-transaction.py", "tests/vm/ubuntu-24.04/reboot-verify.py"],
+      "limitations": ["The selectable confirmation deadline is 60 to 900 seconds; the verified 150-second objective applies to the 60-second timeout and daemon-kill scenarios.", "Ubuntu 26.04 packet-path rollback is not certified by this result."]
+    },
+    {
+      "id": "ubuntu-26-04-safe-runtime-restart",
+      "name": "Safe-mode application restart",
+      "status": "target",
+      "environment": "ubuntu-26.04-amd64-iptables-shared-vps",
+      "scope": "Restore the setup-safe management and observation application after a host or Docker restart.",
+      "rto_seconds": 600,
+      "rpo_seconds": 0,
+      "data_loss_contract": "Durably accepted spool records and configuration should survive; in-flight process memory may be lost.",
+      "evidence": ["docs/installation.md"],
+      "limitations": ["The target is not a verified objective until timed reboot and process-loss evidence is retained.", "This shared-VPS scope does not include routed packet-path recovery."]
+    },
+    {
+      "id": "normalized-metadata-backup-restore",
+      "name": "Normalized metadata backup and restore",
+      "status": "not-offered",
+      "environment": "all",
+      "scope": "Recover PostgreSQL normalized events and configuration from a managed appliance backup.",
+      "data_loss_contract": "No product-managed backup exists, so no RTO or RPO is promised.",
+      "evidence": ["docs/capture-and-storage.md", "docs/recovery-objectives.md"],
+      "limitations": ["Container volume persistence is not a backup.", "Operator-created snapshots and copies are outside ShakerProxy verification and deletion coordination."]
+    },
+    {
+      "id": "capture-artifact-backup-restore",
+      "name": "Capture artifact backup and restore",
+      "status": "not-offered",
+      "environment": "all",
+      "scope": "Recover PCAPNG, manifests, analyzer checkpoints, exports, and case evidence from a managed appliance backup.",
+      "data_loss_contract": "No product-managed backup exists, so no RTO or RPO is promised.",
+      "evidence": ["docs/capture-and-storage.md", "docs/recovery-objectives.md"],
+      "limitations": ["Existing exports and external copies are independent data stores.", "Restoring an external snapshot can reintroduce data whose deletion tombstones are newer than the snapshot."]
+    }
+  ]
+}

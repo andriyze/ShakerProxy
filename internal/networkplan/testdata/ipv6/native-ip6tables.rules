@@ -1,0 +1,29 @@
+*filter
+:SHAKERPROXY-FORWARD - [0:0]
+:SHAKERPROXY-INPUT - [0:0]
+-A SHAKERPROXY-FORWARD -i enp2s0 ! -s 2a01:4f8:1c1c:a001::/64 -j DROP
+-A SHAKERPROXY-FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+-A SHAKERPROXY-FORWARD -i enp2s0 -o enp1s0 -s 2a01:4f8:1c1c:a001::/64 -j ACCEPT
+-A SHAKERPROXY-FORWARD -i enp2s0 -o enp2s0 -s 2a01:4f8:1c1c:a001::/64 -d 2a01:4f8:1c1c:a001::/64 -j DROP
+-A SHAKERPROXY-FORWARD -o enp2s0 -d 2a01:4f8:1c1c:a001::/64 -p ipv6-icmp -m icmp6 --icmpv6-type destination-unreachable -j ACCEPT
+-A SHAKERPROXY-FORWARD -o enp2s0 -d 2a01:4f8:1c1c:a001::/64 -p ipv6-icmp -m icmp6 --icmpv6-type packet-too-big -j ACCEPT
+-A SHAKERPROXY-FORWARD -o enp2s0 -d 2a01:4f8:1c1c:a001::/64 -p ipv6-icmp -m icmp6 --icmpv6-type time-exceeded -j ACCEPT
+-A SHAKERPROXY-FORWARD -o enp2s0 -d 2a01:4f8:1c1c:a001::/64 -p ipv6-icmp -m icmp6 --icmpv6-type parameter-problem -j ACCEPT
+-A SHAKERPROXY-FORWARD -i enp1s0 -o enp2s0 -d 2a01:4f8:1c1c:a001::/64 -j DROP
+-A SHAKERPROXY-FORWARD -i enp2s0 -j DROP
+-A SHAKERPROXY-FORWARD -o enp2s0 -j DROP
+-A SHAKERPROXY-INPUT -i enp2s0 -p ipv6-icmp -m icmp6 --icmpv6-type router-solicitation -m hl --hl-eq 255 -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-solicitation -m hl --hl-eq 255 -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -p ipv6-icmp -m icmp6 --icmpv6-type neighbour-advertisement -m hl --hl-eq 255 -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -s fe80::/10 -p ipv6-icmp -m icmp6 --icmpv6-type 130 -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -s fe80::/10 -p ipv6-icmp -m icmp6 --icmpv6-type 131 -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -s fe80::/10 -p ipv6-icmp -m icmp6 --icmpv6-type 132 -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -s fe80::/10 -p ipv6-icmp -m icmp6 --icmpv6-type 143 -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -p ipv6-icmp -m icmp6 --icmpv6-type echo-request -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -p ipv6-icmp -m icmp6 --icmpv6-type destination-unreachable -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -p ipv6-icmp -m icmp6 --icmpv6-type packet-too-big -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -p ipv6-icmp -m icmp6 --icmpv6-type time-exceeded -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -p ipv6-icmp -m icmp6 --icmpv6-type parameter-problem -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -s 2a01:4f8:1c1c:a001::/64 -p udp -m udp --dport 53 -j ACCEPT
+-A SHAKERPROXY-INPUT -i enp2s0 -s 2a01:4f8:1c1c:a001::/64 -p tcp -m tcp --dport 53 -j ACCEPT
+COMMIT

@@ -1,0 +1,40 @@
+[Unit]
+Description=ShakerProxy isolated virtual-client self-test service
+Documentation=https://github.com/andriyze/ShakerProxy
+After=network-online.target shakerproxy-gatewayd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+# The control API (UID/GID 65532, host group shakerproxy-app) owns its data
+# directory. Running with that primary group lets this root service, which has
+# no DAC override, reach its socket directory and hand the socket to the
+# control API.
+Group=shakerproxy-app
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-testlabd
+Restart=on-failure
+RestartSec=2s
+Environment=SHAKERPROXY_TESTLAB_SOCKET=/var/lib/shakerproxy/control-api/testlab/testlab.sock
+Environment=SHAKERPROXY_CONTROL_API_GID=65532
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=no
+ProtectControlGroups=yes
+PrivateDevices=no
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/var/lib/shakerproxy/control-api /run/lock/shakerproxy -/run/netns
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,78 @@
+#!/bin/sh
+set -eu
+
+if [ "$1" = "configure" ]; then
+  if ! getent group shakerproxy-host >/dev/null 2>&1; then
+    addgroup --system shakerproxy-host >/dev/null
+  fi
+  if ! getent group shakerproxy-capture >/dev/null 2>&1; then
+    addgroup --system shakerproxy-capture >/dev/null
+  fi
+  if ! getent group shakerproxy-edge >/dev/null 2>&1; then
+    addgroup --system shakerproxy-edge >/dev/null
+  fi
+  if ! getent group shakerproxy-cloud >/dev/null 2>&1; then
+    addgroup --system shakerproxy-cloud >/dev/null
+  fi
+  if ! getent group shakerproxy-dns >/dev/null 2>&1; then
+    addgroup --system shakerproxy-dns >/dev/null
+  fi
+  # The application containers run as UID/GID 65532. Give that GID a host name
+  # so host services (the test lab) can share a socket with the control API.
+  if ! getent group 65532 >/dev/null 2>&1; then
+    groupadd --system --gid 65532 shakerproxy-app
+  fi
+  app_group=$(getent group 65532 | cut -d: -f1)
+  if [ "$app_group" != shakerproxy-app ]; then
+    install -d -m 0755 /etc/systemd/system/shakerproxy-testlab.service.d
+    printf '[Service]\nGroup=%s\n' "$app_group" > /etc/systemd/system/shakerproxy-testlab.service.d/10-app-group.conf
+  fi
+  if ! getent passwd shakerproxy-capture >/dev/null 2>&1; then
+    adduser --system --ingroup shakerproxy-capture --home /nonexistent --no-create-home shakerproxy-capture >/dev/null
+  fi
+  if ! getent passwd shakerproxy-cloud >/dev/null 2>&1; then
+    adduser --system --ingroup shakerproxy-cloud --home /nonexistent --no-create-home shakerproxy-cloud >/dev/null
+  fi
+  if ! getent passwd shakerproxy-dns >/dev/null 2>&1; then
+    adduser --system --ingroup shakerproxy-dns --home /nonexistent --no-create-home shakerproxy-dns >/dev/null
+  fi
+  install -d -m 0750 -o root -g shakerproxy-cloud /var/lib/shakerproxy/traffic
+  install -d -m 0755 -o root -g root /var/lib/shakerproxy/public
+  install -d -m 0755 -o root -g root /var/lib/shakerproxy/onboarding
+  install -d -m 0700 -o 65532 -g 65532 \
+    /var/lib/shakerproxy/control-api \
+    /var/lib/shakerproxy/content-policy \
+    /var/lib/shakerproxy/mitmproxy \
+    /var/lib/shakerproxy/mitmproxy-state \
+    /var/lib/shakerproxy/mitmproxy-events \
+    /var/lib/shakerproxy/mitmproxy-events/pending
+  /usr/libexec/shakerproxy/shakerproxy-provision-runtime
+  management_ca="$(/usr/libexec/shakerproxy/shakerproxy-pki --edge-gid "$(getent group shakerproxy-edge | awk -F: 'NR == 1 { print $3 }')" ensure)"
+  printf 'Management HTTPS CA fingerprint (SHA-256): %s\n' "$(printf '%s' "$management_ca" | jq -r '.sha256_fingerprint // "unknown"' 2>/dev/null || echo unknown)"
+  /usr/libexec/shakerproxy/shakerproxy-interception-pki >/dev/null
+  systemctl daemon-reload
+  if [ -d /run/systemd/system ]; then
+    systemctl disable --now kea-dhcp4-server.service >/dev/null 2>&1 || true
+  fi
+  systemctl enable shakerproxy-gatewayd.service >/dev/null
+  systemctl enable shakerproxy-dnsd.service >/dev/null
+  systemctl enable shakerproxy-app.service >/dev/null
+  systemctl enable shakerproxy-cloud-connector.service >/dev/null
+  systemctl enable shakerproxy-traffic-policy.service >/dev/null
+  systemctl enable shakerproxy-testlab.service >/dev/null
+  systemctl enable shakerproxy-interception-pki.service >/dev/null
+  systemctl enable shakerproxy-ca-onboarding.service >/dev/null
+  systemctl enable shakerproxy-encrypted-dns-event-forwarder.service >/dev/null
+  if [ -d /run/systemd/system ]; then
+    systemctl restart shakerproxy-gatewayd.service
+    systemctl restart shakerproxy-dnsd.service
+    systemctl restart shakerproxy-traffic-policy.service
+    systemctl restart shakerproxy-testlab.service >/dev/null 2>&1 || true
+    systemctl restart shakerproxy-cloud-connector.service >/dev/null 2>&1 || true
+    systemctl restart shakerproxy-interception-pki.service
+    systemctl restart shakerproxy-ca-onboarding.service >/dev/null 2>&1 || true
+    systemctl restart shakerproxy-encrypted-dns-event-forwarder.service >/dev/null 2>&1 || true
+  fi
+fi
+
+exit 0

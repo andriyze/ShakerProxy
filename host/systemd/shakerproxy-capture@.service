@@ -1,0 +1,41 @@
+[Unit]
+Description=ShakerProxy bounded packet capture %i
+After=network-online.target
+ConditionPathIsDirectory=/var/lib/shakerproxy/pcap/capture-%i/artifacts
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-capture-worker --session-id=capture-%i
+User=shakerproxy-capture
+Group=shakerproxy-capture
+UMask=0027
+WorkingDirectory=/var/lib/shakerproxy/pcap/capture-%i/artifacts
+KillMode=mixed
+TimeoutStopSec=15s
+Restart=no
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+ReadWritePaths=/var/lib/shakerproxy/pcap/capture-%i/artifacts /var/lib/shakerproxy/pcap/capture-%i/runtime
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6 AF_PACKET
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

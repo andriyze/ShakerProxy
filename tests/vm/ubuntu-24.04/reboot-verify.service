@@ -1,0 +1,14 @@
+[Unit]
+Description=ShakerProxy abrupt-reboot transaction verifier
+After=shakerproxy-gatewayd.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/shakerproxy-vm-test/reboot.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/shakerproxy-vm-reboot-verify.py
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<meta name="generator" content="shakerproxy {{.CLIVersion}}">
+<title>{{.Title}}</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1d2127; --muted: #5f6b7a; --line: #e3e7ec; --panel: #f6f8fa;
+  --critical: #a4161a; --high: #d9480f; --medium: #b7791f; --low: #1c7ed6; --info: #5f6b7a; --ok: #2b8a3e;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111418; --fg: #e6e9ed; --muted: #9aa5b1; --line: #2a3038; --panel: #181c22;
+    --critical: #ff6b6b; --high: #ff922b; --medium: #fcc419; --low: #4dabf7; --info: #adb5bd; --ok: #69db7c; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 20px 48px; }
+h1 { font-size: 26px; margin: 4px 0 6px; }
+h2 { font-size: 18px; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.eyebrow { color: var(--muted); font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 6px 24px; margin: 16px 0 0; }
+.facts div { font-size: 14px; }
+.facts dt { color: var(--muted); font-size: 12px; }
+.facts dd { margin: 0; word-break: break-word; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 20px; }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.stat b { display: block; font-size: 20px; }
+.stat span { color: var(--muted); font-size: 12px; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.pill { border-radius: 999px; padding: 2px 10px; font-size: 13px; font-weight: 600; color: #fff; }
+.sev-critical { background: var(--critical); } .sev-high { background: var(--high); } .sev-medium { background: var(--medium); }
+.sev-low { background: var(--low); } .sev-info { background: var(--info); }
+.finding { border: 1px solid var(--line); border-left: 5px solid var(--info); border-radius: 8px; padding: 12px 16px; margin: 12px 0; break-inside: avoid; }
+.finding.critical { border-left-color: var(--critical); } .finding.high { border-left-color: var(--high); }
+.finding.medium { border-left-color: var(--medium); } .finding.low { border-left-color: var(--low); }
+.finding h3 { font-size: 16px; margin: 0 0 4px; display: flex; gap: 10px; align-items: baseline; }
+.finding .badge { font-size: 11px; font-weight: 700; letter-spacing: .05em; color: #fff; border-radius: 4px; padding: 1px 6px; }
+.finding p { margin: 6px 0; }
+.finding .todo { color: var(--fg); }
+.finding .todo::before { content: "What to do: "; font-weight: 600; }
+.evidence { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; }
+.none { color: var(--ok); font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.num, th.num { text-align: right; white-space: nowrap; }
+td.host { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
+.panel ul { margin: 6px 0 0; padding-left: 18px; }
+.note { color: var(--muted); font-size: 13px; }
+footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+@media print { body { font-size: 12px; } main { padding: 0; } .stat, .panel { background: none; } h2 { break-after: avoid; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="eyebrow">ShakerProxy device report</div>
+  <h1>{{.DeviceName}}</h1>
+  <dl class="facts">
+    <div><dt>Vendor</dt><dd>{{with .Report.Device.Vendor}}{{clean .}}{{else}}-{{end}}{{with .Report.Device.Category}} · {{clean .}}{{end}}</dd></div>
+    <div><dt>IP addresses</dt><dd>{{join .Report.Device.Addresses}}</dd></div>
+    <div><dt>MAC addresses</dt><dd>{{join .Report.Device.HardwareAddresses}}</dd></div>
+    <div><dt>Time window</dt><dd>{{when .Report.WindowStart}} → {{when .Report.WindowEnd}}</dd></div>
+    {{with .Report.Session}}<div><dt>Test run</dt><dd>{{clean .Name}} <span class="note">({{.ID}})</span></dd></div>{{end}}
+    <div><dt>ShakerProxy CA on device</dt><dd>{{catrust .Report.CATrust}}</dd></div>
+    <div><dt>Device ID</dt><dd>{{.Report.Device.DeviceID}}</dd></div>
+  </dl>
+  <div class="stats">
+    <div class="stat"><b>{{len .Findings}}</b><span>findings</span></div>
+    <div class="stat"><b>{{count .Report.Totals.Events}}</b><span>events</span></div>
+    <div class="stat"><b>{{count .Report.Totals.Flows}}</b><span>connections</span></div>
+    <div class="stat"><b>{{bytes .Report.Totals.Bytes}}</b><span>data</span></div>
+    <div class="stat"><b>{{count .Report.Totals.DNSQueries}}</b><span>DNS lookups</span></div>
+    <div class="stat"><b>{{count .Report.Totals.TLSConnections}}</b><span>TLS connections</span></div>
+    <div class="stat"><b>{{count .Report.Totals.HTTPRequests}}</b><span>HTTP requests</span></div>
+    <div class="stat"><b>{{count .Report.Totals.Alerts}}</b><span>IDS alerts</span></div>
+  </div>
+  {{if .Severities}}<div class="pills">{{range .Severities}}<span class="pill sev-{{severity .Severity}}">{{.Count}} {{lower .Severity}}</span>{{end}}</div>{{end}}
+</header>
+
+<h2>Findings</h2>
+{{if .Findings}}
+{{range .Findings}}
+<section class="finding {{severity .Severity}}">
+  <h3><span class="badge sev-{{severity .Severity}}">{{upper .Severity}}</span> {{clean .Title}}</h3>
+  {{with .Detail}}<p>{{clean .}}</p>{{end}}
+  {{with .Recommendation}}<p class="todo">{{clean .}}</p>{{end}}
+  {{if .Evidence}}<ul class="evidence">{{range .Evidence}}<li>{{clean .}}</li>{{end}}</ul>{{end}}
+</section>
+{{end}}
+{{else}}
+<p class="none">No findings: nothing suspicious was observed in this time window.</p>
+{{end}}
+
+<h2>Encryption</h2>
+<div class="grid2">
+  <div class="panel">
+    <b>TLS / HTTPS</b>
+    <p>{{.Report.TLS.Intercepted}} decrypted · {{.Report.TLS.Bypassed}} not decrypted · {{.Report.TLS.Failed}} failed{{if .Report.TLS.PinningSuspected}} · pinning suspected on {{.Report.TLS.PinningSuspected}}{{end}}</p>
+    {{if .Report.TLS.FailedHosts}}<div class="note">Failed hosts</div><ul>{{range .Report.TLS.FailedHosts}}<li class="host">{{clean .}}</li>{{end}}</ul>{{end}}
+    {{range .Report.TLS.OldVersions}}<div class="note">{{clean .Version}}</div><ul>{{range .Hosts}}<li class="host">{{clean .}}</li>{{end}}</ul>{{end}}
+  </div>
+  <div class="panel">
+    <b>HTTP</b>
+    <p>{{count .Report.HTTP.Requests}} requests to {{count .Report.HTTP.Hosts}} hosts · {{count .Report.HTTP.CleartextRequests}} in cleartext</p>
+    <p class="note">2xx {{index .Report.HTTP.StatusClasses "2xx"}} · 3xx {{index .Report.HTTP.StatusClasses "3xx"}} · 4xx {{index .Report.HTTP.StatusClasses "4xx"}} · 5xx {{index .Report.HTTP.StatusClasses "5xx"}}</p>
+  </div>
+</div>
+
+<h2>Domains contacted ({{len .Report.Domains}})</h2>
+{{if .Report.Domains}}
+<table>
+  <thead><tr><th>Domain</th><th>Organization</th><th>Category</th><th>Seen via</th><th class="num">Events</th><th>Last seen</th></tr></thead>
+  <tbody>
+  {{range .Report.Domains}}<tr><td class="host">{{clean .Domain}}</td><td>{{with .Organization}}{{clean .}}{{else}}-{{end}}</td><td>{{with .Category}}{{clean .}}{{else}}-{{end}}</td><td>{{join .Sources}}</td><td class="num">{{count .Events}}</td><td>{{when .LastSeen}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="note">No domains were observed.</p>
+{{end}}
+
+<footer>
+  Generated {{.GeneratedAt}} by the shakerproxy CLI {{.CLIVersion}} from ShakerProxy appliance data (report generated {{when .Report.GeneratedAt}}).
+  Findings are based only on observed evidence.{{if .Report.Truncated}} Some lists were shortened; export JSON with <code>shakerproxy report --json</code> for everything.{{end}}
+</footer>
+</main>
+</body>
+</html>

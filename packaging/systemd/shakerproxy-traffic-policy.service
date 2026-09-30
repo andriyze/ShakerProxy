@@ -1,0 +1,44 @@
+[Unit]
+Description=ShakerProxy encrypted-DNS and TLS traffic policy service
+Documentation=https://github.com/andriyze/ShakerProxy
+After=network-pre.target shakerproxy-gatewayd.service
+Before=shakerproxy-cloud-connector.service
+Wants=network-pre.target
+
+[Service]
+Type=simple
+User=root
+Group=shakerproxy-cloud
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-traffic-policy
+Environment=SHAKERPROXY_MITM_POLICY_PATH=/var/lib/shakerproxy/traffic/policy.json
+Environment=SHAKERPROXY_GATEWAY_STATE_PATH=/var/lib/shakerproxy/gatewayd/state.json
+Environment=SHAKERPROXY_TRAFFIC_POLICY_LOCK_PATH=/run/lock/shakerproxy/traffic-policy.lock
+Restart=on-failure
+RestartSec=3s
+RuntimeDirectory=shakerproxy-traffic-policy
+RuntimeDirectoryMode=0750
+StateDirectory=shakerproxy/traffic-policy
+StateDirectoryMode=0700
+UMask=0027
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+ReadOnlyPaths=-/var/lib/shakerproxy/gatewayd
+ReadWritePaths=/var/lib/shakerproxy/traffic-policy /var/lib/shakerproxy/traffic /run/shakerproxy-traffic-policy /run/lock/shakerproxy
+
+[Install]
+WantedBy=multi-user.target

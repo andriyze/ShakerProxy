@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "ruleset_id": "shakerproxy-cleartext-policy",
+  "version": "2026.09.29.1",
+  "source": "ShakerProxy source tree: apps/analyzer-worker/suricata.rules",
+  "license": "AGPL-3.0-only",
+  "engine": "SURICATA",
+  "engine_version": "8.0.6",
+  "sha256": "d4c96cb706545e279547f299a7e396e03fa89a081c67a8f7a3e60479ff65849f",
+  "rule_count": 10,
+  "sid_min": 9900001,
+  "sid_max": 9900010,
+  "updated_at": "2026-09-29T00:00:00Z"
+}

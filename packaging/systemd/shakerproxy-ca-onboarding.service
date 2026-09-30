@@ -1,0 +1,50 @@
+[Unit]
+Description=ShakerProxy lab-side interception CA onboarding page
+Documentation=https://github.com/andriyze/ShakerProxy
+After=shakerproxy-gatewayd.service shakerproxy-interception-pki.service
+Wants=shakerproxy-interception-pki.service
+
+# Serves only the public interception certificate and install steps on
+# ShakerProxy's lab-side addresses (read from the gateway's projection), on an
+# unprivileged port. shakerproxy-gatewayd forwards lab TCP/80 for the gateway
+# address here only while HTTPS interception is configured; the port is
+# dropped from every other interface in both address families.
+[Service]
+Type=simple
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-ca-onboarding
+DynamicUser=yes
+Restart=on-failure
+RestartSec=3s
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+ReadOnlyPaths=/var/lib/shakerproxy/public -/var/lib/shakerproxy/onboarding
+MemoryMax=64M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

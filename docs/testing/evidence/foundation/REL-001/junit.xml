@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="REL-001" tests="6" failures="0" errors="0" skipped="0" time="0">
+  <testcase classname="applifecycle" name="signed-runtime-validation"/>
+  <testcase classname="packaging" name="debian-package-policy"/>
+  <testcase classname="packaging" name="signed-bundle-and-tamper-policy"/>
+  <testcase classname="packaging" name="clean-ubuntu-installer-verification"/>
+  <testcase classname="packaging" name="image-publisher-policy"/>
+  <testcase classname="documentation" name="release-claim-boundaries"/>
+</testsuite>

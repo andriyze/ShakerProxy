@@ -1,0 +1,155 @@
+name: signed-release
+
+on:
+  push:
+    tags: ["v*"]
+    branches: ["beta-release/*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic release version without the v prefix
+        required: true
+        type: string
+      channel:
+        description: Release channel
+        required: true
+        default: beta
+        type: choice
+        options: [stable, beta, nightly]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  # Serialize all release refs so two triggers cannot race the version guard.
+  group: signed-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    environment: release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: {go-version: "1.25.1", cache: true}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: "26.7.0", cache: npm, cache-dependency-path: apps/web-ui/package-lock.json}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve and validate release identity
+        id: release
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            channel=stable
+            [[ "$version" != *-* ]] || channel=beta
+          elif [[ "$GITHUB_REF_TYPE" == branch && "$GITHUB_REF_NAME" == beta-release/* ]]; then
+            version="${GITHUB_REF_NAME#beta-release/}"
+            channel=beta
+          else
+            version="$INPUT_VERSION"
+            channel="$INPUT_CHANNEL"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          [[ "$channel" =~ ^(stable|beta|nightly)$ ]]
+          if [[ "$channel" == stable ]]; then
+            [[ "$version" != *-* ]]
+          elif [[ "$channel" == beta ]]; then
+            [[ "$version" == *-* ]]
+          fi
+          printf 'version=%s\nchannel=%s\n' "$version" "$channel" >> "$GITHUB_OUTPUT"
+      - name: Install release tooling
+        run: sudo apt-get update && sudo apt-get install -y jq openssl zstd ripgrep
+      - name: Refuse an existing release version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          releases="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[].tag_name')"
+          if printf '%s\n' "$releases" | grep -Fx -- "v$VERSION" >/dev/null; then
+            echo "Release v$VERSION already exists; use a new version rather than replacing signed assets." >&2
+            exit 1
+          fi
+      - name: Verify source before publishing
+        run: |
+          python3 tests/security/test_beta_safety.py
+          bash tests/security/public-repo-history-scan.sh
+          make verify
+      - name: Build Debian host package
+        run: make package PACKAGE_VERSION=${{ steps.release.outputs.version }}
+      - name: Build and publish immutable application images
+        # GHCR repository paths must be lowercase (the repository is ShakerProxy).
+        run: >-
+          ./packaging/build-push-images.sh
+          --version ${{ steps.release.outputs.version }}
+          --channel ${{ steps.release.outputs.channel }}
+          --registry-prefix "ghcr.io/${GITHUB_REPOSITORY,,}"
+          --output dist/images.json
+      - name: Materialize isolated signing key
+        env:
+          SIGNING_KEY_B64: ${{ secrets.SHAKERPROXY_RELEASE_SIGNING_KEY_B64 }}
+        run: |
+          [[ -n "$SIGNING_KEY_B64" ]]
+          printf '%s' "$SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/shakerproxy-release-key.pem"
+          chmod 0600 "$RUNNER_TEMP/shakerproxy-release-key.pem"
+      - name: Build and self-verify signed release bundle
+        run: >-
+          ./packaging/build-release-bundle.sh
+          --version ${{ steps.release.outputs.version }}
+          --channel ${{ steps.release.outputs.channel }}
+          --signing-key "$RUNNER_TEMP/shakerproxy-release-key.pem"
+          --images-json dist/images.json
+          --host-package dist/shakerproxy-host_${{ steps.release.outputs.version }}_amd64.deb
+          --output dist/release-${{ steps.release.outputs.version }}
+      - name: Test signed installer path
+        run: |
+          ./tests/packaging/release-bundle-smoke.sh dist/release-${{ steps.release.outputs.version }}
+          ./tests/packaging/installer-verify-smoke.sh dist/release-${{ steps.release.outputs.version }}
+      - name: Publish GitHub release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+          CHANNEL: ${{ steps.release.outputs.channel }}
+        run: |
+          if [[ "$CHANNEL" == beta ]]; then
+            notes="$RUNNER_TEMP/beta-release-notes.md"
+            printf '## ShakerProxy %s beta hardware-test release\n\n' "$VERSION" > "$notes"
+            cat >> "$notes" <<'EOF'
+          This prerelease is intended for controlled IPv4 testing on authorized lab
+          networks. Full routed IPv6 is not part of the beta client-network claim.
+
+          The release manifest is signed and application images are pinned by digest.
+          Public installation must work without a GitHub credential. Private test
+          releases require access to both this repository and its GHCR packages;
+          the bootstrap uses a temporary mode-0600 Docker credential store.
+
+          Read `docs/installation.md` and `docs/tls-interception.md` before
+          enabling DNS enforcement or TLS interception. A beta label alone does not
+          certify the physical-device acceptance matrix.
+          EOF
+            printf '\nSource commit: `%s`.\n' "$GITHUB_SHA" >> "$notes"
+            release_args=(--title "ShakerProxy $VERSION beta" --target "$GITHUB_SHA" --prerelease --notes-file "$notes")
+          else
+            release_args=(--title "ShakerProxy $VERSION" --target "$GITHUB_SHA" --generate-notes)
+            if [[ "$CHANNEL" != stable ]]; then release_args+=(--prerelease); fi
+          fi
+          # A failed upload leaves a draft, never a partially published release.
+          # Creation fails for an existing version; do not overwrite signed assets.
+          gh release create "v$VERSION" --draft "${release_args[@]}"
+          gh release upload "v$VERSION" dist/release-"$VERSION"/* dist/images.json
+          publish_args=(--draft=false)
+          if [[ "$CHANNEL" == stable ]]; then publish_args+=(--latest); else publish_args+=(--latest=false); fi
+          gh release edit "v$VERSION" "${publish_args[@]}"
+      - name: Destroy signing key
+        if: always()
+        run: shred -u "$RUNNER_TEMP/shakerproxy-release-key.pem" 2>/dev/null || rm -f "$RUNNER_TEMP/shakerproxy-release-key.pem"

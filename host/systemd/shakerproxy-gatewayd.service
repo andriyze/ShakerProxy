@@ -1,0 +1,37 @@
+[Unit]
+Description=ShakerProxy privileged gateway daemon
+After=local-fs.target
+Before=shakerproxy-app.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-gatewayd --enable-network-apply
+Restart=on-failure
+RestartSec=2s
+User=root
+Group=shakerproxy-host
+SupplementaryGroups=shakerproxy-capture shakerproxy-cloud
+UMask=0027
+RuntimeDirectory=shakerproxy shakerproxy-cloud-policy
+RuntimeDirectoryMode=0750
+StateDirectory=shakerproxy/gatewayd
+StateDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=-/var/lib/shakerproxy/traffic-policy
+ProtectControlGroups=true
+ProtectClock=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+CapabilityBoundingSet=CAP_NET_ADMIN
+ReadWritePaths=/run/shakerproxy /run/shakerproxy-cloud-policy /run/lock/shakerproxy /var/lib/shakerproxy/gatewayd /var/lib/shakerproxy/traffic -/var/lib/shakerproxy/onboarding /var/lib/shakerproxy/pcap /etc/netplan /etc/kea /etc/systemd/system -/etc/shakerproxy/hostapd -/etc/shakerproxy/radvd
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

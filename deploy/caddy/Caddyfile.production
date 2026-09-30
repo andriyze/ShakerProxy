@@ -1,0 +1,24 @@
+{
+    admin off
+    auto_https off
+}
+
+https://:8443 {
+    bind 0.0.0.0
+    tls /run/secrets/management_tls_cert /run/secrets/management_tls_key
+    encode zstd gzip
+    @api path /api/* /healthz
+    handle @api {
+        reverse_proxy control-api:8080
+    }
+    handle {
+        reverse_proxy web-ui:8080
+    }
+    header {
+        -Server
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        X-Frame-Options DENY
+    }
+}

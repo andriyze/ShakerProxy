@@ -1,0 +1,7 @@
+network:
+  version: 2
+  ethernets:
+    enp2s0:
+      addresses: [10.77.0.1/24, "fd12:3456:789a:1::1/64"]
+      dhcp6: false
+      accept-ra: false

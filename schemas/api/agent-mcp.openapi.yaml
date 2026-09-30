@@ -1,0 +1,347 @@
+openapi: 3.1.0
+info:
+  title: ShakerProxy Local Agent and Plaintext-Retention API
+  version: 0.1.0-beta
+  description: >-
+    Supplemental contract for the bounded local AI-agent projection and the
+    browser-session-only decrypted HTTP retention setting. The main ShakerProxy
+    OpenAPI document remains authoritative for existing endpoints.
+servers:
+  - url: https://127.0.0.1:8443/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /agent/devices:
+    get:
+      operationId: listAgentDevices
+      summary: List a bounded privacy-minimized device projection
+      description: >-
+        Requires devices:read for API-token clients. Returns at most 100
+        devices and omits raw MAC/client IDs, owner, free-form notes, and
+        mutation history. Per-device variable collections are independently
+        capped and named in truncated_fields when incomplete.
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 128}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+        - name: online
+          in: query
+          schema: {type: boolean, default: false}
+      responses:
+        "200":
+          description: Bounded device page
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentDevicePage"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /agent/devices/{deviceID}:
+    get:
+      operationId: getAgentDevice
+      summary: Read one privacy-minimized device by stable ID
+      description: Requires devices:read. Friendly names are not accepted as identity.
+      parameters:
+        - name: deviceID
+          in: path
+          required: true
+          schema: {type: string, pattern: "^device-[a-f0-9]{32}$"}
+      responses:
+        "200":
+          description: Device projection
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AgentDevice"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /agent/http-activity:
+    get:
+      operationId: listAgentHTTPActivity
+      summary: Read bounded intercepted HTTP metadata without plaintext content
+      description: >-
+        Requires traffic:read for API-token clients. Returns at most 100 stable,
+        newest-first HTTP request or response records. The storage query selects
+        only allowlisted scalar metadata. Query strings, URL fragments, full
+        URLs, headers, bodies, cookies, credentials, and TLS key logs are never
+        returned. Paths are capped at 1024 UTF-8 bytes; url_truncated and
+        metadata_incomplete expose sanitization or missing evidence.
+      parameters:
+        - name: window
+          in: query
+          schema:
+            type: string
+            enum: [5m, 15m, 1h, 6h, 24h]
+            default: 15m
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+        - name: device_id
+          in: query
+          schema: {type: string, pattern: "^device-[a-f0-9]{32}$"}
+        - name: host
+          in: query
+          description: Exact canonical hostname or IP address; no scheme, port, path, or query.
+          schema: {type: string, minLength: 1, maxLength: 253}
+        - name: method
+          in: query
+          description: Exact HTTP method, canonicalized to uppercase.
+          schema: {type: string, minLength: 1, maxLength: 32, pattern: "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"}
+        - name: cursor
+          in: query
+          description: Opaque anchor-preserving cursor returned by the previous page.
+          schema: {type: string, minLength: 1, maxLength: 256}
+      responses:
+        "200":
+          description: Bounded plaintext-free HTTP activity page
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/HTTPActivityPage"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /http-content-policy:
+    get:
+      operationId: getHTTPContentPolicy
+      summary: Read local decrypted HTTP retention state
+      description: Browser administrator session only; API tokens are rejected.
+      responses:
+        "200":
+          description: Current local content-retention policy
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/HTTPContentPolicyView"}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+    put:
+      operationId: updateHTTPContentPolicy
+      summary: Change future decrypted HTTP content retention
+      description: >-
+        Browser administrator session and fresh password required. This setting
+        is revisioned and independent from TLS interception. It does not delete
+        previously retained data.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision, capture_http_content, password]
+              properties:
+                expected_revision: {type: integer, minimum: 1}
+                capture_http_content: {type: boolean}
+                password: {type: string, minLength: 1, writeOnly: true}
+      responses:
+        "200":
+          description: Updated local policy
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/HTTPContentPolicyView"}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: ShakerProxy session or scoped lgt_ API token
+  schemas:
+    AgentDevicePage:
+      type: object
+      additionalProperties: false
+      required: [schema, generated_at, matched, returned, truncated, devices]
+      properties:
+        schema: {type: integer, const: 1}
+        generated_at: {type: string, format: date-time}
+        query: {type: string, maxLength: 128}
+        matched: {type: integer, minimum: 0}
+        returned: {type: integer, minimum: 0, maximum: 100}
+        truncated: {type: boolean}
+        devices:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/AgentDevice"}
+    AgentDevice:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - id
+        - display_name
+        - addresses
+        - hostnames
+        - first_seen
+        - last_seen
+        - online
+        - attribution_confidence
+      properties:
+        schema: {type: integer, const: 1}
+        id: {type: string, pattern: "^device-[a-f0-9]{32}$"}
+        display_name: {type: string, minLength: 1, maxLength: 256}
+        friendly_name: {type: string, maxLength: 128}
+        location: {type: string, maxLength: 128}
+        category: {type: string, maxLength: 64}
+        icon: {type: string, maxLength: 64}
+        tags:
+          type: array
+          maxItems: 16
+          uniqueItems: true
+          items: {type: string, minLength: 1, maxLength: 64}
+        vendor: {type: string, maxLength: 128}
+        addresses:
+          type: array
+          maxItems: 16
+          items: {$ref: "#/components/schemas/AgentDeviceAddress"}
+        hostnames:
+          type: array
+          maxItems: 8
+          items: {$ref: "#/components/schemas/AgentDeviceHostname"}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+        online: {type: boolean}
+        attribution_confidence: {type: integer, minimum: 0, maximum: 100}
+        attribution_warnings:
+          type: array
+          maxItems: 8
+          items: {type: string, minLength: 1, maxLength: 256}
+        truncated_fields:
+          type: array
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum: [addresses, hostnames, tags, attribution_warnings]
+    AgentDeviceAddress:
+      type: object
+      additionalProperties: false
+      required: [address, family, confidence, valid_from, valid_until, active]
+      properties:
+        address: {type: string, maxLength: 64}
+        family: {type: string, enum: [IPv4, IPv6]}
+        confidence: {type: integer, minimum: 0, maximum: 100}
+        valid_from: {type: string, format: date-time}
+        valid_until: {type: string, format: date-time}
+        active: {type: boolean}
+        interface: {type: string, maxLength: 15}
+        vlan_id: {type: integer, minimum: 1, maximum: 4094}
+    AgentDeviceHostname:
+      type: object
+      additionalProperties: false
+      required: [hostname, confidence, first_seen, last_seen]
+      properties:
+        hostname: {type: string, minLength: 1, maxLength: 253}
+        confidence: {type: integer, minimum: 0, maximum: 100}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+    HTTPActivityPage:
+      type: object
+      additionalProperties: false
+      required: [schema, generated_at, query_anchor, events]
+      properties:
+        schema: {type: integer, const: 1}
+        generated_at: {type: string, format: date-time}
+        query_anchor: {type: string, format: date-time}
+        events:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/HTTPActivityEvent"}
+        next_cursor: {type: string, minLength: 1, maxLength: 256}
+    HTTPActivityEvent:
+      type: object
+      additionalProperties: false
+      required: [record_id, source, kind, occurred_at, received_at]
+      properties:
+        record_id: {type: string, pattern: "^[a-f0-9]{64}$"}
+        source: {type: string, const: MITMPROXY}
+        kind: {type: string, enum: [http_request, http_response]}
+        occurred_at: {type: string, format: date-time}
+        received_at: {type: string, format: date-time}
+        flow_id: {type: string, minLength: 1, maxLength: 128}
+        device_id: {type: string, pattern: "^device-[a-f0-9]{32}$"}
+        method: {type: string, minLength: 1, maxLength: 32, pattern: "^[!#$%&'*+.^_`|~0-9A-Z-]+$"}
+        scheme: {type: string, enum: [http, https]}
+        host: {type: string, minLength: 1, maxLength: 253}
+        port: {type: integer, minimum: 1, maximum: 65535}
+        path:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Path only. Query and fragment material is never returned.
+        status: {type: integer, minimum: 100, maximum: 599}
+        http_version: {type: string, pattern: "^HTTP/[0-9](\\.[0-9])?$"}
+        request_bytes: {type: integer, format: int64, minimum: 0}
+        response_bytes: {type: integer, format: int64, minimum: 0}
+        decrypted: {type: boolean}
+        url_truncated: {type: boolean}
+        content_local_only: {type: boolean}
+        metadata_incomplete: {type: boolean}
+    HTTPContentPolicyView:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - policy
+        - tls_interception_independent
+        - applies_without_restart
+        - storage_boundary
+        - maximum_body_preview_bytes
+        - sensitive_headers_masked_by_default
+      properties:
+        schema: {type: integer, const: 1}
+        policy:
+          type: object
+          additionalProperties: false
+          required: [schema, revision, capture_http_content]
+          properties:
+            schema: {type: integer, const: 1}
+            revision: {type: integer, minimum: 1}
+            capture_http_content: {type: boolean}
+            updated_at: {type: string, format: date-time}
+            updated_by: {type: string, maxLength: 128}
+        tls_interception_independent: {type: boolean, const: true}
+        applies_without_restart: {type: boolean, const: true}
+        storage_boundary: {type: string, const: local_sensor_only}
+        maximum_body_preview_bytes: {type: integer, const: 65536}
+        sensitive_headers_masked_by_default: {type: boolean, const: true}
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string}
+            message: {type: string}
+  responses:
+    Error:
+      description: ShakerProxy API error
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}

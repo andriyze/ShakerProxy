@@ -1,0 +1,247 @@
+name: shakerproxy-dev
+services:
+  volume-init:
+    image: busybox:1.37.0-musl@sha256:fc6dddc4c44b1bfe37f41cae8e67d1693828e8f42a91862816d7953e2c9d3f23
+    command: [sh, -c, "chmod 0750 /data /inventory /spool /forwarders /postgres /pcap && chmod 0700 /content-policy /zeek /suricata /analyzer-secret && chown 65532:65532 /data /content-policy /inventory /spool /forwarders && chown 0:0 /pcap && chown 999:999 /postgres && cp /seed-token /analyzer-secret/ingest_token && cp /seed-deletion-token /analyzer-secret/event_deletion_token && chown 0:0 /analyzer-secret/ingest_token /analyzer-secret/event_deletion_token && chmod 0400 /analyzer-secret/ingest_token /analyzer-secret/event_deletion_token"]
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_READ_SEARCH]
+    security_opt: [no-new-privileges:true]
+    network_mode: none
+    volumes: [control-data:/data, content-policy-data:/content-policy, inventory-data:/inventory, ingest-spool:/spool, forwarder-data:/forwarders, postgres-data:/postgres, analyzer-captures:/pcap, zeek-state:/zeek, suricata-state:/suricata, analyzer-secret:/analyzer-secret, ../.local/ingest-token:/seed-token:ro, ../.local/event-deletion-token:/seed-deletion-token:ro]
+
+  postgres:
+    image: postgres@sha256:421b84e07a72bb8f3715f20501a1fdbe1219aad1fa4af7786a49d9a3f2480296
+    depends_on:
+      volume-init: {condition: service_completed_successfully}
+    user: "999:999"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m", "/run/postgresql:rw,noexec,nosuid,size=8m"]
+    volumes: [postgres-data:/var/lib/postgresql/data, ../.local/postgres-password:/run/secrets/postgres_password:ro]
+    environment:
+      POSTGRES_USER: shakerproxy
+      POSTGRES_DB: shakerproxy
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    healthcheck:
+      test: [CMD, pg_isready, -U, shakerproxy, -d, shakerproxy]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [control]
+
+  gatewayd:
+    build:
+      context: ..
+      dockerfile: host/gatewayd/Dockerfile.dev
+    command: [--socket, /run/shakerproxy/gatewayd.sock, --state, /var/lib/shakerproxy/state.json]
+    user: "0:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    volumes: [gateway-run:/run/shakerproxy, gateway-state:/var/lib/shakerproxy]
+    networks: [control, lab-sim]
+
+  control-api:
+    build:
+      context: ..
+      dockerfile: apps/control-api/Dockerfile
+    depends_on:
+      gatewayd: {condition: service_started}
+      volume-init: {condition: service_completed_successfully}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    volumes: [gateway-run:/run/shakerproxy, control-data:/var/lib/shakerproxy/control-api, content-policy-data:/var/lib/shakerproxy/content-policy, forwarder-data:/var/lib/shakerproxy/forwarders, inventory-data:/var/lib/shakerproxy/inventory, ../testdata/ieee:/var/lib/shakerproxy/ieee:ro, ../.local/setup-token.digest:/run/secrets/setup_token_sha256:ro, ../.local/event-query-token:/run/secrets/event_query_token:ro, ../.local/saved-view-token:/run/secrets/saved_view_token:ro, ../.local/event-deletion-token:/run/secrets/event_deletion_token:ro]
+    environment:
+      SHAKERPROXY_API_BIND: 0.0.0.0:8080
+      SHAKERPROXY_ALLOWED_HOSTS: localhost:8443,127.0.0.1:8443
+      SHAKERPROXY_INVENTORY_PATH: /var/lib/shakerproxy/inventory/inventory.json
+      SHAKERPROXY_IEEE_REGISTRY_DIR: /var/lib/shakerproxy/ieee
+      SHAKERPROXY_EVENT_QUERY_TOKEN_FILE: /run/secrets/event_query_token
+      SHAKERPROXY_SAVED_VIEW_TOKEN_FILE: /run/secrets/saved_view_token
+      SHAKERPROXY_EVENT_DELETION_TOKEN_FILE: /run/secrets/event_deletion_token
+      SHAKERPROXY_INGEST_QUERY_URL: http://ingestd:8081
+      SHAKERPROXY_ZEEK_MAINTENANCE_URL: http://zeek:8082
+      SHAKERPROXY_SURICATA_MAINTENANCE_URL: http://suricata:8082
+      SHAKERPROXY_FORWARDER_ROOT: /var/lib/shakerproxy/forwarders
+      SHAKERPROXY_HTTP_CONTENT_POLICY_PATH: /var/lib/shakerproxy/content-policy/policy.json
+    networks: [control]
+
+  web-ui:
+    build:
+      context: ..
+      dockerfile: apps/web-ui/Dockerfile
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    networks: [control]
+
+  ingestd:
+    profiles: [observe]
+    build:
+      context: ..
+      dockerfile: apps/ingestd/Dockerfile
+    depends_on:
+      volume-init: {condition: service_completed_successfully}
+      postgres: {condition: service_started}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    volumes: [ingest-spool:/var/lib/shakerproxy/spool, forwarder-data:/var/lib/shakerproxy/forwarders, inventory-data:/var/lib/shakerproxy/inventory:ro, ../.local/ingest-token:/run/secrets/ingest_token:ro, ../.local/event-query-token:/run/secrets/event_query_token:ro, ../.local/saved-view-token:/run/secrets/saved_view_token:ro, ../.local/event-deletion-token:/run/secrets/event_deletion_token:ro, ../.local/database-url:/run/secrets/database_url:ro]
+    environment:
+      SHAKERPROXY_INGEST_BIND: 0.0.0.0:8081
+      SHAKERPROXY_INGEST_MAX_BYTES: "1073741824"
+      SHAKERPROXY_DATABASE_URL_FILE: /run/secrets/database_url
+      SHAKERPROXY_INVENTORY_PATH: /var/lib/shakerproxy/inventory/inventory.json
+      SHAKERPROXY_EVENT_QUERY_TOKEN_FILE: /run/secrets/event_query_token
+      SHAKERPROXY_SAVED_VIEW_TOKEN_FILE: /run/secrets/saved_view_token
+      SHAKERPROXY_EVENT_DELETION_TOKEN_FILE: /run/secrets/event_deletion_token
+      SHAKERPROXY_FORWARDER_ROOT: /var/lib/shakerproxy/forwarders
+      SHAKERPROXY_DETECTION_STATE: /var/lib/shakerproxy/spool/detections.json
+      SHAKERPROXY_AUTHORIZED_DHCP_SERVERS: ${SHAKERPROXY_AUTHORIZED_DHCP_SERVERS:-}
+      SHAKERPROXY_AUTHORIZED_ROUTER_ADVERTISEMENTS: ${SHAKERPROXY_AUTHORIZED_ROUTER_ADVERTISEMENTS:-}
+      SHAKERPROXY_GATEWAY_BINDINGS: ${SHAKERPROXY_GATEWAY_BINDINGS:-}
+    healthcheck:
+      test: [CMD, /usr/local/bin/ingestd, -healthcheck]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+    networks: [control]
+
+  forwarderd:
+    profiles: [observe]
+    build:
+      context: ..
+      dockerfile: apps/ingestd/Dockerfile
+    depends_on:
+      volume-init: {condition: service_completed_successfully}
+      ingestd: {condition: service_started}
+    entrypoint: [/usr/local/bin/forwarderd]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    volumes: [forwarder-data:/var/lib/shakerproxy/forwarders]
+    environment:
+      SHAKERPROXY_FORWARDER_ROOT: /var/lib/shakerproxy/forwarders
+    healthcheck:
+      test: [CMD, /usr/local/bin/forwarderd, -healthcheck]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+    networks: [forwarding]
+
+  zeek:
+    profiles: [observe]
+    build:
+      context: ..
+      dockerfile: apps/analyzer-worker/Dockerfile.zeek
+    depends_on:
+      volume-init: {condition: service_completed_successfully}
+      ingestd: {condition: service_started}
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2.0
+    tmpfs: ["/work:rw,noexec,nosuid,size=384m,uid=0,gid=0,mode=0711"]
+    volumes: [analyzer-captures:/var/lib/shakerproxy/pcap:ro, zeek-state:/var/lib/shakerproxy/analyzer, analyzer-secret:/run/secrets:ro]
+    environment:
+      SHAKERPROXY_ANALYZER_ENGINE: ZEEK
+      SHAKERPROXY_ANALYZER_SOURCE_VERSION: 8.2.1
+      SHAKERPROXY_ANALYZER_MAX_OUTPUT_BYTES: "268435456"
+      SHAKERPROXY_ANALYZER_MAINTENANCE_BIND: 0.0.0.0:8082
+      SHAKERPROXY_ANALYZER_MAINTENANCE_TOKEN_FILE: /run/secrets/event_deletion_token
+    expose: ["8082"]
+    healthcheck:
+      test: [CMD, /usr/local/bin/analyzer-worker, -healthcheck]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 15s
+    networks: [control]
+
+  suricata:
+    profiles: [observe]
+    build:
+      context: ..
+      dockerfile: apps/analyzer-worker/Dockerfile.suricata
+    depends_on:
+      volume-init: {condition: service_completed_successfully}
+      ingestd: {condition: service_started}
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /work:rw,noexec,nosuid,size=384m,uid=0,gid=0,mode=0711
+      - /etc/suricata:ro,noexec,nosuid,size=1m
+      - /var/lib/suricata:rw,noexec,nosuid,size=8m,uid=65532,gid=65532
+      - /var/log/suricata:rw,noexec,nosuid,size=8m,uid=65532,gid=65532
+      - /var/run/suricata:rw,noexec,nosuid,size=1m,uid=65532,gid=65532
+    volumes: [analyzer-captures:/var/lib/shakerproxy/pcap:ro, suricata-state:/var/lib/shakerproxy/analyzer, analyzer-secret:/run/secrets:ro]
+    environment:
+      SHAKERPROXY_ANALYZER_ENGINE: SURICATA
+      SHAKERPROXY_ANALYZER_SOURCE_VERSION: 8.0.6
+      SHAKERPROXY_ANALYZER_MAX_OUTPUT_BYTES: "268435456"
+      SHAKERPROXY_ANALYZER_MAINTENANCE_BIND: 0.0.0.0:8082
+      SHAKERPROXY_ANALYZER_MAINTENANCE_TOKEN_FILE: /run/secrets/event_deletion_token
+    expose: ["8082"]
+    healthcheck:
+      test: [CMD, /usr/local/bin/analyzer-worker, -healthcheck]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 15s
+    networks: [control]
+
+  edge:
+    build:
+      context: ..
+      dockerfile: deploy/caddy/Dockerfile
+    depends_on: [control-api, web-ui]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    environment:
+      XDG_CONFIG_HOME: /tmp/config
+      XDG_DATA_HOME: /tmp/data
+    volumes: [./caddy/Caddyfile:/etc/caddy/Caddyfile:ro]
+    ports: [127.0.0.1:8443:8443]
+    networks: [control, management]
+
+networks:
+  control:
+    internal: true
+  management: {}
+  lab-sim:
+    internal: true
+  forwarding: {}
+volumes:
+  gateway-run: {}
+  gateway-state: {}
+  control-data: {}
+  content-policy-data: {}
+  inventory-data: {}
+  ingest-spool: {}
+  forwarder-data: {}
+  postgres-data: {}
+  analyzer-captures: {}
+  zeek-state: {}
+  suricata-state: {}
+  analyzer-secret: {}

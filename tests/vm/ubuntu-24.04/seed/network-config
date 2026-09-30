@@ -1,0 +1,15 @@
+version: 2
+ethernets:
+  wan0:
+    match:
+      macaddress: "52:54:00:12:34:01"
+    set-name: wan0
+    dhcp4: true
+    dhcp6: false
+  lab0:
+    match:
+      macaddress: "52:54:00:12:34:02"
+    set-name: lab0
+    dhcp4: false
+    dhcp6: false
+    optional: true

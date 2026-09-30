@@ -1,0 +1,50 @@
+.event-alias {
+  margin-top: 5px;
+  border-top: 1px solid #24414a;
+  padding-top: 6px;
+}
+
+.event-alias summary,
+.alias-history summary {
+  cursor: pointer;
+  color: var(--mint);
+  font: 12px var(--mono);
+}
+
+.event-alias form {
+  display: grid;
+  gap: 8px;
+  margin: 9px 0 0;
+}
+
+.event-alias label {
+  font-size: 12px;
+}
+
+.event-alias input {
+  width: 100%;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.event-alias button {
+  padding: 8px;
+}
+
+.alias-conflict {
+  color: #f0cf98 !important;
+}
+
+.alias-history {
+  margin-top: 7px;
+}
+
+.alias-history small {
+  display: block;
+  margin-top: 7px;
+  line-height: 1.45;
+}
+
+.alias-history small strong {
+  font-size: 12px;
+}

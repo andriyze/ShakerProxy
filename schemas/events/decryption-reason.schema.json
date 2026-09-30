@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.shakerproxy.local/events/decryption-reason.schema.json",
+  "title": "ShakerProxy flow visibility outcome",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["visibility_state", "reason"],
+  "properties": {
+    "visibility_state": {"enum": ["CAPTURED", "CLASSIFIED", "INTERCEPTED", "DECRYPTED", "BYPASSED", "FAILED", "NOT_VISIBLE"]},
+    "reason": {
+      "enum": [
+        "DECRYPTED", "PLAINTEXT_PROTOCOL", "POLICY_PASSTHROUGH", "POLICY_CAPTURE_ONLY",
+        "CA_NOT_TRUSTED", "CERTIFICATE_PINNING_SUSPECTED", "CLIENT_CERT_REQUIRED",
+        "UPSTREAM_TLS_FAILURE", "ECH_OR_HOSTNAME_UNKNOWN", "QUIC_CAPTURE_ONLY",
+        "QUIC_FALLBACK_FORCED", "UNSUPPORTED_PROTOCOL", "VPN_TUNNEL",
+        "APPLICATION_LAYER_ENCRYPTION", "BODY_STORAGE_DISABLED", "SIZE_LIMIT_STREAMED",
+        "PROXY_ENGINE_ERROR", "NOT_ON_GATEWAY_PATH", "UNKNOWN"
+      ]
+    },
+    "explanation": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "evidence": {"type": "array", "maxItems": 32, "items": {"type": "string", "maxLength": 512}}
+  }
+}

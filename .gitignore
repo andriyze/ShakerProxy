@@ -1,0 +1,58 @@
+# Operating-system and editor metadata
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local configuration, credentials, and runtime state
+.env
+.env.*
+!.env.example
+!.env.*.example
+.local/
+*.pem
+!packaging/release-public.pem
+*.key
+*.p12
+*.pfx
+
+# JavaScript dependencies and generated frontend output
+node_modules/
+apps/web-ui/dist/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+
+# Go build, test, coverage, and profiling output
+*.test
+*.out
+*.prof
+*.pprof
+/bin/
+
+# Python integration tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Packaging, benchmark, VM, and temporary build output
+/dist/
+/.cache/
+/tmp/
+/artifacts/
+
+# Appliance runtime data must never enter source control
+*.pcap
+*.pcapng
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+*.log

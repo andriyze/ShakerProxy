@@ -1,0 +1,145 @@
+openapi: 3.1.0
+info:
+  title: ShakerProxy Virtual Test Lab API
+  version: 1.0.0
+  description: >-
+    Authenticated local-only API for disposable Linux namespace self-tests. This
+    contract does not expose shell commands or arbitrary network configuration.
+servers:
+  - url: https://shakerproxy.local
+paths:
+  /api/v1/self-test/status:
+    get:
+      summary: Read Virtual Test Lab readiness and last run
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Bounded status
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Status' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/v1/self-test/run:
+    post:
+      summary: Run a bounded virtual-client profile
+      description: Requires an authenticated browser session and the administrator password, unless the same session confirmed it in the last ten minutes (then password may be omitted).
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [profile]
+              properties:
+                profile: { type: string, enum: [quick, dns, tls, full] }
+                password: { type: string, minLength: 1, maxLength: 1024 }
+      responses:
+        '200':
+          description: Completed run. PASS/FAIL/SKIP are evidence states, not equivalent outcomes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Run' }
+        '401': { description: Reauthentication failed }
+        '409': { description: Another test or privileged appliance mutation is active }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/v1/self-test/cleanup:
+    post:
+      summary: Remove only ShakerProxy-owned virtual test objects
+      description: Requires the administrator password (or a confirmation by the same session in the last ten minutes) and the appliance-wide configuration lock. The body may be empty.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                password: { type: string, minLength: 1, maxLength: 1024 }
+      responses:
+        '200': { description: ShakerProxy test namespaces, links, and the dedicated nftables table were cleaned }
+        '401': { description: Reauthentication failed }
+        '409': { description: Test or appliance configuration mutation is active }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    Unavailable:
+      description: The package-owned host self-test service is unavailable
+  schemas:
+    TestResult:
+      type: object
+      additionalProperties: false
+      required: [id, name, category, status, summary, duration_ms]
+      properties:
+        id: { type: string, maxLength: 96 }
+        name: { type: string, maxLength: 160 }
+        category: { type: string, maxLength: 48 }
+        status: { type: string, enum: [PASS, FAIL, SKIP] }
+        summary: { type: string, maxLength: 1024 }
+        observed: { type: string, maxLength: 4097 }
+        duration_ms: { type: integer, minimum: 0 }
+        evidence_ref: { type: string, maxLength: 512 }
+    Environment:
+      type: object
+      additionalProperties: false
+      required: [bridge, cidr, gateway_ipv4, normal_client_ipv4, bypass_client_ipv4, dns_client_ipv4, internet_reachable, shakerproxy_dns_port, shakerproxy_mitm_port, namespace_isolation]
+      properties:
+        bridge: { type: string }
+        cidr: { type: string, const: 198.18.240.0/24 }
+        gateway_ipv4: { type: string, const: 198.18.240.1 }
+        normal_client_ipv4: { type: string, const: 198.18.240.10 }
+        bypass_client_ipv4: { type: string, const: 198.18.240.20 }
+        dns_client_ipv4: { type: string, const: 198.18.240.30 }
+        internet_reachable: { type: boolean }
+        shakerproxy_dns_port: { type: integer, minimum: 1, maximum: 65535 }
+        shakerproxy_mitm_port: { type: integer, minimum: 1, maximum: 65535 }
+        namespace_isolation: { type: boolean, const: true }
+    Run:
+      type: object
+      additionalProperties: false
+      required: [schema, run_id, profile, state, started_at, environment, results, pass_count, fail_count, skip_count]
+      properties:
+        schema: { type: integer, const: 1 }
+        run_id: { type: string, pattern: '^selftest-[a-f0-9]{24}$' }
+        profile: { type: string, enum: [quick, dns, tls, full] }
+        state: { type: string, enum: [RUNNING, PASSED, FAILED, DEGRADED] }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        environment: { $ref: '#/components/schemas/Environment' }
+        results:
+          type: array
+          maxItems: 32
+          items: { $ref: '#/components/schemas/TestResult' }
+        pass_count: { type: integer, minimum: 0, maximum: 32 }
+        fail_count: { type: integer, minimum: 0, maximum: 32 }
+        skip_count: { type: integer, minimum: 0, maximum: 32 }
+        limitations:
+          type: array
+          maxItems: 8
+          items: { type: string, maxLength: 1024 }
+    Status:
+      type: object
+      additionalProperties: false
+      required: [schema, state, available, busy, updated_at]
+      properties:
+        schema: { type: integer, const: 1 }
+        state: { type: string, enum: [IDLE, RUNNING, PASSED, FAILED, DEGRADED] }
+        available: { type: boolean }
+        busy: { type: boolean }
+        last_run: { $ref: '#/components/schemas/Run' }
+        prerequisites:
+          type: array
+          maxItems: 16
+          items: { $ref: '#/components/schemas/TestResult' }
+        updated_at: { type: string, format: date-time }
+        limitations:
+          type: array
+          maxItems: 8
+          items: { type: string, maxLength: 1024 }

@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "revision": "2026-09-02.1",
+  "resolvers": [
+    {
+      "id": "cloudflare",
+      "provider": "Cloudflare Public DNS",
+      "hostnames": ["cloudflare-dns.com", "one.one.one.one"],
+      "doh_paths": ["/dns-query"]
+    },
+    {
+      "id": "google",
+      "provider": "Google Public DNS",
+      "hostnames": ["dns.google"],
+      "doh_paths": ["/dns-query", "/resolve"]
+    },
+    {
+      "id": "quad9-secure",
+      "provider": "Quad9",
+      "hostnames": ["dns.quad9.net"],
+      "doh_paths": ["/dns-query"]
+    },
+    {
+      "id": "adguard-default",
+      "provider": "AdGuard DNS",
+      "hostnames": ["dns.adguard-dns.com"],
+      "doh_paths": ["/dns-query"]
+    },
+    {
+      "id": "adguard-family",
+      "provider": "AdGuard DNS Family",
+      "hostnames": ["family.adguard-dns.com"],
+      "doh_paths": ["/dns-query"]
+    },
+    {
+      "id": "adguard-unfiltered",
+      "provider": "AdGuard DNS Unfiltered",
+      "hostnames": ["unfiltered.adguard-dns.com"],
+      "doh_paths": ["/dns-query"]
+    },
+    {
+      "id": "opendns",
+      "provider": "Cisco OpenDNS",
+      "hostnames": ["doh.opendns.com", "dns.opendns.com"],
+      "doh_paths": ["/dns-query"]
+    },
+    {
+      "id": "nextdns",
+      "provider": "NextDNS",
+      "hostnames": ["dns.nextdns.io", "*.dns.nextdns.io"],
+      "doh_paths": ["/dns-query", "/"]
+    }
+  ]
+}

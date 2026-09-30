@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shakerproxy.invalid/schemas/ingest/event-envelope.schema.json",
+  "title": "ShakerProxy normalized ingestion event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event_id", "source", "kind", "occurred_at", "source_version", "parser_version", "payload"],
+  "properties": {
+    "schema": {"const": 1},
+    "event_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$"},
+    "source": {"type": "string", "enum": ["HOST", "ZEEK", "SURICATA", "MITMPROXY"]},
+    "kind": {"type": "string", "minLength": 1, "maxLength": 256},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "source_version": {"type": "string", "minLength": 1, "maxLength": 256},
+    "parser_version": {"type": "string", "minLength": 1, "maxLength": 256},
+    "capture_session_id": {"type": "string", "pattern": "^capture-[a-f0-9]{32}$"},
+    "flow_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$"},
+    "device_id": {"type": "string", "pattern": "^device-[a-f0-9]{32}$"},
+    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+    "payload": {}
+  }
+}

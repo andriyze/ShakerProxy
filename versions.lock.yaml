@@ -1,0 +1,58 @@
+schema: 1
+generated: "2026-09-02"
+status: development-tested-not-released
+toolchains:
+  go: "1.25.1"
+  node: "26.7.0"
+  npm: "11.19.0"
+libraries:
+  pgx: "github.com/jackc/pgx/v5@v5.10.0"
+local_observed:
+  docker_cli: "29.7.2"
+  docker_compose: "5.4.0"
+engines:
+  postgres:
+    version: "16.15"
+    image: "postgres@sha256:421b84e07a72bb8f3715f20501a1fdbe1219aad1fa4af7786a49d9a3f2480296"
+  zeek:
+    version: "8.2.1"
+    upstream_image: "zeek/zeek@sha256:94a604186e3b47c3e10215da86eac65e36253c866a45305e2850689b3b8418d7"
+  suricata:
+    version: "8.0.6"
+    upstream_image: "jasonish/suricata@sha256:cc7fdda42b6aec84c7c0bb08109df56e339c5585e2f32f1a91522dda081d4cd9"
+  mitmproxy:
+    version: "12.2.3"
+    upstream_image: "mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f"
+    scope: "isolated explicit/transparent TLS proof only; no product service"
+development_images:
+  golang: "golang:1.25.1-bookworm@sha256:c423747fbd96fd8f0b1102d947f51f9b266060217478e5f9bf86f145969562ee"
+  node: "node:26.7.0-alpine@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019"
+  nginx: "nginx:1.29.1-alpine@sha256:42a516af16b852e33b7682d5ef8acbd5d13fe08fecadc7ed98605ba5e3b26ab8"
+  caddy: "caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d"
+  busybox: "busybox:1.37.0-musl@sha256:fc6dddc4c44b1bfe37f41cae8e67d1693828e8f42a91862816d7953e2c9d3f23"
+  distroless: "gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
+namespace_proof:
+  image: "ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
+  os: "Ubuntu 24.04.4 LTS"
+  kernel: "7.0.12-linuxkit"
+  iproute2: "6.1.0-1ubuntu6.4"
+  iptables: "1.8.10-3ubuntu2 (nf_tables)"
+  iputils_ping: "3:20240117-1ubuntu0.1"
+  netplan_io: "1.1.2-8ubuntu1~24.04.2"
+  scope: "isolated IPv4, synthetic firewall-chain, and mitmproxy TLS proofs; not clean-VM interception acceptance"
+  mitmproxy_runner:
+    base_os: "Debian 13.4"
+    debian_snapshot: "20260505T000000Z"
+    iproute2: "6.15.0-1"
+    iptables: "1.8.11-2"
+    curl: "8.14.1-2+deb13u2"
+ubuntu_26_04_acceptance:
+  os: "Ubuntu 26.04"
+  architecture: "amd64"
+  kernel: "7.0.0-15-generic"
+  docker_cli: "29.7.2"
+  docker_compose: "5.5.0"
+  scope: "source verification, development package installation, safe daemon startup, core/observe Compose, analyzer smoke, and disposable no-DNS namespace/TLS proofs; no host network plan applied"
+notes:
+  - Zeek and Suricata upstream manifests are pinned; release-built ShakerProxy analyzer image digests remain gated on signed image publication.
+  - Local CLI observations are not Ubuntu appliance acceptance evidence.
