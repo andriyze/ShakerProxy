@@ -124,3 +124,17 @@ export function runningLab(status: {
 // The firewall check blocks every apply while ShakerProxy's own chains exist;
 // with a lab running that is expected, and the fix is to turn the lab off.
 export const CHAIN_CONFLICT = "SHAKERPROXY_CHAIN_CONFLICT"
+
+// ipv4NetworkCIDR turns an interface address such as "192.168.10.177/24" into
+// its network, "192.168.10.0/24"; anything else is returned unchanged.
+export function ipv4NetworkCIDR(cidr: string): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(cidr)
+  if (!match) return cidr
+  const octets = match.slice(1, 5).map(Number)
+  const bits = Number(match[5])
+  if (octets.some((octet) => octet > 255) || bits > 32) return cidr
+  const address = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0
+  const network = (address & mask) >>> 0
+  return `${network >>> 24}.${(network >>> 16) & 255}.${(network >>> 8) & 255}.${network & 255}/${bits}`
+}
