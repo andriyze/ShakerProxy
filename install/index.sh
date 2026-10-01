@@ -111,11 +111,15 @@ check_machine() {
         *) fail "ShakerProxy supports amd64 (x86_64) machines; this one is $(uname -m)." ;;
     esac
     [ -r /etc/os-release ] || fail "cannot tell which Linux this is (/etc/os-release is missing)."
+    # Read os-release in a subshell: it defines VERSION, NAME and more, which
+    # must not overwrite this script's own variables (SHAKERPROXY_VERSION).
     # shellcheck disable=SC1091
-    . /etc/os-release
-    case "${ID:-}:${VERSION_ID:-}" in
-        ubuntu:24.04|ubuntu:26.04) say "  Ubuntu $VERSION_ID, amd64: supported" ;;
-        *) fail "ShakerProxy supports Ubuntu Server 24.04 and 26.04; this is ${PRETTY_NAME:-an unknown system}." ;;
+    os_release="$(. /etc/os-release && printf '%s:%s' "${ID:-}" "${VERSION_ID:-}")"
+    # shellcheck disable=SC1091
+    os_name="$(. /etc/os-release && printf '%s' "${PRETTY_NAME:-an unknown system}")"
+    case "$os_release" in
+        ubuntu:24.04|ubuntu:26.04) say "  Ubuntu ${os_release#ubuntu:}, amd64: supported" ;;
+        *) fail "ShakerProxy supports Ubuntu Server 24.04 and 26.04; this is $os_name." ;;
     esac
     if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
         fail "this is a container. Install ShakerProxy on the machine itself: it manages the machine's network ports."
