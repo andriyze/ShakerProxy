@@ -60,7 +60,9 @@ export function NetworkPlanBuilder({
   // A computer with one network port can only be a single-arm gateway.
   const [topology, setTopology] = useState<NetworkTopology>(interfaces.length < 2 ? "SINGLE_ARM" : "TWO_NIC")
   const [selectedWAN, setSelectedWAN] = useState(defaultWAN?.name ?? "")
-  const [selectedLab, setSelectedLab] = useState(defaultLab?.name ?? "")
+  // With a single port the lab menu can only show that port; keep the state
+  // equal to what is displayed so a same-port choice is explained.
+  const [selectedLab, setSelectedLab] = useState(defaultLab?.name ?? interfaces[0]?.name ?? "")
   const [wanIPv4Mode, setWANIPv4Mode] = useState<WANIPv4Mode>("KEEP_EXISTING")
   const [wanIPv6Mode, setWANIPv6Mode] = useState<WANIPv6Mode>("KEEP_EXISTING")
 
@@ -483,12 +485,9 @@ export function NetworkPlanBuilder({
                   ))}
                 </select>
               </label>
-              {sameWANAndLab && (
+              {sameWANAndLab && interfaces.length >= 2 && (
                 <p className="error" role="alert">
-                  The internet (WAN) and lab need different ports.
-                  {interfaces.length < 2
-                    ? " This computer has one network port: choose “One network port” as the topology."
-                    : " Pick another lab port."}
+                  The internet (WAN) and lab need different ports. Pick another lab port.
                 </p>
               )}
             </>
@@ -750,7 +749,7 @@ export function NetworkPlanBuilder({
       )}
       {interfaces.length < requiredInterfaces && (
         <ErrorBox
-          message={`${requiredInterfaces} non-loopback interface${requiredInterfaces === 1 ? " is" : "s are"} required for this topology.`}
+          message={`This topology needs ${requiredInterfaces} network ports; this computer has ${interfaces.length}.${interfaces.length === 1 ? " Choose “One network port” as the topology." : ""}`}
         />
       )}{" "}
       {!inProgress && error && <ErrorBox message={error} />}{" "}

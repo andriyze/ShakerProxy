@@ -152,6 +152,7 @@ test("a one-port computer starts on the one-port topology and cannot pick the sa
   assert.match(source, /The internet \(WAN\) and lab need different ports\./)
   assert.match(source, /disabled=\{busy \|\| interfaces\.length < requiredInterfaces \|\| sameWANAndLab\}/)
   assert.match(source, /ipv4NetworkCIDR\(selectedIPv4HostCIDR\)/)
+  assert.match(source, /this computer has \$\{interfaces\.length\}\.\$\{interfaces\.length === 1 \? " Choose “One network port” as the topology\." : ""\}/)
 })
 
 test("after saving, the page says the plan still has to be applied", async () => {
