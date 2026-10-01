@@ -3,6 +3,7 @@ import { formatBytes } from "../../lib/format"
 import { completeTypedQuery, formatTypedQueryValue, typedQueryValueContext } from "../../lib/trafficQuery"
 import { ErrorBox, FeatureViews } from "../../shell/common"
 import { usePolling } from "../../shell/hooks"
+import { useAppState } from "../../shell/AppContext"
 import { TRAFFIC_PRESETS, TIME_WINDOWS, activeTimeWindow, deviceQuery, withTimeWindow } from "../../lib/trafficPresets"
 import { TrafficOverview } from "./TrafficOverview"
 import { HTTPActivity } from "./HTTPActivity"
@@ -34,6 +35,7 @@ const SOURCES: [string, string][] = [
 const OLDER_PAGE_LIMIT = 100
 
 export function TrafficWorkspace() {
+  const { status: appStatus } = useAppState()
   const [traffic, setTraffic] = useState<{ page: RecentEventPage | null; pending: RecentEvent[]; dropped: number }>({
     page: null,
     pending: [],
@@ -413,6 +415,12 @@ export function TrafficWorkspace() {
               New events appear as ShakerProxy analyses the lab network. Pausing, or switching to another tab, stops the
               live view; it picks up where it left off when you come back.
             </p>
+            {appStatus && !appStatus.active_capture_id && (
+              <p className="traffic-not-recording" role="status">
+                Nothing is being recorded right now, so devices' connections and DNS lookups are not analyzed.{" "}
+                <a href="#/captures">Start a capture</a> to see them here.
+              </p>
+            )}
           </div>
           <div>
             <span className={`event-feed-state ${streamState.toLowerCase()}`}>

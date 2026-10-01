@@ -65,13 +65,13 @@ func init() {
 			run:      (*cli).renameCommand},
 		{name: "test", aliases: []string{"tests"}, group: groupDevices, summary: "Start, stop and list named test runs",
 			usage: []string{
-				"test start <ref> [--name NAME] [--notes TEXT] [--capture | --full]",
+				"test start <ref> [--name NAME] [--notes TEXT] [--capture | --headers-only]",
 				"test stop [<ref> | <test-id>]",
 				"test list [--device <ref>] [--running]",
 			},
 			details: "A test run marks a time window for one device (\"Firmware 2.1 first boot\"), so reports and\n" +
 				"comparisons cover exactly that run. --capture also records packet headers while the test runs;\n" +
-				"--full records whole packets, so TLS server names and certificates can be analyzed.\n" + refNote,
+				"--capture records whole packets, so domains, TLS server names and certificates are analyzed; --headers-only keeps 256 bytes per packet.\n" + refNote,
 			examples: []string{`shakerproxy test start "Living room TV" --name "Firmware 2.1 first boot" --capture`, `shakerproxy test stop "Living room TV"`, "shakerproxy test list --running"},
 			run:      (*cli).testCommand},
 		{name: "report", group: groupDevices, summary: "Security report for a device (findings, domains, TLS, HTTP)",
@@ -123,7 +123,7 @@ func init() {
 			run:      (*cli).protocolsCommand},
 		{name: "capture", aliases: []string{"captures", "pcap"}, group: groupTraffic, summary: "Record packets to PCAP files and export them",
 			usage: []string{
-				"capture start [--device <ref>] [--name NAME] [--minutes 60] [--full]",
+				"capture start [--device <ref>] [--name NAME] [--minutes 60] [--headers-only]",
 				"capture stop [<capture-id>] [--wait]",
 				"capture list",
 				"capture stats <capture-id>",
@@ -131,7 +131,7 @@ func init() {
 				"capture export <capture-id> <file-name> <destination>",
 			},
 			details: "Captures record the whole lab network; --device only labels the capture with the device.\n" +
-				"Headers-only mode (default) keeps the first 256 bytes of each packet; --full keeps whole packets.\n" +
+				"Whole packets are recorded by default, so domains are visible; --headers-only keeps the first 256 bytes of each packet.\n" +
 				"stop without an ID stops the running capture; --wait waits until its files are sealed.\n" +
 				"export copies the sealed files (verified by SHA-256) into DIR, or the current directory.",
 			examples: []string{`shakerproxy capture start --device "Living room TV"`, "shakerproxy capture stop --wait", "shakerproxy capture list", "shakerproxy capture export capture-0123456789abcdef0123456789abcdef --all ./pcaps"},

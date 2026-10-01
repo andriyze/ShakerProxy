@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -79,6 +80,26 @@ func TestOutputTrackerDetectsDumpcap46RotationsOnTheCounterLine(t *testing.T) {
 	}
 }
 
+// Regression from a single-arm home lab: the shared LAN carried the router's
+// mDNS on four subnets and other hosts' traffic, outnumbering the phone under
+// test about ten to one.
+func TestSingleArmCaptureRecordsOnlyTrafficThroughShakerProxy(t *testing.T) {
+	session := validSession(t, t.TempDir())
+	session.Source.SingleArmGateway, session.Source.SingleArmLabCIDR = "192.168.10.177", "192.168.10.0/24"
+	directory := filepath.Join(t.TempDir(), session.ID, "artifacts")
+	previous := interfaceHardwareAddress
+	interfaceHardwareAddress = func(string) (string, error) { return "bc:24:11:43:c2:5e", nil }
+	t.Cleanup(func() { interfaceHardwareAddress = previous })
+	arguments, err := BuildDumpcapArguments(session, directory, session.StartedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "ether host bc:24:11:43:c2:5e and (not host 192.168.10.177 or (dst host 192.168.10.177 and dst port 53) or (src host 192.168.10.177 and src port 53))"
+	if !strings.Contains(strings.Join(arguments, "\x00"), "-f\x00"+want) {
+		t.Fatalf("single-arm capture filter = %q, want %q", arguments, want)
+	}
+}
+
 // Regression from a single-arm EC2 lab: the one interface also carried
 // ShakerProxy's NATed copy of each flow, so every connection was recorded
 // twice and ShakerProxy itself looked like a device.
@@ -86,6 +107,10 @@ func TestSingleArmCaptureExcludesShakerProxyUpstreamTraffic(t *testing.T) {
 	session := validSession(t, t.TempDir())
 	session.Source.SingleArmGateway, session.Source.SingleArmLabCIDR = "172.31.47.80", "172.31.32.0/20"
 	directory := filepath.Join(t.TempDir(), session.ID, "artifacts")
+	// Without the interface's MAC address the earlier directional scope applies.
+	previous := interfaceHardwareAddress
+	interfaceHardwareAddress = func(string) (string, error) { return "", errors.New("no address") }
+	t.Cleanup(func() { interfaceHardwareAddress = previous })
 	arguments, err := BuildDumpcapArguments(session, directory, session.StartedAt)
 	if err != nil {
 		t.Fatal(err)

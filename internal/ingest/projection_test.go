@@ -52,12 +52,13 @@ func TestPassiveAnalyzerProjectionsUseRealSchemas(t *testing.T) {
 	if projection := ProjectTLSFields(zeekSSL); projection != (TLSProjection{ServerName: "api.example.com"}) {
 		t.Fatalf("Zeek ssl.log SNI was not projected: %#v", projection)
 	}
-	zeekConn, err := NormalizeZeekJSON([]byte(`{"_path":"conn","ts":1790000000.15,"uid":"CkwEze28Lpdsqx4AU1","server_name":"ignored.example.com","service":"ssl,http"}`), "zeek-8.2.1", "")
+	zeekConn, err := NormalizeZeekJSON([]byte(`{"_path":"conn","ts":1790000000.15,"uid":"CkwEze28Lpdsqx4AU1","server_name":"api.example.com","service":"ssl,http"}`), "zeek-8.2.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projection := ProjectTLSFields(zeekConn); projection.ServerName != "" {
-		t.Fatalf("non-ssl Zeek log produced an SNI: %#v", projection)
+	// ShakerProxy's Zeek policy copies the server name onto conn.log.
+	if projection := ProjectTLSFields(zeekConn); projection.ServerName != "api.example.com" {
+		t.Fatalf("conn.log server name was not projected: %#v", projection)
 	}
 	if service := ProjectNetworkFields(zeekConn).Service; service != "ssl" {
 		t.Fatalf("multi-service Zeek connection lost its service: %q", service)

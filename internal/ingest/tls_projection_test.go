@@ -45,3 +45,20 @@ func TestProjectTLSFieldsRejectsUntrustedOrUnrelatedValues(t *testing.T) {
 		t.Fatalf("non-TLS outcome was projected: %#v", got)
 	}
 }
+
+// ShakerProxy's Zeek policy copies the TLS/QUIC server name (or HTTP Host)
+// onto conn.log, so a connection row shows the domain it reached.
+func TestProjectTLSFieldsReadsTheServerNameZeekCopiesOntoConnections(t *testing.T) {
+	conn := Envelope{Source: SourceZeek, Kind: "zeek.conn", Payload: json.RawMessage(`{"id.resp_h":"146.75.0.159","id.resp_p":443,"service":"ssl","server_name":"abs.twimg.com"}`)}
+	if got := ProjectTLSFields(conn); got.ServerName != "abs.twimg.com" {
+		t.Fatalf("conn.log server name was not projected: %#v", got)
+	}
+	unnamed := Envelope{Source: SourceZeek, Kind: "zeek.conn", Payload: json.RawMessage(`{"id.resp_h":"146.75.0.159","id.resp_p":443}`)}
+	if got := ProjectTLSFields(unnamed); got.ServerName != "" {
+		t.Fatalf("an unnamed connection got a server name: %#v", got)
+	}
+	dns := Envelope{Source: SourceZeek, Kind: "zeek.dns", Payload: json.RawMessage(`{"server_name":"example.com"}`)}
+	if got := ProjectTLSFields(dns); got.ServerName != "" {
+		t.Fatalf("only conn, ssl and quic records carry a server name: %#v", got)
+	}
+}

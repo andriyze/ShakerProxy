@@ -3,7 +3,10 @@ package capture
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -173,11 +176,36 @@ func (s Source) singleArmFilter() (string, error) {
 	if gatewayErr != nil || prefixErr != nil || !gateway.Is4() || !prefix.Addr().Is4() || prefix != prefix.Masked() || !prefix.Contains(gateway) {
 		return "", errors.New("single-arm capture scope is invalid")
 	}
-	// BPF "net" matches either endpoint, and the gateway is inside the lab,
-	// so the exclusion is directional: ShakerProxy talking to (or hearing
-	// from) a host outside the lab. Device <-> ShakerProxy (DNS) and
-	// device <-> internet stay recorded.
+	// Record what lab devices send through ShakerProxy: frames to or from its
+	// own interface, since a shared LAN otherwise floods the capture with other
+	// hosts' multicast and broadcast. ShakerProxy's own traffic (the NATed
+	// copy of each flow, its upstream DNS, management sessions) is left out,
+	// except the DNS it answers for lab devices.
+	if mac, err := interfaceHardwareAddress(s.InterfaceName); err == nil {
+		return fmt.Sprintf("ether host %[1]s and (not host %[2]s or (dst host %[2]s and dst port 53) or (src host %[2]s and src port 53))", mac, gateway), nil
+	}
+	// Without the interface address, leave out only ShakerProxy talking to
+	// (or hearing from) a host outside the lab. BPF "net" matches either
+	// endpoint and the gateway is inside the lab, so the exclusion is
+	// directional.
 	return fmt.Sprintf("not ((src host %[1]s and not dst net %[2]s) or (dst host %[1]s and not src net %[2]s))", gateway, prefix), nil
+}
+
+// interfaceHardwareAddress reads a network interface's MAC address; tests
+// replace it.
+var interfaceHardwareAddress = func(name string) (string, error) {
+	if name == "" || strings.ContainsAny(name, "/\\") || name == "." || name == ".." {
+		return "", errors.New("interface name is invalid")
+	}
+	raw, err := os.ReadFile(filepath.Join("/sys/class/net", name, "address"))
+	if err != nil {
+		return "", err
+	}
+	mac, err := net.ParseMAC(strings.TrimSpace(string(raw)))
+	if err != nil || len(mac) != 6 {
+		return "", errors.New("interface has no Ethernet address")
+	}
+	return mac.String(), nil
 }
 
 type Session struct {
