@@ -25,6 +25,24 @@ anything. Running the same command again upgrades to the latest stable release.
 Set a variable for the shell that runs the script, for example
 `curl -fsSL <url> | SHAKERPROXY_DRY_RUN=1 sh`.
 
+## Troubleshooting
+
+- **`curl: (6) Could not resolve host: raw.githubusercontent.com`**: the machine
+  has internet access but no working DNS. Check with `resolvectl status`. A
+  router can hand out a DNS server that does not answer; set working ones, for
+  example `sudo nmcli con mod "<connection>" ipv4.ignore-auto-dns yes ipv4.dns
+  "192.168.1.1 1.1.1.1" && sudo nmcli con up "<connection>"` (Ubuntu Desktop), or
+  `nameservers: {addresses: [192.168.1.1, 1.1.1.1]}` under the interface in
+  `/etc/netplan/*.yaml` followed by `sudo netplan apply` (Ubuntu Server).
+- **`ShakerProxy needs at least 4096 MiB`**: give the machine more memory (a VM:
+  raise its RAM, then shut it down and start it again), then rerun the command.
+- **NetworkManager is running**: ShakerProxy installs on Ubuntu Desktop, but
+  network plans need Ubuntu Server networking. See "NetworkManager hosts" in
+  [docs/networking.md](../docs/networking.md).
+- **A failed install** keeps its log in `/var/log/shakerproxy/install.log`, plus
+  a diagnostic archive `/var/log/shakerproxy/install-failure-*.tar.gz` to attach
+  to an issue.
+
 ## Files
 
 - `index.sh`: the installer front door (POSIX `sh`; everything runs inside

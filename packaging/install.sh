@@ -287,10 +287,43 @@ verify_signed_manifest() {
   ' "$source/manifest.json" >/dev/null 2>&1 || { MANIFEST_ERROR="signed release manifest is incompatible or malformed"; return 1; }
 }
 
+# memory_mib reports this machine's RAM in MiB (0 when unknown).
+memory_mib() {
+  awk '/^MemTotal:/ { print int($2 / 1024); exit }' /proc/meminfo 2>/dev/null || printf '0\n'
+}
+
+# memory_shortfall prints a message when RAM is clearly below the signed
+# release minimum. A VM given exactly the minimum reports a little less as
+# MemTotal, so up to 10% below still passes.
+memory_shortfall() {
+  local manifest="$1" minimum total
+  minimum="$(jq -r '.minimum.memory_mib // 0' "$manifest" 2>/dev/null || printf '0')"
+  total="$(memory_mib)"
+  [[ "$minimum" =~ ^[0-9]+$ && "$total" =~ ^[0-9]+$ ]] || return 0
+  if ((minimum > 0 && total > 0 && total * 10 < minimum * 9)); then
+    printf 'this machine has %s MiB of RAM; ShakerProxy needs at least %s MiB (8 GiB recommended)\n' "$total" "$minimum"
+  fi
+}
+
+# host_advisories prints one line per reason this host is not a dedicated
+# Ubuntu Server appliance. They do not stop the installation.
+host_advisories() {
+  local others
+  if command -v docker >/dev/null 2>&1; then
+    others="$(docker ps --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | grep -cvx 'shakerproxy' || true)"
+    if [[ "$others" =~ ^[0-9]+$ ]] && ((others > 0)); then
+      printf '%s other container(s) are running; ShakerProxy expects a dedicated machine and manages its firewall and routing\n' "$others"
+    fi
+  fi
+  if systemctl is-active --quiet NetworkManager.service 2>/dev/null; then
+    printf 'NetworkManager is running (Ubuntu Desktop): ShakerProxy installs, but network plans need Ubuntu Server networking; see "NetworkManager hosts" in docs/networking.md\n'
+  fi
+}
+
 # dry_run_preview reports whether an install would succeed and changes nothing:
 # no packages, services, firewall, routes, DNS, DHCP, RA, or installer log.
 dry_run_preview() {
-  local failures=0 path available minimum listeners missing source preview_version artifact tool download_failed=0
+  local failures=0 path available minimum listeners missing source preview_version artifact tool download_failed=0 shortfall advisory
   report() {
     printf '  %-4s  %s\n' "$1" "$2"
     [[ "$1" != FAIL ]] || failures=$((failures + 1))
@@ -364,6 +397,14 @@ dry_run_preview() {
       else
         report OK "signed release $preview_version ($CHANNEL) verified for this host"
       fi
+      shortfall="$(memory_shortfall "$source/manifest.json")"
+      if [[ -z "$shortfall" ]]; then
+        report OK "$(memory_mib) MiB of RAM"
+      elif ((DEVELOPER_UNSUPPORTED)); then
+        report WARN "$shortfall"
+      else
+        report FAIL "$shortfall"
+      fi
       if [[ -n "$OFFLINE_BUNDLE" ]]; then
         for artifact in shakerproxy-host.deb:host_package compose-bundle.tar.zst:compose_bundle; do
           if [[ ! -f "$source/${artifact%%:*}" || -L "$source/${artifact%%:*}" ]]; then
@@ -385,6 +426,9 @@ dry_run_preview() {
   else
     report WARN "signed release check skipped: needs curl, jq and openssl"
   fi
+  while IFS= read -r advisory; do
+    [[ -z "$advisory" ]] || report WARN "$advisory"
+  done < <(host_advisories)
   report INFO "networking stays unchanged until you confirm a network plan in the web UI"
   printf '\n'
   if ((failures)); then
@@ -572,6 +616,14 @@ verify_signed_manifest "$SOURCE_DIR" || die "$MANIFEST_ERROR"
 MANIFEST="$SOURCE_DIR/manifest.json"
 TARGET_VERSION="$(jq -er '.version' "$MANIFEST")"
 [[ -z "$RELEASE_VERSION" || "$TARGET_VERSION" == "$RELEASE_VERSION" ]] || die "downloaded release version does not match --version"
+MEMORY_SHORTFALL="$(memory_shortfall "$MANIFEST")"
+if [[ -n "$MEMORY_SHORTFALL" ]]; then
+  ((DEVELOPER_UNSUPPORTED)) || die "$MEMORY_SHORTFALL. Give the machine more memory (for a VM, raise its RAM and restart it), then run the installer again."
+  log "WARNING: $MEMORY_SHORTFALL (--developer-unsupported given)"
+fi
+while IFS= read -r advisory; do
+  [[ -z "$advisory" ]] || log "WARNING: $advisory"
+done < <(host_advisories)
 
 if [[ -z "$OFFLINE_BUNDLE" ]]; then
   for artifact in shakerproxy-host.deb compose-bundle.tar.zst; do
@@ -646,7 +698,9 @@ install -m 0644 "$SOURCE_DIR/release-public.pem" "$STAGING_DIRECTORY/release-pub
 chmod 0644 "$STAGING_DIRECTORY/release.env" "$STAGING_DIRECTORY/release.json"
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get install -y -q -o Dpkg::Use-Pty=0 "$SOURCE_DIR/shakerproxy-host.deb"
+# --no-install-recommends: wireshark-common recommends the Wireshark desktop
+# app and Qt. The host package's own recommendations are listed instead.
+apt-get install -y -q --no-install-recommends -o Dpkg::Use-Pty=0 "$SOURCE_DIR/shakerproxy-host.deb" hostapd iw radvd
 while IFS= read -r image; do docker pull "$image"; done < <(jq -r '.images[]' "$MANIFEST")
 
 if [[ -d "$RELEASE_DIRECTORY" ]]; then
