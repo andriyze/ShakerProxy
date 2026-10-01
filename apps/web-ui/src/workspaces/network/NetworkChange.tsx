@@ -172,7 +172,7 @@ export function NetworkChange({
   }
 
   const canCommit = activationAvailable && (transaction.preview?.firewall_environment.apply_ready ?? applyReady)
-  const title = ended ? "Finished" : phase === STAGED ? "Ready to apply" : phase.replaceAll("_", " ").toLowerCase()
+  const title = ended ? "Finished" : phase === STAGED ? "Saved — now apply it" : phase.replaceAll("_", " ").toLowerCase()
   return (
     <section className="activation" aria-live="polite" aria-labelledby="activation-title">
       <div className="activation-title">
@@ -210,7 +210,8 @@ export function NetworkChange({
             <form className="commit-form" onSubmit={commit}>
               <label>
                 Re-enter administrator password
-                <input name="password" type="password" autoComplete="current-password" required />
+                {/* Focus moves here after saving: applying is a separate, final step. */}
+                <input name="password" type="password" autoComplete="current-password" required autoFocus />
               </label>
               <label>
                 Undo automatically unless confirmed within

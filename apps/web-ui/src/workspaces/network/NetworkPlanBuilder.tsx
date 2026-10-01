@@ -11,7 +11,7 @@ import {
   shellRoles,
   type PlannedInterface,
 } from "../../lib/planExtensions"
-import { isFinal, isTransactionActive } from "../../lib/networkTransaction"
+import { ipv4NetworkCIDR, isFinal, isTransactionActive } from "../../lib/networkTransaction"
 import { useAppState } from "../../shell/AppContext"
 import { NetworkChange, type Transaction } from "./NetworkChange"
 import type {
@@ -57,9 +57,12 @@ export function NetworkPlanBuilder({
   const [busy, setBusy] = useState(false)
   const defaultWAN = interfaces.find((item) => item.default_ipv4_route || item.default_ipv6_route) ?? interfaces[0]
   const defaultLab = interfaces.find((item) => item.name !== defaultWAN?.name) ?? interfaces[1]
-  const [topology, setTopology] = useState<NetworkTopology>("TWO_NIC")
+  // A computer with one network port can only be a single-arm gateway.
+  const [topology, setTopology] = useState<NetworkTopology>(interfaces.length < 2 ? "SINGLE_ARM" : "TWO_NIC")
   const [selectedWAN, setSelectedWAN] = useState(defaultWAN?.name ?? "")
-  const [selectedLab, setSelectedLab] = useState(defaultLab?.name ?? "")
+  // With a single port the lab menu can only show that port; keep the state
+  // equal to what is displayed so a same-port choice is explained.
+  const [selectedLab, setSelectedLab] = useState(defaultLab?.name ?? interfaces[0]?.name ?? "")
   const [wanIPv4Mode, setWANIPv4Mode] = useState<WANIPv4Mode>("KEEP_EXISTING")
   const [wanIPv6Mode, setWANIPv6Mode] = useState<WANIPv6Mode>("KEEP_EXISTING")
 
@@ -354,9 +357,13 @@ export function NetworkPlanBuilder({
     setPreview(null)
   }
 
-  const selectedIPv4CIDR =
+  const selectedIPv4HostCIDR =
     selectedWANInterface?.addresses.find((address) => /^\d+\.\d+\.\d+\.\d+\/\d+$/.test(address)) ?? ""
-  const selectedIPv4Address = selectedIPv4CIDR.split("/")[0] ?? ""
+  // The existing LAN is the interface's network; the gateway is its address.
+  const selectedIPv4CIDR = ipv4NetworkCIDR(selectedIPv4HostCIDR)
+  const selectedIPv4Address = selectedIPv4HostCIDR.split("/")[0] ?? ""
+  const separateLab = topology !== "SINGLE_ARM" && topology !== "VLAN_TRUNK" && topology !== "PASSIVE_SENSOR"
+  const sameWANAndLab = separateLab && selectedWAN !== "" && selectedWAN === selectedLab
   const requiredInterfaces =
     topology === "THREE_INTERFACE"
       ? 3
@@ -401,8 +408,8 @@ export function NetworkPlanBuilder({
                 setPreview(null)
               }}
             >
-              <option value="TWO_NIC">Two physical NICs</option>
-              <option value="SINGLE_ARM">Single-arm manual gateway</option>
+              <option value="TWO_NIC">Two network ports (internet + lab)</option>
+              <option value="SINGLE_ARM">One network port (devices use ShakerProxy as their gateway)</option>
               <option value="THREE_INTERFACE">WAN, lab, and management</option>
               <option value="VLAN_TRUNK">Single-NIC VLAN trunk</option>
               <option value="EXISTING_ROUTED_VLAN">Existing routed VLAN</option>
@@ -478,6 +485,11 @@ export function NetworkPlanBuilder({
                   ))}
                 </select>
               </label>
+              {sameWANAndLab && interfaces.length >= 2 && (
+                <p className="error" role="alert">
+                  The internet (WAN) and lab need different ports. Pick another lab port.
+                </p>
+              )}
             </>
           )}
           {topology === "THREE_INTERFACE" && (
@@ -730,14 +742,14 @@ export function NetworkPlanBuilder({
               objects are never accepted.
             </p>
           )}
-          <button disabled={busy || interfaces.length < requiredInterfaces}>
+          <button disabled={busy || interfaces.length < requiredInterfaces || sameWANAndLab}>
             {busy ? "Checking…" : "Check this plan"}
           </button>
         </form>
       )}
       {interfaces.length < requiredInterfaces && (
         <ErrorBox
-          message={`${requiredInterfaces} non-loopback interface${requiredInterfaces === 1 ? " is" : "s are"} required for this topology.`}
+          message={`This topology needs ${requiredInterfaces} network ports; this computer has ${interfaces.length}.${interfaces.length === 1 ? " Choose “One network port” as the topology." : ""}`}
         />
       )}{" "}
       {!inProgress && error && <ErrorBox message={error} />}{" "}

@@ -136,3 +136,27 @@ test("the Network page offers to turn the lab network off with the password", ()
   assert.match(component, /\/api\/v1\/network\/active\/revert/)
   assert.match(webUIFile("workspaces/network/NetworkWorkspace.tsx"), /<LabNetworkOff \/>/)
 })
+
+test("single-arm plans prefill the LAN network, not the computer's own address", async () => {
+  const { ipv4NetworkCIDR } = await import("../../apps/web-ui/src/lib/networkTransaction.ts")
+  assert.equal(ipv4NetworkCIDR("192.168.10.177/24"), "192.168.10.0/24")
+  assert.equal(ipv4NetworkCIDR("10.1.2.3/8"), "10.0.0.0/8")
+  assert.equal(ipv4NetworkCIDR("172.16.5.9/32"), "172.16.5.9/32")
+  assert.equal(ipv4NetworkCIDR("not-an-address"), "not-an-address")
+})
+
+test("a one-port computer starts on the one-port topology and cannot pick the same port twice", async () => {
+  const source = webUIFile("workspaces/network/NetworkPlanBuilder.tsx")
+  assert.match(source, /useState<NetworkTopology>\(interfaces\.length < 2 \? "SINGLE_ARM" : "TWO_NIC"\)/)
+  assert.match(source, /One network port \(devices use ShakerProxy as their gateway\)/)
+  assert.match(source, /The internet \(WAN\) and lab need different ports\./)
+  assert.match(source, /disabled=\{busy \|\| interfaces\.length < requiredInterfaces \|\| sameWANAndLab\}/)
+  assert.match(source, /ipv4NetworkCIDR\(selectedIPv4HostCIDR\)/)
+  assert.match(source, /this computer has \$\{interfaces\.length\}\.\$\{interfaces\.length === 1 \? " Choose “One network port” as the topology\." : ""\}/)
+})
+
+test("after saving, the page says the plan still has to be applied", async () => {
+  const source = webUIFile("workspaces/network/NetworkChange.tsx")
+  assert.match(source, /Saved — now apply it/)
+  assert.match(source, /autoComplete="current-password" required autoFocus/)
+})
