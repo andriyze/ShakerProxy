@@ -766,7 +766,7 @@ func TestReportExplainsMissingTLSDetails(t *testing.T) {
 	 "tls":{},"http":{},"findings":[],"truncated":false}`)
 	c, _, _ := testCLI()
 	code, stdout, stderr := runCLI(t, c, "report", "EC2 client")
-	if code != exitOK || !strings.Contains(stdout, "12 TLS flows, but no handshake details") || !strings.Contains(stdout, `shakerproxy test start "EC2 client" --full`) {
+	if code != exitOK || !strings.Contains(stdout, "12 TLS flows, but no handshake details") || !strings.Contains(stdout, `shakerproxy test start "EC2 client" --capture`) {
 		t.Fatalf("report did not explain missing TLS details: %d\n%s\n%s", code, stdout, stderr)
 	}
 }

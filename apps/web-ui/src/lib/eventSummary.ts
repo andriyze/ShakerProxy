@@ -149,3 +149,35 @@ export function eventTone(event: SummarizableEvent): EventTone {
   if (event.dns_query || kind.includes("dns") || event.service === "dns" || event.service === "doh") return "dns"
   return ""
 }
+
+// Zeek and Suricata both describe the same traffic. The readable list keeps
+// one row per connection and per lookup (Zeek's conn, dns and ssl records,
+// alerts, interception and web requests) and drops Suricata's flow, DNS and
+// mDNS copies, Zeek's protocol warnings, and the connection records of DNS
+// lookups that already appear as named lookups.
+export function isAnalyzerDuplicate(event: { kind: string; service?: string; app_protocol?: string }): boolean {
+  switch (event.kind) {
+    case "suricata.flow":
+    case "suricata.dns":
+    case "suricata.mdns":
+    case "zeek.weird":
+      return true
+    case "zeek.conn":
+      return event.app_protocol === "dns" || (event.service ?? "").split(",").includes("dns")
+    default:
+      return false
+  }
+}
+
+// eventTypeLabel names what kind of thing an event is, in plain words.
+export function eventTypeLabel(event: SummarizableEvent): string {
+  if (event.alert_signature || event.detection_type || event.detection_summary) return "Alert"
+  if (event.kind === "encrypted_dns_detected") return "Encrypted DNS"
+  if (event.dns_query) return "DNS"
+  if (event.tls_interception_state) return "HTTPS"
+  if (event.http_method || event.http_host) return "Web request"
+  if (event.kind === "zeek.weird") return "Protocol warning"
+  if (/\.(conn|flow|quic|ssl|tls)$/.test(event.kind)) return "Connection"
+  const name = event.kind.split(".").pop() ?? event.kind
+  return name.replace(/[_-]+/g, " ").replace(/^./, (first) => first.toUpperCase())
+}

@@ -469,8 +469,9 @@ func (c *cli) captureStart(args []string) error {
 	name := flags.String("name", "", "capture name")
 	description := flags.String("description", "", "capture description")
 	deviceRef := flags.String("device", "", "label the capture with this device")
-	mode := flags.String("mode", "headers", "headers or full")
-	full := flags.Bool("full", false, "keep whole packets (same as --mode full)")
+	mode := flags.String("mode", "full", "full (default; shows domains) or headers")
+	full := flags.Bool("full", false, "keep whole packets (the default)")
+	headersOnly := flags.Bool("headers-only", false, "keep only the first 256 bytes of each packet (no domains)")
 	minutes := flags.Int("minutes", 0, "stop automatically after this many minutes (default 60)")
 	snapLength := flags.Int("snap-length", 0, "captured bytes per packet; zero selects the profile default")
 	segmentSize := flags.Int("segment-size-mib", capture.DefaultSegmentSizeMiB, "rotated segment size")
@@ -487,12 +488,17 @@ func (c *cli) captureStart(args []string) error {
 	if err := expectArgs("capture", positional, 0, 0); err != nil {
 		return err
 	}
-	captureMode := capture.ModeHeaders
+	// Whole packets by default: TLS and QUIC handshakes, which carry the
+	// domain a device connects to, span 500-1800 bytes and often two packets.
+	captureMode := capture.ModeFull
 	switch {
-	case *full || *mode == "full":
-		captureMode = capture.ModeFull
-	case *mode != "headers":
-		return usagef("capture", "--mode must be headers or full.")
+	case *headersOnly || *mode == "headers":
+		if *full {
+			return usagef("capture", "--full and --headers-only cannot be combined.")
+		}
+		captureMode = capture.ModeHeaders
+	case *mode != "full":
+		return usagef("capture", "--mode must be full or headers.")
 	}
 	if *minutes != 0 {
 		if *minutes < 1 || *minutes > 24*60 {

@@ -3,13 +3,13 @@ import { withPassword } from "../../shell/passwordPrompt"
 import { formatBytes, formatNetworkEndpoint, idempotencyKey } from "../../lib/format"
 import { MAX_VISIBLE_LIVE_ROWS, virtualRowWindow } from "../../lib/liveRows"
 import { tlsOutcomeExplanation } from "../../lib/tlsTrust"
-import { eventSummary, eventTone } from "../../lib/eventSummary"
+import { eventSummary, eventTone, eventTypeLabel, isAnalyzerDuplicate } from "../../lib/eventSummary"
 import { EventDetailDrawer } from "./EventDetailDrawer"
 import { api, describeError } from "../../api"
 import type { Device, DeviceMutationResult, RecentEvent } from "../../types"
 
 export function WindowedTrafficTable({
-  events,
+  events: allEvents,
   density,
   labelsAvailable,
   selectedRecordID,
@@ -26,6 +26,11 @@ export function WindowedTrafficTable({
   onRenamed: (device: Device) => void
 }) {
   const viewport = useRef<HTMLDivElement | null>(null)
+  // One row per connection and lookup by default; the analyzers' duplicate
+  // records stay one click away.
+  const [showDuplicates, setShowDuplicates] = useState(false)
+  const events = showDuplicates ? allEvents : allEvents.filter((event) => !isAnalyzerDuplicate(event))
+  const hiddenDuplicates = allEvents.length - events.length
   const rowHeight = density === "compact" ? 54 : 72
   const preferredHeight = Math.min(560, Math.max(rowHeight, events.length * rowHeight))
   const [viewportHeight, setViewportHeight] = useState(preferredHeight)
@@ -80,6 +85,11 @@ export function WindowedTrafficTable({
     <section className="traffic-table-shell" aria-label="Bounded live traffic table">
       <div className="traffic-table-summary">
         <strong>{events.length.toLocaleString()} events shown</strong>
+        {(hiddenDuplicates > 0 || showDuplicates) && (
+          <button type="button" className="quiet traffic-duplicates-toggle" onClick={() => setShowDuplicates((value) => !value)}>
+            {showDuplicates ? "Hide analyzer duplicates" : `Show ${hiddenDuplicates.toLocaleString()} analyzer duplicates`}
+          </button>
+        )}
         <span>
           Up to {MAX_VISIBLE_LIVE_ROWS.toLocaleString()} at a time · click a row or use the arrow keys for details
         </span>
@@ -132,7 +142,9 @@ export function WindowedTrafficTable({
                 >
                   <span role="cell">
                     <strong>{new Date(item.occurred_at).toLocaleTimeString()}</strong>
-                    <small title={new Date(item.occurred_at).toLocaleString()}>{item.source.toLowerCase()}</small>
+                    <small title={`${new Date(item.occurred_at).toLocaleString()} · ${item.source.toLowerCase()} ${item.kind}`}>
+                      {eventTypeLabel(item)}
+                    </small>
                   </span>
                   <span role="cell">
                     <strong>{device}</strong>
@@ -140,7 +152,7 @@ export function WindowedTrafficTable({
                   </span>
                   <span role="cell" className="traffic-summary-cell">
                     <strong title={summary}>{summary}</strong>
-                    <small>{[item.app_protocol || item.service, item.kind].filter(Boolean).join(" · ")}</small>
+                    <small>{(item.app_protocol || item.service || "").toUpperCase()}</small>
                   </span>
                   <span role="cell">
                     <strong title={endpoint}>{endpoint}</strong>

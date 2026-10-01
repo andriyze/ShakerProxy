@@ -36,7 +36,8 @@ export function CaptureManager({ canStart, blockedReason }: { canStart: boolean;
   const [error, setError] = useState("")
   const [deletionError, setDeletionError] = useState("")
   const [busy, setBusy] = useState(false)
-  const [captureMode, setCaptureMode] = useState("HEADERS_ONLY")
+  // Whole packets by default: TLS and QUIC handshakes carry the domains.
+  const [captureMode, setCaptureMode] = useState("FULL_PACKETS")
   const cases = useOpenCases()
 
   async function refresh() {
@@ -176,8 +177,8 @@ export function CaptureManager({ canStart, blockedReason }: { canStart: boolean;
           <label>
             What to record
             <select name="mode" value={captureMode} onChange={(event) => setCaptureMode(event.target.value)}>
-              <option value="HEADERS_ONLY">Packet headers only (small files, no content)</option>
-              <option value="FULL_PACKETS">Full packets (includes content)</option>
+              <option value="FULL_PACKETS">Whole packets: shows domains (recommended)</option>
+              <option value="HEADERS_ONLY">Packet headers only: smaller files, no domains</option>
             </select>
           </label>
           <label>

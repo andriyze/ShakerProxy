@@ -31,8 +31,9 @@ func (c *cli) testStart(args []string) error {
 	flags := newFlags("test start")
 	name := flags.String("name", "", "test run name")
 	notes := flags.String("notes", "", "notes")
-	record := flags.Bool("capture", false, "also record packets")
-	full := flags.Bool("full", false, "record whole packets (implies --capture) so TLS server names and certificates are analyzed")
+	record := flags.Bool("capture", false, "also record packets (whole packets, so domains are visible)")
+	full := flags.Bool("full", false, "same as --capture (whole packets are the default)")
+	headersOnly := flags.Bool("headers-only", false, "record only the first 256 bytes of each packet (implies --capture; no domains)")
 	positional, err := parseFlags("test", flags, args)
 	if err != nil {
 		return err
@@ -50,8 +51,8 @@ func (c *cli) testStart(args []string) error {
 	if err != nil {
 		return err
 	}
-	payload := map[string]any{"device": strings.TrimSpace(positional[0]), "capture": *record || *full}
-	if *full {
+	payload := map[string]any{"device": strings.TrimSpace(positional[0]), "capture": *record || *full || *headersOnly}
+	if (*record || *full) && !*headersOnly {
 		payload["full_capture"] = true
 	}
 	if *name != "" {
@@ -359,7 +360,7 @@ func (c *cli) renderReportText(report deviceReport) {
 		for _, protocol := range report.Protocols {
 			if protocol.Protocol == "TLS" && protocol.Flows > 0 {
 				c.printf("%s %s TLS flows, but no handshake details: the capture kept only packet headers.\n", c.style(styleYellow, "!"), humanCount(protocol.Flows))
-				c.printf("  For TLS server names and certificates: shakerproxy test start %s --full\n", quoteRef(orText(report.Device.FriendlyName, report.Device.DeviceID)))
+				c.printf("  For TLS server names and certificates: shakerproxy test start %s --capture\n", quoteRef(orText(report.Device.FriendlyName, report.Device.DeviceID)))
 				break
 			}
 		}

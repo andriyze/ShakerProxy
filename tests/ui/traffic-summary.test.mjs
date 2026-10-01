@@ -103,3 +103,20 @@ test("numeric Suricata alert severity never breaks the traffic table", () => {
   assert.equal(eventTone({ kind: "suricata.alert", alert_signature: "x", alert_severity: 3 }), "")
   assert.equal(eventTone({ kind: "shakerproxy.detection.x", detection_type: "rogue_dhcp", detection_severity: "critical" }), "alert")
 })
+
+test("the readable traffic list keeps one row per connection and lookup", async () => {
+  const { isAnalyzerDuplicate } = await import("../../apps/web-ui/src/lib/eventSummary.ts")
+  for (const kind of ["suricata.flow", "suricata.dns", "suricata.mdns", "zeek.weird"]) assert.equal(isAnalyzerDuplicate({ kind }), true, kind)
+  assert.equal(isAnalyzerDuplicate({ kind: "zeek.conn", service: "dns" }), true)
+  for (const event of [{ kind: "zeek.conn", service: "ssl" }, { kind: "zeek.dns" }, { kind: "zeek.ssl" }, { kind: "suricata.alert" }, { kind: "tls_intercepted" }])
+    assert.equal(isAnalyzerDuplicate(event), false, event.kind)
+})
+
+test("rows say what an event is in plain words, not which analyzer wrote it", async () => {
+  const { eventTypeLabel } = await import("../../apps/web-ui/src/lib/eventSummary.ts")
+  assert.equal(eventTypeLabel({ kind: "zeek.dns", dns_query: "x.com" }), "DNS")
+  assert.equal(eventTypeLabel({ kind: "zeek.conn", tls_server_name: "x.com" }), "Connection")
+  assert.equal(eventTypeLabel({ kind: "suricata.alert", alert_signature: "ET POLICY" }), "Alert")
+  assert.equal(eventTypeLabel({ kind: "http_request", http_host: "x.com" }), "Web request")
+  assert.equal(eventTypeLabel({ kind: "tls_intercepted", tls_interception_state: "INTERCEPTED" }), "HTTPS")
+})

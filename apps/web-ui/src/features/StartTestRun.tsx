@@ -9,7 +9,7 @@ export function StartTestRunForm({ fixedDevice, onStarted, submitLabel = "Start 
   const [picked, setPicked] = useState<DeviceChoice | null>(null)
   const [name, setName] = useState("")
   const [capture, setCapture] = useState(false)
-  const [fullCapture, setFullCapture] = useState(false)
+  const [fullCapture, setFullCapture] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const nameID = useId()
@@ -31,7 +31,7 @@ export function StartTestRunForm({ fixedDevice, onStarted, submitLabel = "Start 
       const session = await api<TestSession>("/api/v1/test-sessions", { method: "POST", body: JSON.stringify(body) })
       setName("")
       setCapture(false)
-      setFullCapture(false)
+      setFullCapture(true)
       if (!fixedDevice) setPicked(null)
       onStarted(session)
     } catch (reason) {
@@ -61,7 +61,7 @@ export function StartTestRunForm({ fixedDevice, onStarted, submitLabel = "Start 
       {capture && (
         <label className="lgf-checkbox">
           <input type="checkbox" checked={fullCapture} onChange={(event) => setFullCapture(event.target.checked)} />
-          Record whole packets, so TLS server names and certificates are analyzed (larger files; includes unencrypted content)
+          Record whole packets, so domains, TLS server names and certificates are visible (larger files; includes unencrypted content)
         </label>
       )}
       {error && (

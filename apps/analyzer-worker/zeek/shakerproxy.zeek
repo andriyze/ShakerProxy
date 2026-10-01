@@ -41,3 +41,32 @@ redef Site::local_nets += {
 
 # Keep analyzer violation excerpts short; they may contain payload bytes.
 redef Analyzer::Logging::failure_data_max_size = 40;
+
+# conn.log: the name the client asked for (TLS or QUIC server name, else the
+# HTTP Host), so a connection is shown by the domain it reached rather than
+# by an address. The QUIC analyzer deletes c$quic once it logs, so the name
+# is kept on the connection when the client sends it; the connection record
+# is written at priority -5.
+redef record Conn::Info += {
+	server_name: string &optional &log;
+};
+
+redef record connection += {
+	shakerproxy_server_name: string &optional;
+};
+
+event ssl_extension_server_name(c: connection, is_client: bool, names: string_vec) &priority=4
+	{
+	if ( is_client && |names| > 0 && names[0] != "" )
+		c$shakerproxy_server_name = names[0];
+	}
+
+event connection_state_remove(c: connection) &priority=0
+	{
+	if ( ! c?$conn )
+		return;
+	if ( c?$shakerproxy_server_name )
+		c$conn$server_name = c$shakerproxy_server_name;
+	else if ( c?$http && c$http?$host && c$http$host != "" )
+		c$conn$server_name = split_string1(c$http$host, /:/)[0];
+	}

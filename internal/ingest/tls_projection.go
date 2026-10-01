@@ -150,7 +150,9 @@ func tlsPlatform(value any) string {
 func passiveTLSServerName(envelope Envelope) string {
 	// QUIC carries a TLS ClientHello too: Zeek logs it in quic.log and
 	// Suricata in its quic object.
-	if envelope.Source == SourceZeek && envelope.Kind != "zeek.ssl" && envelope.Kind != "zeek.quic" {
+	// ShakerProxy's Zeek policy also copies the name onto conn.log, so a
+	// connection row can show the domain it reached.
+	if envelope.Source == SourceZeek && envelope.Kind != "zeek.ssl" && envelope.Kind != "zeek.quic" && envelope.Kind != "zeek.conn" {
 		return ""
 	}
 	type sniObject struct {
