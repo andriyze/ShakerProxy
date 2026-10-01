@@ -104,10 +104,10 @@ ShakerProxy sends no telemetry and needs no account. It contacts other systems o
   `1.1.1.1` on TCP/443 and TCP/53 without sending a DNS question. Nothing else is sent.
 - **DNS forwarding** sends lab devices' queries to the upstream resolvers the administrator
   configures.
-- **Cloud connector** (optional, off by default) talks to a control plane only after an
-  administrator enrols the appliance, and uploads only bounded metadata (device inventory,
-  protocol summaries and event metadata). Raw packets, decrypted content and private keys stay
-  on the appliance.
+- **Cloud connector** (optional) stays idle and connects nowhere until an administrator
+  enrols the appliance. Only then does it talk to a control plane, uploading only bounded
+  metadata (device inventory, protocol summaries and event metadata). Raw packets, decrypted
+  content and private keys stay on the appliance.
 - **AI agents** reach ShakerProxy only through the local MCP server with a token an administrator
   creates; ShakerProxy itself does not call any AI provider.
 
