@@ -36,6 +36,29 @@ type Checker struct {
 	Now   func() time.Time
 }
 
+const (
+	// rollbackMargin ends health checks before the watchdog deadline, so a
+	// failed check rolls back and releases the configuration lock while the
+	// independent watchdog can still take over.
+	rollbackMargin = 40 * time.Second
+	// minimumCheckTime is the least time health checks get on a short window.
+	minimumCheckTime = 15 * time.Second
+)
+
+// checkDeadline is when health checks give up: rollbackMargin before the
+// watchdog deadline, but never sooner than minimumCheckTime from now and
+// never after the deadline itself.
+func checkDeadline(now, confirmBy time.Time) time.Time {
+	deadline := confirmBy.Add(-rollbackMargin)
+	if earliest := now.Add(minimumCheckTime); deadline.Before(earliest) {
+		deadline = earliest
+	}
+	if deadline.After(confirmBy) {
+		deadline = confirmBy
+	}
+	return deadline
+}
+
 func (c Checker) Check(ctx context.Context, staged networkplan.StagedPlan) (networktransaction.HealthReport, error) {
 	if c.Probe == nil {
 		return networktransaction.HealthReport{}, errors.New("network health probe is required")
@@ -46,7 +69,11 @@ func (c Checker) Check(ctx context.Context, staged networkplan.StagedPlan) (netw
 	if staged.Transaction.ConfirmBy == nil {
 		return networktransaction.HealthReport{}, errors.New("health validation requires a watchdog deadline")
 	}
-	probeContext, cancel := context.WithDeadline(ctx, *staged.Transaction.ConfirmBy)
+	now := time.Now
+	if c.Now != nil {
+		now = c.Now
+	}
+	probeContext, cancel := context.WithDeadline(ctx, checkDeadline(now(), *staged.Transaction.ConfirmBy))
 	defer cancel()
 	type probeCase struct {
 		name networktransaction.CheckName
@@ -84,10 +111,6 @@ func (c Checker) Check(ctx context.Context, staged networkplan.StagedPlan) (netw
 		checks = append(checks, networktransaction.HealthCheck{Name: networktransaction.CheckDHCP4, Status: networktransaction.CheckSkip, Detail: "managed DHCPv4 is intentionally disabled for this topology"})
 	}
 	checks = append(checks, c.ipv6Check(probeContext, staged))
-	now := time.Now
-	if c.Now != nil {
-		now = c.Now
-	}
 	report := networktransaction.HealthReport{CheckedAt: now().UTC(), Checks: checks}
 	if err := report.Validate(); err != nil {
 		return networktransaction.HealthReport{}, err

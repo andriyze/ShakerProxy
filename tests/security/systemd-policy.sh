@@ -27,6 +27,14 @@ readonly RELEASE_SCHEMA="packaging/release-manifest.schema.json"
 [[ -f "$HOSTAPD_UNIT" ]] || { printf 'missing Wi-Fi access point unit: %s\n' "$HOSTAPD_UNIT" >&2; exit 1; }
 [[ -f "$RADVD_UNIT" ]] || { printf 'missing radvd unit: %s\n' "$RADVD_UNIT" >&2; exit 1; }
 
+for netplan_operation in generate apply; do
+  netplan_unit="host/systemd/shakerproxy-netplan-${netplan_operation}.service"
+  [[ -f "$netplan_unit" ]] || { printf 'missing Netplan unit: %s\n' "$netplan_unit" >&2; exit 1; }
+  grep -Fqx -- "ExecStart=/usr/sbin/netplan ${netplan_operation}" "$netplan_unit" || { printf 'Netplan unit must run exactly netplan %s: %s\n' "$netplan_operation" "$netplan_unit" >&2; exit 1; }
+  grep -Fqx -- 'Type=oneshot' "$netplan_unit" || { printf 'Netplan unit must be a oneshot: %s\n' "$netplan_unit" >&2; exit 1; }
+  ! grep -q '^\[Install\]' "$netplan_unit" || { printf 'Netplan unit must stay static (no [Install]): %s\n' "$netplan_unit" >&2; exit 1; }
+done
+
 require_exact() {
   grep -Fqx -- "$1" "$UNIT" || { printf 'required systemd policy is missing: %s\n' "$1" >&2; exit 1; }
 }

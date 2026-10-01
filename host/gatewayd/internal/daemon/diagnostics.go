@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"os/exec"
@@ -133,7 +134,10 @@ func (s *Server) inspectDiagnostics(ctx context.Context) gatewayprotocol.Diagnos
 	active := state.activeNetworkPlan()
 	dhcpRequired := state.OperatingMode == gatewayprotocol.ModeRouted && active != nil && active.Plan.IPv4.Enabled
 	dhcpActive, dhcpKnown := diagnosticServiceActive(ctx, "shakerproxy-dhcp4.service")
-	if !dhcpRequired {
+	if keaDirectoryBlocked() {
+		// Network plans back up and write the DHCPv4 file in /etc/kea.
+		add(diagnosticCheck("dhcp", gatewayprotocol.DiagnosticFail, "The gateway service cannot open /etc/kea, so network plans cannot be applied", "Kea 3 makes /etc/kea owned by _kea; fix it with: sudo chown root /etc/kea"))
+	} else if !dhcpRequired {
 		add(diagnosticCheck("dhcp", gatewayprotocol.DiagnosticPass, "Managed DHCPv4 is not required by the active mode"))
 	} else if !dhcpKnown {
 		add(diagnosticCheck("dhcp", gatewayprotocol.DiagnosticUnknown, "Managed DHCPv4 service state is unavailable"))
@@ -520,4 +524,11 @@ func enabledDiagnosticValue(value bool) string {
 		return "available"
 	}
 	return "unavailable"
+}
+
+// keaDirectoryBlocked reports whether this daemon, which runs without
+// CAP_DAC_OVERRIDE, is denied access to the managed DHCPv4 file's directory.
+func keaDirectoryBlocked() bool {
+	_, err := os.Lstat("/etc/kea/kea-dhcp4.conf")
+	return errors.Is(err, fs.ErrPermission)
 }

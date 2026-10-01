@@ -233,6 +233,46 @@ idempotency key. Passwords never enter privileged RPC parameters. The browser
 sends the heartbeat through a separate authenticated request and must later
 confirm explicitly. Development gateway containers do not enable these methods.
 
+## NetworkManager hosts
+
+ShakerProxy targets Ubuntu Server, where systemd-networkd manages the network.
+Ubuntu Desktop uses NetworkManager instead, and every plan runs `netplan apply`,
+which restarts NetworkManager and drops its interfaces for a few seconds. The
+health checks then fail and the change rolls back. **Check this plan** therefore
+refuses an interface that NetworkManager manages (`NETWORK_MANAGER_OWNS_INTERFACE`).
+
+Use Ubuntu Server, or hand the selected ports to systemd-networkd first. For a
+port `ens18` that gets its address by DHCP:
+
+```bash
+# 1. Let systemd-networkd render ens18. A per-device renderer is needed because
+#    the desktop's /usr/lib/netplan/00-network-manager-all.yaml makes
+#    NetworkManager the default.
+sudo tee /etc/netplan/00-installer-config.yaml >/dev/null <<'YAML'
+network:
+  version: 2
+  ethernets:
+    ens18:
+      renderer: networkd
+      dhcp4: true
+      dhcp-identifier: mac
+YAML
+sudo chmod 600 /etc/netplan/00-installer-config.yaml
+# 2. Tell NetworkManager to leave ens18 alone.
+printf '[keyfile]\nunmanaged-devices=interface-name:ens18\n' | sudo tee /etc/NetworkManager/conf.d/99-shakerproxy-unmanaged.conf >/dev/null
+sudo systemctl enable --now systemd-networkd
+sudo netplan apply && sudo nmcli general reload conf
+networkctl list ens18    # SETUP must say "configured"
+```
+
+Keep a console open while you do this. `dhcp-identifier: mac` keeps the DHCP
+address the port had under NetworkManager.
+
+ShakerProxy itself runs Netplan through two fixed units,
+`shakerproxy-netplan-generate.service` and `shakerproxy-netplan-apply.service`,
+so Netplan has the privileges it has at boot while the gateway daemon keeps only
+`CAP_NET_ADMIN`.
+
 ## Turning the lab off
 
 A confirmed plan stays in force until you turn the lab network off: **Turn off

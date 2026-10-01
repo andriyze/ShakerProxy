@@ -200,11 +200,16 @@ func TestRollbackExecutorContinuesIndependentRecoverySteps(t *testing.T) {
 }
 
 func TestRollbackCommandAllowlistIsExact(t *testing.T) {
-	if !allowedRollbackCommand("/usr/sbin/netplan", []string{"generate"}) || !allowedRollbackCommand("/usr/sbin/netplan", []string{"apply"}) {
-		t.Fatal("fixed Netplan rollback commands were rejected")
+	if !allowedRollbackCommand("/usr/bin/systemctl", []string{"start", "shakerproxy-netplan-generate.service"}) || !allowedRollbackCommand("/usr/bin/systemctl", []string{"start", "shakerproxy-netplan-apply.service"}) {
+		t.Fatal("fixed Netplan units were rejected")
 	}
-	if allowedRollbackCommand("/usr/sbin/netplan", []string{"try"}) {
-		t.Fatal("unapproved Netplan command was allowlisted")
+	// Netplan must not run inside the caller's sandbox, where it cannot give
+	// its generated files to systemd-network.
+	if allowedRollbackCommand("/usr/sbin/netplan", []string{"generate"}) || allowedRollbackCommand("/usr/sbin/netplan", []string{"apply"}) || allowedRollbackCommand("/usr/sbin/netplan", []string{"try"}) {
+		t.Fatal("netplan was allowed to run directly")
+	}
+	if allowedRollbackCommand("/usr/bin/systemctl", []string{"start", "ssh.service"}) || allowedRollbackCommand("/usr/bin/systemctl", []string{"start", "shakerproxy-netplan-apply.service", "--no-block"}) {
+		t.Fatal("unapproved systemctl command was allowlisted")
 	}
 	if !allowedRollbackCommand("/usr/sbin/sysctl", []string{"-w", "net.ipv4.ip_forward=0"}) || allowedRollbackCommand("/usr/sbin/sysctl", []string{"-w", "net.ipv4.conf.all.forwarding=0"}) {
 		t.Fatal("sysctl allowlist is incorrect")

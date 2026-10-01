@@ -194,11 +194,25 @@ func (m OSRollbackMachine) RemoveShakerProxyFirewall(ctx context.Context, iptabl
 }
 
 func (OSRollbackMachine) ReloadNetplan(ctx context.Context) error {
-	if result, err := runRollbackCommand(ctx, "/usr/sbin/netplan", []string{"generate"}); err != nil || result.exitCode != 0 {
-		return commandResultError("netplan generate", result, err)
+	if err := runNetplanUnit(ctx, netplanGenerateUnit); err != nil {
+		return err
 	}
-	if result, err := runRollbackCommand(ctx, "/usr/sbin/netplan", []string{"apply"}); err != nil || result.exitCode != 0 {
-		return commandResultError("netplan apply", result, err)
+	return runNetplanUnit(ctx, netplanApplyUnit)
+}
+
+// Netplan runs through fixed oneshot units rather than inside the caller's
+// sandbox. "netplan generate" gives the files it writes under /run to
+// systemd-network; without CAP_CHOWN they stay unreadable to systemd-networkd,
+// which then drops the interface (and its DHCP lease).
+const (
+	netplanGenerateUnit = "shakerproxy-netplan-generate.service"
+	netplanApplyUnit    = "shakerproxy-netplan-apply.service"
+)
+
+func runNetplanUnit(ctx context.Context, unit string) error {
+	result, err := runRollbackCommand(ctx, "/usr/bin/systemctl", []string{"start", unit})
+	if err != nil || result.exitCode != 0 {
+		return commandResultError("systemctl start "+unit+" (see journalctl -u "+unit+")", result, err)
 	}
 	return nil
 }
@@ -343,10 +357,7 @@ func runRollbackCommand(ctx context.Context, path string, arguments []string) (r
 func allowedRollbackCommand(path string, arguments []string) bool {
 	joined := strings.Join(arguments, "\x00")
 	if path == "/usr/bin/systemctl" {
-		return joined == "disable\x00--now\x00shakerproxy-dhcp4.service"
-	}
-	if path == "/usr/sbin/netplan" {
-		return joined == "generate" || joined == "apply"
+		return joined == "disable\x00--now\x00shakerproxy-dhcp4.service" || joined == "start\x00"+netplanGenerateUnit || joined == "start\x00"+netplanApplyUnit
 	}
 	if path == "/usr/sbin/sysctl" {
 		if joined == "-w\x00net.ipv4.ip_forward=0" || joined == "-w\x00net.ipv4.ip_forward=1" {

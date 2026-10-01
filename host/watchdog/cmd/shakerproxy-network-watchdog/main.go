@@ -56,7 +56,9 @@ func main() {
 	store := networktransaction.FileStore{Root: networktransaction.DefaultTransactionRoot}
 	executor := networkapply.RollbackExecutor{Store: store, HostRoot: "/", Machine: networkapply.OSRollbackMachine{}, DHCP4: networkapply.OSDHCP4Service{}, AccessPoint: networkapply.OSAccessPointService{}, IPv6: networkapply.OSIPv6Machine{}}
 	rollback := func(rollbackContext context.Context, manifest networktransaction.WatchdogManifest) error {
-		lockContext, cancel := context.WithTimeout(context.WithoutCancel(rollbackContext), 30*time.Second)
+		// The gateway daemon holds the lock while it finishes its own health
+		// checks and rollback; wait long enough for that to end.
+		lockContext, cancel := context.WithTimeout(context.WithoutCancel(rollbackContext), 2*time.Minute)
 		defer cancel()
 		guard, err := (configlock.Manager{}).Acquire(lockContext, configlock.Request{OperationID: "network-" + strings.TrimPrefix(*applyID, "apply-"), Category: configlock.CategoryNetwork, Actor: "watchdog"})
 		if err != nil {

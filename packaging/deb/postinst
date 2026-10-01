@@ -54,6 +54,13 @@ if [ "$1" = "configure" ]; then
   if [ -d /run/systemd/system ]; then
     systemctl disable --now kea-dhcp4-server.service >/dev/null 2>&1 || true
   fi
+  # Kea 3 (Ubuntu 26.04) ships /etc/kea owned by _kea with mode 0750. The
+  # gateway daemon runs as root without CAP_DAC_OVERRIDE and reads and writes
+  # the managed DHCPv4 file there, so root owns the directory; Kea keeps
+  # access through the directory's group.
+  if [ -d /etc/kea ] && [ "$(stat -c %U /etc/kea)" = _kea ]; then
+    chown root /etc/kea
+  fi
   systemctl enable shakerproxy-gatewayd.service >/dev/null
   systemctl enable shakerproxy-dnsd.service >/dev/null
   systemctl enable shakerproxy-app.service >/dev/null

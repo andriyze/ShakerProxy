@@ -392,6 +392,17 @@ func (s *StateStore) ReconcileNetworkOutcome(files networktransaction.FileStore)
 }
 
 func (s *StateStore) RecoverUnarmedNetworkTransaction(applyID string, now time.Time) (networkplan.StagedPlan, error) {
+	return s.closeUnarmedNetworkTransaction(applyID, now, "daemon restarted before watchdog arming")
+}
+
+// FailUnarmedNetworkTransaction closes a transaction that failed before its
+// watchdog was armed (nothing on the host changed yet) and records why, so
+// the change does not stay "preparing" until the daemon restarts.
+func (s *StateStore) FailUnarmedNetworkTransaction(applyID string, now time.Time, reason string) (networkplan.StagedPlan, error) {
+	return s.closeUnarmedNetworkTransaction(applyID, now, reason)
+}
+
+func (s *StateStore) closeUnarmedNetworkTransaction(applyID string, now time.Time, reason string) (networkplan.StagedPlan, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	staged, err := s.stagedForUpdateLocked(applyID)
@@ -410,7 +421,7 @@ func (s *StateStore) RecoverUnarmedNetworkTransaction(applyID string, now time.T
 	}
 	switch record.Phase {
 	case networktransaction.PhasePreparing:
-		record, err = record.RequireRollback("daemon restarted before watchdog arming")
+		record, err = record.RequireRollback(reason)
 		if err == nil {
 			record, err = record.BeginRollback(now)
 		}

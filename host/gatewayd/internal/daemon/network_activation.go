@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -56,6 +57,7 @@ type NetworkActivation struct {
 	Secret      []byte
 	Now         func() time.Time
 	ConfigLock  *configlock.Manager
+	Logger      *slog.Logger
 
 	// Runtime re-establishes a confirmed plan's kernel runtime state after
 	// a reboot and whenever it drifts.
@@ -231,6 +233,18 @@ func (a *NetworkActivation) runCommit(ctx context.Context, applyID string, windo
 	if err == nil {
 		staged, err = a.Coordinator(window).Apply(ctx, applyID)
 	}
+	if err != nil {
+		a.logger().Error("network change failed", "apply_id", applyID, "error", err)
+		// A failure before the watchdog was armed changed nothing on the
+		// host; close it with the reason instead of leaving it "preparing".
+		if current := a.Store.Get().StagedNetworkPlan; current != nil && current.ApplyID == applyID && current.Transaction != nil && current.Transaction.Phase == networktransaction.PhasePreparing {
+			if closed, closeErr := a.Store.FailUnarmedNetworkTransaction(applyID, a.now(), "could not start the network change: "+boundedActivationFailure(err)); closeErr == nil {
+				staged = closed
+			} else {
+				a.logger().Error("could not record the failed network change", "apply_id", applyID, "error", closeErr)
+			}
+		}
+	}
 	if guard != nil {
 		_ = guard.Release()
 	}
@@ -250,6 +264,13 @@ func (a *NetworkActivation) runCommit(ctx context.Context, applyID string, windo
 		intent.result.Failure = boundedActivationFailure(err)
 	}
 	close(intent.done)
+}
+
+func (a *NetworkActivation) logger() *slog.Logger {
+	if a.Logger != nil {
+		return a.Logger
+	}
+	return slog.Default()
 }
 
 func (a *NetworkActivation) deriveToken(applyID, planHash, idempotencyKey string) string {
