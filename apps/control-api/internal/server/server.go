@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -91,6 +92,8 @@ type Server struct {
 	logger                      *slog.Logger
 	inventory                   *deviceinventory.Store
 	keaLeasePath                string
+	leaseReadProblem            sync.Mutex
+	lastLeaseReadProblem        string
 	eventReader                 ingest.RecentEventReader
 	liveEventReader             ingest.LiveEventReader
 	ingestStatus                ingest.StatusReader
@@ -2031,15 +2034,41 @@ func (s *Server) refreshInventory() (deviceinventory.Snapshot, error) {
 	if s.keaLeasePath == "" {
 		return s.inventory.Snapshot()
 	}
-	leases, err := deviceinventory.ReadKeaDHCP4Leases(s.keaLeasePath)
-	if errors.Is(err, os.ErrNotExist) {
+	leases, err := readKeaDHCP4Leases(s.keaLeasePath)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+		// Without ShakerProxy DHCP (a single-arm lab, or before the DHCP
+		// service first runs) the lease file is missing or still owned by
+		// Kea's own package. Devices are then found from the gateway's
+		// neighbor tables alone, so an unreadable file must not hide them.
+		// Malformed lease contents remain an error.
+		if errors.Is(err, fs.ErrPermission) {
+			s.noteLeaseReadProblem(err)
+		}
 		return s.withNeighborEvidence(s.inventory.Snapshot())
 	}
 	if err != nil {
 		return deviceinventory.Snapshot{}, err
 	}
+	s.noteLeaseReadProblem(nil)
 	s.scopeDHCP4Leases(leases)
 	return s.withNeighborEvidence(s.inventory.ReconcileDHCP4(leases))
+}
+
+// readKeaDHCP4Leases is replaced in tests.
+var readKeaDHCP4Leases = deviceinventory.ReadKeaDHCP4Leases
+
+// noteLeaseReadProblem logs a lease-file problem once, and its recovery.
+func (s *Server) noteLeaseReadProblem(err error) {
+	s.leaseReadProblem.Lock()
+	defer s.leaseReadProblem.Unlock()
+	switch {
+	case err == nil && s.lastLeaseReadProblem != "":
+		s.logger.Info("DHCP lease file is readable again")
+		s.lastLeaseReadProblem = ""
+	case err != nil && err.Error() != s.lastLeaseReadProblem:
+		s.logger.Warn("DHCP lease file is unreadable; devices are discovered from the gateway's neighbor tables only", "error", err)
+		s.lastLeaseReadProblem = err.Error()
+	}
 }
 
 func (s *Server) scopeDHCP4Leases(leases []deviceinventory.DHCP4Lease) {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -113,5 +114,35 @@ func TestInventorySyncAddsIPv4ARPEvidenceForClientsWithoutLeases(t *testing.T) {
 	}
 	if len(methods) != 2 || methods[0] != "GetNeighbors" || methods[1] != "GetIPv4Neighbors" {
 		t.Fatalf("unexpected gateway calls: %v", methods)
+	}
+}
+
+func TestInventorySyncFindsDevicesWhenTheLeaseFileIsUnreadable(t *testing.T) {
+	directory := t.TempDir()
+	socketPath := filepath.Join(directory, "gateway.sock")
+	server, _ := configuredAPIServer(t, socketPath)
+	server.inventory = &inventory.Store{Path: filepath.Join(directory, "inventory.json")}
+	server.keaLeasePath = filepath.Join(directory, "kea-leases4.csv")
+	// Kea 3 on Ubuntu 26.04 owns /var/lib/kea as _kea 0750; without
+	// ShakerProxy DHCP the control API cannot read the lease file.
+	previous := readKeaDHCP4Leases
+	readKeaDHCP4Leases = func(string) ([]inventory.DHCP4Lease, error) {
+		return nil, &fs.PathError{Op: "lstat", Path: server.keaLeasePath, Err: fs.ErrPermission}
+	}
+	t.Cleanup(func() { readKeaDHCP4Leases = previous })
+	observedAt := time.Now().UTC().Truncate(time.Second)
+	inactive := gatewayprotocol.NeighborTable{Schema: gatewayprotocol.NeighborTableSchema, ObservedAt: observedAt, Neighbors: []gatewayprotocol.Neighbor{}}
+	arp := gatewayprotocol.NeighborTable{
+		Schema: gatewayprotocol.NeighborTableSchema, Family: gatewayprotocol.NeighborFamilyIPv4, Active: true, Interface: "ens18", ScopePlanHash: activationTestPlanHash,
+		LabPrefix: "192.168.10.0/24", ObservedAt: observedAt,
+		Neighbors: []gatewayprotocol.Neighbor{{Address: "192.168.10.201", HardwareAddress: "8a:23:46:10:cf:33", State: "REACHABLE", LastConfirmedAt: observedAt.Add(-time.Second)}},
+	}
+	startGatewaySequenceStub(t, socketPath, inactive, arp)
+	snapshot, err := server.refreshInventory()
+	if err != nil {
+		t.Fatalf("an unreadable lease file must not stop device discovery: %v", err)
+	}
+	if len(snapshot.Devices) != 1 || snapshot.Devices[0].Addresses[0].Address != "192.168.10.201" {
+		t.Fatalf("the phone seen in the ARP table did not appear: %#v", snapshot.Devices)
 	}
 }
