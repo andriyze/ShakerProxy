@@ -35,6 +35,9 @@ func main() {
 	var traffic *daemon.TrafficPolicyManager
 	if *enableNetworkApply {
 		activation, err := daemon.NewProductionNetworkActivation(store)
+		if activation != nil {
+			activation.Logger = logger
+		}
 		if err != nil {
 			logger.Error("network activation unavailable", "error", err)
 			os.Exit(1)

@@ -1035,7 +1035,8 @@ func (s *Server) validateNetworkPlan(ctx context.Context, plan networkplan.Plan)
 		observed = append(observed, networkplan.ObservedInterface{CurrentName: iface.Name, StableID: iface.StableID, Addresses: iface.Addresses, DefaultIPv4: iface.DefaultIPv4, DefaultIPv6: iface.DefaultIPv6, CloudInitManaged: host.NetworkConfig.CloudInitManaged})
 	}
 	result := networkplan.ValidateWithObservedSSH(plan, observed, host.ActiveSSH)
-	return networkplan.ValidateWiFiHost(result, plan, wifiHostEvidence(ctx, plan, host, hostapdInstalled, networkManagerActive)), host, nil
+	result = networkplan.ValidateWiFiHost(result, plan, wifiHostEvidence(ctx, plan, host, hostapdInstalled, networkManagerActive))
+	return networkplan.ValidateNetworkManagerHost(result, plan, networkManagerEvidence(ctx)), host, nil
 }
 
 func inspectNetworkConfiguration() gatewayprotocol.NetworkConfiguration {

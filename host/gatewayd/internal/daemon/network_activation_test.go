@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"shakerproxy.dev/shakerproxy/internal/gatewayprotocol"
 	"shakerproxy.dev/shakerproxy/internal/networkhealth"
 	"shakerproxy.dev/shakerproxy/internal/networkplan"
+	"shakerproxy.dev/shakerproxy/internal/networktransaction"
 )
 
 type fakeActivationCoordinator struct {
@@ -224,5 +226,54 @@ func TestSupportedUbuntuVersion(t *testing.T) {
 		if actual := supportedUbuntuVersion(version); actual != expected {
 			t.Fatalf("supportedUbuntuVersion(%q) = %t, want %t", version, actual, expected)
 		}
+	}
+}
+
+type failingSnapshotter struct{}
+
+func (failingSnapshotter) Capture(networkplan.StagedPlan) (networktransaction.RollbackSpec, error) {
+	return networktransaction.RollbackSpec{}, errors.New("inspect managed DHCPv4 configuration file: lstat /etc/kea/kea-dhcp4.conf: permission denied")
+}
+
+func TestNetworkCommitRecordsAFailureBeforeTheWatchdogIsArmed(t *testing.T) {
+	coordinator, staged, watchdog, _, _ := coordinatorFixture(t)
+	coordinator.Snapshotter = failingSnapshotter{}
+	activation := &NetworkActivation{
+		Store:      coordinator.Store,
+		Heartbeats: &networkhealth.HeartbeatGate{Now: coordinator.Now},
+		Secret:     bytes.Repeat([]byte{0x55}, activationSecretBytes),
+		Now:        coordinator.Now,
+		Coordinator: func(window time.Duration) transactionCoordinator {
+			c := coordinator
+			c.RollbackWindow = window
+			return c
+		},
+	}
+	params := gatewayprotocol.CommitNetworkPlanParams{ApplyID: staged.ApplyID, PlanHash: staged.PlanHash, IdempotencyKey: "network-commit-request-0001", RollbackWindowSeconds: 120}
+	if _, err := activation.Commit(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	activation.mu.Lock()
+	done := activation.commits[staged.ApplyID].done
+	activation.mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("commit did not finish")
+	}
+	transaction := coordinator.Store.Get().StagedNetworkPlan.Transaction
+	if transaction.Phase != networktransaction.PhaseRolledBack || !strings.Contains(transaction.Failure, "permission denied") {
+		t.Fatalf("a failure before arming must close the change with its reason, got phase=%s failure=%q", transaction.Phase, transaction.Failure)
+	}
+	if watchdog.arms != 0 {
+		t.Fatalf("the watchdog must not be armed after a snapshot failure, armed=%d", watchdog.arms)
+	}
+}
+
+func TestParseNetworkctlList(t *testing.T) {
+	output := "  1 lo              loopback carrier     unmanaged\n  2 ens18           ether    routable    configured\n  3 wlan0           wlan     no-carrier  unmanaged\n"
+	got := parseNetworkctlList(output)
+	if !got["ens18"] || got["lo"] || got["wlan0"] || len(got) != 1 {
+		t.Fatalf("parseNetworkctlList = %v", got)
 	}
 }

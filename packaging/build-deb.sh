@@ -70,6 +70,8 @@ install -m 0755 "$ROOT/scripts/configure-cloud-server-trust.sh" "$PACKAGE_ROOT/u
 install -m 0644 "$ROOT/packaging/release-public.pem" "$PACKAGE_ROOT/usr/libexec/shakerproxy/release-public.pem"
 install -m 0644 "$ROOT/host/systemd/shakerproxy-gatewayd.service" "$PACKAGE_ROOT/lib/systemd/system/shakerproxy-gatewayd.service"
 install -m 0644 "$ROOT/host/systemd/shakerproxy-dhcp4.service" "$PACKAGE_ROOT/lib/systemd/system/shakerproxy-dhcp4.service"
+install -m 0644 "$ROOT/host/systemd/shakerproxy-netplan-generate.service" "$PACKAGE_ROOT/lib/systemd/system/shakerproxy-netplan-generate.service"
+install -m 0644 "$ROOT/host/systemd/shakerproxy-netplan-apply.service" "$PACKAGE_ROOT/lib/systemd/system/shakerproxy-netplan-apply.service"
 install -m 0644 "$ROOT/host/systemd/shakerproxy-capture@.service" "$PACKAGE_ROOT/lib/systemd/system/shakerproxy-capture@.service"
 install -m 0644 "$ROOT/host/systemd/shakerproxy-app.service" "$PACKAGE_ROOT/lib/systemd/system/shakerproxy-app.service"
 install -m 0644 "$ROOT/host/systemd/shakerproxy-cloud-connector.service" "$PACKAGE_ROOT/lib/systemd/system/shakerproxy-cloud-connector.service"

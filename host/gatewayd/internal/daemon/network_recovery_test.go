@@ -68,6 +68,30 @@ func TestRecoveryRollsBackExpiredTransactionBeforeServing(t *testing.T) {
 	}
 }
 
+func TestRecoveryStartsCleanlyAgainAfterARolledBackApply(t *testing.T) {
+	recovery, coordinator, staged, _, _ := recoveryFixture(t)
+	if _, err := coordinator.Apply(context.Background(), staged.ApplyID); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := coordinator.Files.ReadManifest(staged.ApplyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery.Now = func() time.Time { return manifest.ConfirmBy.Add(time.Second) }
+	if err := recovery.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// A later restart, such as a reboot, finds the outcome the rollback already
+	// recorded; it must start instead of failing on the newer timestamp.
+	recovery.Now = func() time.Time { return manifest.ConfirmBy.Add(time.Hour) }
+	if err := recovery.Recover(context.Background()); err != nil {
+		t.Fatalf("restart after a rolled-back apply failed: %v", err)
+	}
+	if phase := coordinator.Store.Get().StagedNetworkPlan.Transaction.Phase; phase != networktransaction.PhaseRolledBack {
+		t.Fatalf("phase after restart = %s, want ROLLED_BACK", phase)
+	}
+}
+
 func TestRecoveryHonorsDurableConfirmation(t *testing.T) {
 	recovery, coordinator, staged, watchdog, rollback := recoveryFixture(t)
 	if _, err := coordinator.Apply(context.Background(), staged.ApplyID); err != nil {

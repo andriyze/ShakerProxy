@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,6 +121,9 @@ func captureManagedFile(hostRoot, managedPath, directory, backupName, label stri
 		return managedFileSnapshot{}, nil
 	}
 	if err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return managedFileSnapshot{}, fmt.Errorf("inspect managed %s file: %w (the gateway service cannot open %s; run sudo shakerproxy doctor)", label, err, filepath.Dir(target))
+		}
 		return managedFileSnapshot{}, fmt.Errorf("inspect managed %s file: %w", label, err)
 	}
 	if !info.Mode().IsRegular() {

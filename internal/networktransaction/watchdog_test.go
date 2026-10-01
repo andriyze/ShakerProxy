@@ -73,6 +73,49 @@ func TestWatchdogRollsBackAtDeadlineAndPersistsOutcome(t *testing.T) {
 	_ = now
 }
 
+type hookWaiter func()
+
+func (h hookWaiter) WaitUntil(context.Context, time.Time) error {
+	h()
+	return nil
+}
+
+func TestWatchdogStandsDownWhenTheGatewayAlreadyRolledBack(t *testing.T) {
+	store, manifest, now := watchdogFixture(t)
+	gatewayOutcome := WatchdogOutcome{Schema: SchemaVersion, ApplyID: manifest.ApplyID, PlanHash: manifest.PlanHash, Status: "ROLLED_BACK", FinishedAt: now.Add(30 * time.Second).UTC()}
+	rollbacks := 0
+	watchdog := Watchdog{Store: store, Waiter: hookWaiter(func() {
+		// The gateway daemon rolls back and records its outcome while the
+		// watchdog waits for the deadline.
+		if err := store.WriteOutcome(gatewayOutcome); err != nil {
+			t.Fatal(err)
+		}
+	}), Rollback: func(context.Context, WatchdogManifest) error {
+		rollbacks++
+		return nil
+	}, Now: func() time.Time { return manifest.ConfirmBy }}
+	outcome, err := watchdog.Run(context.Background(), manifest.ApplyID)
+	if err != nil || outcome != gatewayOutcome || rollbacks != 0 {
+		t.Fatalf("watchdog did not stand down: outcome=%+v err=%v rollbacks=%d", outcome, err, rollbacks)
+	}
+}
+
+func TestWatchdogAcceptsTheGatewayRollbackWhenItCannotTakeTheLock(t *testing.T) {
+	store, manifest, now := watchdogFixture(t)
+	gatewayOutcome := WatchdogOutcome{Schema: SchemaVersion, ApplyID: manifest.ApplyID, PlanHash: manifest.PlanHash, Status: "ROLLED_BACK", FinishedAt: now.Add(30 * time.Second).UTC()}
+	watchdog := Watchdog{Store: store, Waiter: &fakeWaiter{}, Rollback: func(context.Context, WatchdogManifest) error {
+		// The gateway daemon holds the configuration lock while it rolls back.
+		if err := store.WriteOutcome(gatewayOutcome); err != nil {
+			t.Fatal(err)
+		}
+		return errors.New("appliance configuration is locked by network operation network-x")
+	}, Now: func() time.Time { return manifest.ConfirmBy }}
+	outcome, err := watchdog.Run(context.Background(), manifest.ApplyID)
+	if err != nil || outcome != gatewayOutcome {
+		t.Fatalf("watchdog reported a failure although the gateway rolled back: outcome=%+v err=%v", outcome, err)
+	}
+}
+
 func TestInterruptedWatchdogUsesFreshContextForRollback(t *testing.T) {
 	store, manifest, now := watchdogFixture(t)
 	waiter := &fakeWaiter{err: context.Canceled}

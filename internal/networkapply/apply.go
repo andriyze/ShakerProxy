@@ -160,11 +160,7 @@ func (OSDHCP4Service) EnsureDHCP4Enabled(ctx context.Context) error {
 type OSApplyMachine struct{}
 
 func (OSApplyMachine) GenerateNetplan(ctx context.Context) error {
-	result, err := runRollbackCommand(ctx, "/usr/sbin/netplan", []string{"generate"})
-	if err != nil || result.exitCode != 0 {
-		return commandResultError("netplan generate", result, err)
-	}
-	return nil
+	return runNetplanUnit(ctx, netplanGenerateUnit)
 }
 
 func (OSApplyMachine) SetIPv4Forwarding(ctx context.Context, value int) error {
@@ -176,11 +172,7 @@ func (OSApplyMachine) SetIPv4SendRedirects(ctx context.Context, interfaceName st
 }
 
 func (OSApplyMachine) ApplyNetplan(ctx context.Context) error {
-	result, err := runRollbackCommand(ctx, "/usr/sbin/netplan", []string{"apply"})
-	if err != nil || result.exitCode != 0 {
-		return commandResultError("netplan apply", result, err)
-	}
-	return nil
+	return runNetplanUnit(ctx, netplanApplyUnit)
 }
 
 func (OSApplyMachine) LoadShakerProxyFirewall(ctx context.Context, iptablesPath, restore string) error {

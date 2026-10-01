@@ -76,9 +76,15 @@ func (r NetworkRecovery) Recover(ctx context.Context) error {
 		return errors.New("confirmed network transaction is missing its durable confirmation")
 	}
 	if record.Phase == networktransaction.PhaseRolledBack {
-		outcome := networktransaction.WatchdogOutcome{Schema: networktransaction.SchemaVersion, ApplyID: manifest.ApplyID, PlanHash: manifest.PlanHash, Status: "ROLLED_BACK", FinishedAt: r.now()}
-		if err := r.Files.WriteOutcome(outcome); err != nil {
-			return fmt.Errorf("persist recovered rollback outcome: %w", err)
+		// The rollback that finished this transaction usually recorded its
+		// outcome already; recording it again with a new time must not stop
+		// the daemon from starting.
+		current, readErr := r.Files.ReadOutcome(manifest.ApplyID)
+		if readErr != nil || current.PlanHash != manifest.PlanHash || current.Status != "ROLLED_BACK" {
+			outcome := networktransaction.WatchdogOutcome{Schema: networktransaction.SchemaVersion, ApplyID: manifest.ApplyID, PlanHash: manifest.PlanHash, Status: "ROLLED_BACK", FinishedAt: r.now()}
+			if err := r.Files.WriteOutcome(outcome); err != nil {
+				return fmt.Errorf("persist recovered rollback outcome: %w", err)
+			}
 		}
 		_, err := r.Store.ReconcileNetworkOutcome(r.Files)
 		return err

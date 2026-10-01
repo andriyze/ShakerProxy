@@ -345,3 +345,21 @@ func TestOSProbeRejectsOversizedHostEvidence(t *testing.T) {
 		t.Fatal("oversized host evidence was accepted")
 	}
 }
+
+func TestHealthChecksEndBeforeTheWatchdogDeadline(t *testing.T) {
+	now := time.Unix(10_000, 0)
+	cases := []struct {
+		name      string
+		confirmBy time.Time
+		want      time.Time
+	}{
+		{"default three-minute window leaves the rollback margin", now.Add(3 * time.Minute), now.Add(3*time.Minute - rollbackMargin)},
+		{"short window still gets the minimum check time", now.Add(30 * time.Second), now.Add(minimumCheckTime)},
+		{"never past the watchdog deadline", now.Add(10 * time.Second), now.Add(10 * time.Second)},
+	}
+	for _, tc := range cases {
+		if got := checkDeadline(now, tc.confirmBy); !got.Equal(tc.want) {
+			t.Errorf("%s: checkDeadline = %s, want %s", tc.name, got.Sub(now), tc.want.Sub(now))
+		}
+	}
+}

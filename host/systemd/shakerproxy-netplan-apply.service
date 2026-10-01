@@ -1,0 +1,12 @@
+[Unit]
+Description=ShakerProxy: netplan apply for a network plan
+Documentation=https://github.com/andriyze/ShakerProxy/blob/main/docs/networking.md
+
+[Service]
+Type=oneshot
+# Netplan runs here, as it does at boot, instead of inside the gateway daemon's
+# sandbox: it must give the files it writes under /run to systemd-network, and
+# the daemon itself only holds CAP_NET_ADMIN. The daemon starts this unit with
+# "systemctl start" and waits for it; it takes no arguments.
+ExecStart=/usr/sbin/netplan apply
+TimeoutStartSec=120

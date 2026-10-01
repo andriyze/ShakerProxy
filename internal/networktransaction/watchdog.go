@@ -61,6 +61,11 @@ func (w Watchdog) Run(ctx context.Context, applyID string) (WatchdogOutcome, err
 	if confirmed && finalConfirmationErr == nil {
 		return w.finish(manifest, "CONFIRMED", "")
 	}
+	// The gateway daemon records its own rollback before it disarms the
+	// watchdog; a second rollback would only race it for the lock.
+	if current, err := w.Store.ReadOutcome(manifest.ApplyID); err == nil && current.PlanHash == manifest.PlanHash && current.Status == "ROLLED_BACK" {
+		return current, nil
+	}
 	rollbackCtx := ctx
 	rollbackCancel := func() {}
 	if waitErr != nil {
@@ -69,6 +74,11 @@ func (w Watchdog) Run(ctx context.Context, applyID string) (WatchdogOutcome, err
 	defer rollbackCancel()
 	rollbackErr := w.Rollback(rollbackCtx, manifest)
 	if rollbackErr != nil {
+		// The gateway daemon may have finished the same transaction while
+		// the watchdog waited for the configuration lock; its outcome stands.
+		if current, err := w.Store.ReadOutcome(manifest.ApplyID); err == nil && current.PlanHash == manifest.PlanHash && (current.Status == "ROLLED_BACK" || current.Status == "CONFIRMED") {
+			return current, nil
+		}
 		detail := rollbackErr.Error()
 		if waitErr != nil {
 			detail = "watchdog interrupted without durable confirmation: " + waitErr.Error() + "; rollback: " + detail
