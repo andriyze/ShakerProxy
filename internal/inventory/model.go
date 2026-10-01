@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -203,6 +204,24 @@ type Device struct {
 	AttributionConfidence int                   `json:"attribution_confidence"`
 	AttributionWarnings   []string              `json:"attribution_warnings,omitempty"`
 	LastReconciled        time.Time             `json:"last_reconciled"`
+}
+
+// MarshalJSON always writes identities, addresses and hostnames as lists:
+// a device seen only in the ARP table has no hostname, and clients rely on
+// an empty list rather than null.
+func (d Device) MarshalJSON() ([]byte, error) {
+	type plain Device
+	p := plain(d)
+	if p.Identities == nil {
+		p.Identities = []Identity{}
+	}
+	if p.Addresses == nil {
+		p.Addresses = []AddressObservation{}
+	}
+	if p.Hostnames == nil {
+		p.Hostnames = []HostnameObservation{}
+	}
+	return json.Marshal(p)
 }
 
 type DeviceMetadata struct {
