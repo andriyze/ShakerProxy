@@ -20,7 +20,10 @@ import (
 var (
 	packetCountPattern = regexp.MustCompile(`(?:Packets:|Packets captured:)\s*([0-9]+)`)
 	dropCountPattern   = regexp.MustCompile(`Packets received/dropped on interface '[^']+':\s*([0-9]+)/([0-9]+)\s*\(pcap:([0-9]+)/dumpcap:([0-9]+)/flushed:([0-9]+)/ps_ifdrop:([0-9]+)\)`)
-	outputFilePattern  = regexp.MustCompile(`^File:\s+(.+)$`)
+	// dumpcap 4.2 prints "File: <path>" on its own line at each rotation;
+	// dumpcap 4.6 (Ubuntu 26.04) appends it to the packet counter line,
+	// "Packets: 14 File: <path>".
+	outputFilePattern = regexp.MustCompile(`(?:^|\s)File:\s+(.+)$`)
 )
 
 func BuildDumpcapArguments(session Session, directory string, now time.Time) ([]string, error) {

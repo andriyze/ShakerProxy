@@ -57,6 +57,28 @@ func TestOutputTrackerPublishesOnlyPreviousDumpcapFile(t *testing.T) {
 	}
 }
 
+// dumpcap 4.6 (Ubuntu 26.04) reports a rotation on the packet counter line
+// rather than on its own line; missing it left every running capture's
+// segments unpublished, so analyzers never produced traffic events.
+func TestOutputTrackerDetectsDumpcap46RotationsOnTheCounterLine(t *testing.T) {
+	tracker := &captureOutputTracker{status: WorkerStatus{Schema: SchemaVersion}}
+	for _, line := range []string{
+		"Capturing on 'ens18'",
+		"File: /var/lib/shakerproxy/pcap/capture-x/artifacts/capture_00001_20261001092146.pcapng",
+		"Packets: 12",
+		"Packets: 14 File: /var/lib/shakerproxy/pcap/capture-x/artifacts/capture_00002_20261001092217.pcapng",
+		"Packets: 18",
+	} {
+		tracker.observe(line)
+	}
+	if closed := tracker.drainClosedFiles(); !reflect.DeepEqual(closed, []string{"capture_00001_20261001092146.pcapng"}) {
+		t.Fatalf("dumpcap 4.6 rotation was not detected: %#v", closed)
+	}
+	if got := tracker.snapshot().PacketsCaptured; got != 18 {
+		t.Fatalf("packet counter = %d, want 18", got)
+	}
+}
+
 // Regression from a single-arm EC2 lab: the one interface also carried
 // ShakerProxy's NATed copy of each flow, so every connection was recorded
 // twice and ShakerProxy itself looked like a device.
