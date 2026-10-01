@@ -77,6 +77,7 @@ jobs:
       - run: bash -n packaging/bootstrap.sh packaging/install.sh packaging/build-deb.sh packaging/build-release-bundle.sh tests/packaging/release-bundle-smoke.sh tests/security/content-policy-boundary.sh tests/security/public-repo-history-scan.sh
       - run: make shell-check
       - run: python3 tests/security/test_beta_safety.py
+      - run: ./tests/packaging/index-installer-smoke.sh
       - run: python3 -m json.tool packaging/release-manifest.schema.json >/dev/null
       - run: |
           grep -q '"installer"' packaging/release-manifest.schema.json
