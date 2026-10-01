@@ -222,7 +222,7 @@ export function DeviceDetailDrawer({
               </section>
               <section className="device-drawer-evidence">
                 <h3>Hostname evidence</h3>
-                {device.hostnames.length ? (
+                {device.hostnames?.length ? (
                   device.hostnames.map((hostname) => (
                     <article key={`${hostname.hostname}-${hostname.source}`}>
                       <strong>{hostname.hostname}</strong>

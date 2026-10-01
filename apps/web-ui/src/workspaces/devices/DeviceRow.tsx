@@ -123,8 +123,8 @@ export function DeviceRow({
         scope_plan_sha256: device.addresses[index].scope_plan_sha256,
       })),
       hostnames: hostnameIndexes.map((index) => ({
-        hostname: device.hostnames[index].hostname,
-        source: device.hostnames[index].source,
+        hostname: (device.hostnames ?? [])[index].hostname,
+        source: (device.hostnames ?? [])[index].source,
       })),
       metadata: {
         friendly_name: data.get("friendly_name"),
@@ -147,7 +147,7 @@ export function DeviceRow({
       <div className="device-primary">
         <span className={device.online ? "online-dot" : "offline-dot"} />
         <div>
-          <strong>{device.friendly_name || device.hostnames.at(-1)?.hostname || mac?.value || device.id}</strong>
+          <strong>{device.friendly_name || device.hostnames?.at(-1)?.hostname || mac?.value || device.id}</strong>
           <code>{device.id}</code>
           <span className="device-row-actions">
             <button type="button" className="quiet device-inspect" onClick={onInspect}>
@@ -340,7 +340,7 @@ export function DeviceRow({
                 </option>
                 {otherDevices.map((candidate) => (
                   <option key={candidate.id} value={candidate.id}>
-                    {candidate.friendly_name || candidate.hostnames.at(-1)?.hostname || candidate.id}
+                    {candidate.friendly_name || candidate.hostnames?.at(-1)?.hostname || candidate.id}
                   </option>
                 ))}
               </select>
@@ -385,7 +385,7 @@ export function DeviceRow({
                 ))}
               </fieldset>
             )}
-            {device.hostnames.length > 0 && (
+            {(device.hostnames?.length ?? 0) > 0 && (
               <fieldset>
                 <legend>Hostnames</legend>
                 {device.hostnames.map((hostname, index) => (

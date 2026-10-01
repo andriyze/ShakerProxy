@@ -160,3 +160,10 @@ test("after saving, the page says the plan still has to be applied", async () =>
   assert.match(source, /Saved — now apply it/)
   assert.match(source, /autoComplete="current-password" required autoFocus/)
 })
+
+test("a device without hostnames (seen only in the ARP table) does not break the Devices page", () => {
+  const row = webUIFile("workspaces/devices/DeviceRow.tsx")
+  assert.match(row, /device\.hostnames\?\.at\(-1\)\?\.hostname/)
+  assert.doesNotMatch(row, /device\.hostnames\.at\(/)
+  assert.match(webUIFile("workspaces/devices/DeviceDetailDrawer.tsx"), /device\.hostnames\?\.length/)
+})
