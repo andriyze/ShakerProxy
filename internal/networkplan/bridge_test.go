@@ -118,6 +118,8 @@ func TestInlineBridgePreviewBridgesBothPortsWithSTPAndNoNAT(t *testing.T) {
 			t.Fatalf("netplan lacks %q:\n%s", want, preview.NetplanYAML)
 		}
 	}
+	fixture := validInlineBridgePlan()
+	assertFixture(t, "90-shakerproxy-inline-bridge.yaml", BuildPreview(fixture, time.Unix(0, 0)).NetplanYAML)
 	if preview.FirewallRestoreIPv4 != "*filter\n:SHAKERPROXY-FORWARD - [0:0]\n-A SHAKERPROXY-FORWARD -i spbr0 -o spbr0 -j ACCEPT\nCOMMIT\n" {
 		t.Fatalf("firewall = %q", preview.FirewallRestoreIPv4)
 	}
