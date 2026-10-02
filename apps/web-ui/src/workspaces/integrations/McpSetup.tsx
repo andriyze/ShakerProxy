@@ -203,7 +203,8 @@ export function McpSetup() {
           <strong>Data boundary</strong>
           <span>
             Metadata-only. No decrypted bodies, credential headers, PCAP bytes, CA keys, shell, network mutation,
-            capture mutation, or deletion tools.
+            capture mutation, or deletion tools. To let an agent read HTTP requests and responses (http_exchange,
+            credentials redacted), create a separate token with traffic:content under API tokens.
           </span>
         </div>
       </div>

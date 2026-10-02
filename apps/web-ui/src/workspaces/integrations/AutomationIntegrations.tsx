@@ -205,7 +205,10 @@ export function AutomationIntegrations() {
             </fieldset>
             <label className="check">
               <input name="sensitive_ack" type="checkbox" />
-              <span>I explicitly authorize capture/case write scopes selected above.</span>
+              <span>
+                I explicitly authorize the sensitive scopes selected above: capture/case writes, and traffic:content (HTTP
+                headers and bodies, credentials redacted).
+              </span>
             </label>
             <label>
               Administrator password

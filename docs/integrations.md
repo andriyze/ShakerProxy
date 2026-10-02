@@ -22,6 +22,9 @@ Supported scopes are deliberately finite:
   health, preflight, and the public management certificate;
 - `devices:read` reads device inventory and exact device detail;
 - `traffic:read` reads or streams metadata-only normalized events;
+- `traffic:content` reads an HTTP event's request and response headers and
+  body previews (`GET /api/v1/events/{id}/http-exchange`) with credentials
+  removed by the server;
 - `captures:read` reads capture lists and status;
 - `captures:write` starts or stops bounded captures;
 - `cases:read` reads case records;
@@ -31,7 +34,7 @@ Supported scopes are deliberately finite:
   (decrypt HTTPS, block internet or domains) and CA trust state; and
 - `metrics:read` is the only credential accepted by the OpenMetrics endpoint.
 
-`captures:write` and `cases:write` are sensitive scopes (`lab:write` is not;
+`captures:write`, `cases:write` and `traffic:content` are sensitive scopes (`lab:write` is not;
 `GET /api/v1/auth/tokens` lists both sets). Creation rejects sensitive scopes
 unless the administrator supplies the separate sensitive-scope acknowledgement;
 the CLI exposes this as `--acknowledge-sensitive-scopes`.

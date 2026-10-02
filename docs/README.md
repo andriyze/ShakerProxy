@@ -47,6 +47,7 @@ beyond those records.
 - [AI agent quick connect](ai-agent-quick-connect.md)
 - [MCP agent integration architecture](mcp-agent-integration.md)
 - [MCP evidence-readiness semantics](mcp-evidence-readiness.md)
+- [API and MCP parity with the Web UI](api-mcp-parity.md)
 - [Decrypted HTTP content retention](decrypted-content-retention.md)
 - [Management TLS and authority separation](management-tls.md)
 - [Signed rules and catalog lifecycle](signed-content.md)

@@ -91,7 +91,11 @@ The server strips:
 payload that still contains plaintext/secret field names. This is defense in
 depth; it is not permission to weaken the control API projection.
 
-There is no `traffic:plaintext` scope or plaintext MCP tool in this beta.
+HTTP content is a separate, opt-in scope. A token with `traffic:content` (a
+sensitive scope: it can only be created with the sensitive-scope
+acknowledgement, never by the investigator wizard) lets `http_exchange` read
+an HTTP event's request and response, with credentials removed by the control
+API. Without it, every tool stays metadata-only.
 
 ## 4. Create the token
 
@@ -226,7 +230,8 @@ stdout is the MCP transport. Diagnostics belong on stderr.
 
 ## 7. Implemented tools
 
-Twelve tools, all read-only. Every tool is annotated `readOnlyHint: true`,
+Twenty-one tools, all read-only (see [API and MCP parity](api-mcp-parity.md) for
+how they map to the Web UI and the API). Every tool is annotated `readOnlyHint: true`,
 `idempotentHint: true`, and `openWorldHint: false`, and every result is compact
 JSON with plain-language `summary` lines.
 
@@ -364,6 +369,51 @@ Whether ShakerProxy is ready to collect evidence, from the bounded system overvi
 gateway mode, analyzers, ingestion, capabilities, and limitations, with a
 one-line summary. Input: `{}`. Scope: `system:read`. See
 [MCP evidence readiness](mcp-evidence-readiness.md).
+
+### `event_detail`
+
+One event the way the Web UI's event detail shows it: the line, its type (DNS,
+TLS, QUIC, HTTP, discovery, Wi-Fi, alert, blocked or other), the facts that
+matter for that type (the name looked up and its answers, the server name,
+owner and bytes of a connection, the alert, the Wi-Fi network), and the
+metadata-only record. Input: `{"record_id":"<64 hex characters>"}`. Scope:
+`traffic:read`.
+
+### `http_exchange`
+
+An HTTP event's request and response: request line, status line, headers and
+the start of each body (UTF-8 text up to `body_bytes`, default 4 KiB, at most
+16 KiB; binary bodies are described, not shown). It reads
+`GET /api/v1/events/{id}/http-exchange`, which needs the separate, sensitive
+`traffic:content` scope; the control API removes cookies, authorization and
+other credential headers, credential-looking query parameters, form and JSON
+fields before answering, and `shakerproxy-mcp` refuses a response without the
+`X-ShakerProxy-HTTP-Exchange: credentials-redacted` attestation or with a
+credential header value left in. The result envelope says
+`plaintext_included: true`. Without the scope the tool explains how to get it.
+Input: `{"record_id":"<64 hex characters>","body_bytes":4096}`.
+
+### `follow_traffic`
+
+Follows traffic as it arrives, in the order ShakerProxy received it, without
+gaps. The first call (no cursor) returns the newest events, oldest first, and a
+`next_cursor`; each later call with that cursor and the same `query` and
+`device` waits up to `wait_seconds` (0 to 25, default 10) on
+`GET /api/v1/events/live` and returns what arrived since, with the cursor to
+continue. `search_traffic` also returns a `live_cursor` to continue live from a
+search. Input: `{"device":"Pixel"}`, then
+`{"device":"Pixel","cursor":"<next_cursor>","wait_seconds":15}`. Scope:
+`traffic:read`.
+
+### `encrypted_dns`
+
+DNS over HTTPS, TLS and QUIC that ShakerProxy identified for the lab or one
+device, with the resolver each connection used, the attempts ShakerProxy
+blocked and why, and whether blocking is on (it is off by default: encrypted
+DNS is identified, and the names inside it stay hidden). Every event line in
+every tool also carries `encrypted_dns` (`DoH`, `DoT` or `DoQ`) and `blocked`
+with `blocked_reason`. Input: `{"device":"tv","window":"24h"}`. Scope:
+`traffic:read`.
 
 ### Renamed tools
 
