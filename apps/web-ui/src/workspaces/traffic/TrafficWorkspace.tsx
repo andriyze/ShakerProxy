@@ -468,6 +468,10 @@ export function TrafficWorkspace() {
         <header className="live-head">
           <div>
             <h2>Live traffic</h2>
+            <p className="live-note">
+              Newest first, in the order it happened. Details from the packet recording (TLS server names, byte counts,
+              web requests) fill in shortly after.
+            </p>
             <LabRecordingBanner />
           </div>
           <div className="live-head-state">

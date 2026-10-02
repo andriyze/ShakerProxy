@@ -224,3 +224,26 @@ export function eventsPerMinute(events: readonly RecentEvent[], now = Date.now()
   }
   return count
 }
+
+export type CollapsedRow<T> = { event: T; count: number }
+
+// collapseRepeats folds identical consecutive lines (same client, kind, name
+// and detail within a minute) into one, so a retry storm reads as "×12".
+export function collapseRepeats<T extends Pick<RecentEvent, "occurred_at">>(
+  rows: readonly T[],
+  key: (event: T) => string,
+): CollapsedRow<T>[] {
+  const out: CollapsedRow<T>[] = []
+  let previousKey = ""
+  for (const event of rows) {
+    const current = key(event)
+    const last = out.at(-1)
+    if (last && current === previousKey && Math.abs(Date.parse(last.event.occurred_at) - Date.parse(event.occurred_at)) <= 60_000) {
+      last.count++
+      continue
+    }
+    out.push({ event, count: 1 })
+    previousKey = current
+  }
+  return out
+}

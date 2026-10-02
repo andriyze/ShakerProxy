@@ -72,3 +72,10 @@ test("the Traffic page is a live stream with chip filters", () => {
   assert.match(traffic, /<summary>Advanced: field filters/)
   assert.match(webUIFile("main.tsx"), /import "\.\/styles\/live-traffic\.css"/)
 })
+
+test("retry storms collapse into one line", async () => {
+  const { collapseRepeats } = await import("../../apps/web-ui/src/lib/liveTraffic.ts")
+  const retries = ["03:34:35", "03:34:35", "03:34:35", "03:34:36"].map((time, index) => ({ ...base, record_id: String(index), occurred_at: `2026-10-02T${time}Z`, name: index === 3 ? "other" : "v.ipinfo.io" }))
+  const collapsed = collapseRepeats(retries, (event) => event.name)
+  assert.deepEqual(collapsed.map((row) => [row.event.record_id, row.count]), [["0", 3], ["3", 1]])
+})

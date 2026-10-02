@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { foldSplitConnections, forwardedLookups, isAnalyzerDuplicate } from "../../lib/eventSummary"
 import { eventDeviceTitle, splitDeviceTitle, type DeviceDirectory } from "../../lib/deviceTitle"
-import { streamLine } from "../../lib/liveTraffic"
+import { collapseRepeats, streamLine } from "../../lib/liveTraffic"
 import type { RecentEvent } from "../../types"
 
 // TrafficStream lists events newest first, one line each. Rows that arrive
@@ -26,6 +26,14 @@ export function TrafficStream({
     [allEvents, forwarded, showDuplicates],
   )
   const hidden = allEvents.length - events.length
+  const rows = useMemo(
+    () =>
+      collapseRepeats(events, (event) => {
+        const line = streamLine(event)
+        return [event.device_id ?? event.source_ip ?? "", line.kind, line.name, line.detail].join("\u0000")
+      }),
+    [events],
+  )
   // Rows already on screen; anything new after the first render is fresh.
   const seen = useRef<Set<string> | null>(null)
   const fresh = useMemo(() => {
@@ -49,7 +57,7 @@ export function TrafficStream({
         <span>To</span>
       </div>
       <div className="stream-rows" role="rowgroup">
-        {events.map((event) => {
+        {rows.map(({ event, count }) => {
           const line = streamLine(event)
           const [client, clientIP] = splitDeviceTitle(eventDeviceTitle(event, directory))
           const at = new Date(event.occurred_at)
@@ -69,14 +77,15 @@ export function TrafficStream({
               }}
             >
               <time dateTime={event.occurred_at} title={at.toLocaleString()}>
-                {at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                {at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })}
               </time>
               <span className={`stream-badge ${line.kind}`}>{line.badge}</span>
               <span className="stream-client" title={clientIP ? `${client} · ${clientIP}` : client || event.source_ip}>
                 {client || event.source_ip || "—"}
               </span>
-              <strong className="stream-name" title={line.name}>
+              <strong className="stream-name" title={count > 1 ? `${line.name} · ${count} times within a minute` : line.name}>
                 {line.name}
+                {count > 1 && <span className="stream-count">×{count}</span>}
               </strong>
               <span className="stream-detail" title={line.detail}>
                 {line.detail}
