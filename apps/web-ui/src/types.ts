@@ -1381,6 +1381,48 @@ export type EventDetail = {
   payload_bytes: number
 }
 
+// GET /api/v1/events/{recordID}/http-exchange: an HTTP event's requests and
+// responses, read back from the packet recording (cleartext HTTP) or from the
+// decrypted events (intercepted HTTPS).
+export type HTTPExchangeHeader = { name: string; value: string; sensitive?: boolean; truncated?: boolean }
+export type HTTPExchangeHeaders = { items: HTTPExchangeHeader[]; bytes: number; truncated?: boolean }
+export type HTTPExchangeBody = {
+  content_type: string
+  content_encoding?: string
+  body_bytes: number
+  decoded_preview: boolean
+  preview_bytes: number
+  preview_encoding: "utf-8" | "hex"
+  preview: string
+  truncated: boolean
+  complete: boolean
+  note?: string
+}
+export type HTTPExchangeRequest = { method: string; target: string; proto: string; headers: HTTPExchangeHeaders; body: HTTPExchangeBody }
+export type HTTPExchangeResponse = { proto: string; status_code: number; status: string; headers: HTTPExchangeHeaders; body: HTTPExchangeBody }
+export type HTTPExchangePair = { request?: HTTPExchangeRequest; response?: HTTPExchangeResponse }
+export type HTTPExchange = {
+  schema: 1
+  record_id: string
+  source: "CAPTURE" | "DECRYPTED"
+  state: "AVAILABLE" | "UNAVAILABLE" | "RETRY"
+  reason?: string
+  matched: number
+  exchanges: HTTPExchangePair[]
+  notes?: string[]
+  capture?: {
+    session_id: string
+    segments_read: number
+    segments_missing: number
+    packets: number
+    first_packet_at?: string
+    last_packet_at?: string
+    from_start: boolean
+    closed: boolean
+    incomplete: boolean
+  }
+}
+
 export type TestSession = {
   schema: number
   id: string

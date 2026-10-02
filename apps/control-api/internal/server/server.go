@@ -263,6 +263,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/saved-views/{viewID}/export", s.requireAuth(http.HandlerFunc(s.exportSavedView)))
 	mux.Handle("GET /api/v1/saved-views/{viewID}/history", s.requireAuth(http.HandlerFunc(s.savedViewHistory)))
 	mux.Handle("GET /api/v1/events/live", s.requireAuthOrScope(apitoken.ScopeTrafficRead, http.HandlerFunc(s.streamLiveEvents)))
+	// Plaintext headers and bodies: administrator sessions only, like the
+	// event detail payload (API tokens get metadata only).
+	mux.Handle("GET /api/v1/events/{recordID}/http-exchange", s.requireAuth(http.HandlerFunc(s.getHTTPExchange)))
 	mux.Handle("GET /api/v1/ingest/status", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.getIngestStatus)))
 	mux.Handle("GET /api/v1/devices/{deviceID}", s.requireAuthOrScope(apitoken.ScopeDevicesRead, http.HandlerFunc(s.getDevice)))
 	mux.Handle("PUT /api/v1/devices/{deviceID}/metadata", s.requireAuth(http.HandlerFunc(s.updateDeviceMetadata)))

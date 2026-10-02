@@ -199,6 +199,10 @@ type RecordCaptureRetentionItemOutcomeParams struct {
 	Request capture.RecordRetentionItemOutcomeRequest `json:"request"`
 }
 
+type ReadCaptureFlowParams struct {
+	Request capture.FlowRequest `json:"request"`
+}
+
 type ReadCaptureArtifactParams struct {
 	SessionID string `json:"session_id"`
 	FileName  string `json:"file_name"`

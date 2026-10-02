@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { api, describeError } from "../../api"
 import { eventSummary } from "../../lib/eventSummary"
+import { exchangeSourceLabel, exchangeTitle, hasHTTPExchange, validHTTPExchange } from "../../lib/httpExchange"
 import { TrafficEventInspector } from "./TrafficTable"
-import type { Device, EventDetail, RecentEvent } from "../../types"
+import type { Device, EventDetail, HTTPExchange, HTTPExchangeBody, RecentEvent } from "../../types"
 
 // Full detail for one traffic event: the summary, the DNS / TLS / HTTP
 // evidence ShakerProxy stored for it, and the raw normalized payload. Decrypted
@@ -164,6 +165,108 @@ function matches(needle: string, ...values: unknown[]): boolean {
   return values.some((value) => text(value, "").toLowerCase().includes(needle))
 }
 
+function ExchangeBody({ body }: { body: HTTPExchangeBody }) {
+  if (body.body_bytes === 0 && !body.preview && !body.note) return <p className="muted">No body.</p>
+  return (
+    <>
+      <Body snapshot={body} />
+      {body.decoded_preview && <Badge tone="good">decoded {text(body.content_encoding, "")}</Badge>}
+      {!body.complete && <Badge tone="warn">body incomplete in the recording</Badge>}
+      {body.note && <p className="muted">{body.note}</p>}
+    </>
+  )
+}
+
+// HTTPExchangePanel shows an HTTP event's requests and responses like
+// Wireshark's "Follow HTTP stream": read back from the packet recording for
+// cleartext HTTP, or from the decrypted events for intercepted HTTPS. All of
+// it is rendered as inert text.
+function HTTPExchangePanel({
+  recordID,
+  reveal,
+  onState,
+}: {
+  recordID: string
+  reveal: boolean
+  onState: (state: HTTPExchange["state"] | "") => void
+}) {
+  const [exchange, setExchange] = useState<HTTPExchange | null>(null)
+  const [error, setError] = useState("")
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    setExchange(null)
+    setError("")
+    onState("")
+    api<HTTPExchange>(`/api/v1/events/${encodeURIComponent(recordID)}/http-exchange`, { signal: controller.signal })
+      .then((next) => {
+        if (!validHTTPExchange(next, recordID)) throw new Error("The request/response ShakerProxy returned is invalid.")
+        setExchange(next)
+        onState(next.state)
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) setError(describeError(reason, "The request and response are unavailable"))
+      })
+    return () => controller.abort()
+    // onState is a setter from the drawer
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordID, attempt])
+  return (
+    <Section
+      title="Request / Response"
+      subtitle={exchange ? exchangeSourceLabel(exchange) : "Reading the connection back from the recording…"}
+      hidden={false}
+    >
+      {error && <p className="event-health-error">{error}</p>}
+      {exchange && exchange.state !== "AVAILABLE" && (
+        <div className="event-detail-exchange-unavailable">
+          <p>{exchange.reason}</p>
+          {exchange.state === "RETRY" && (
+            <button type="button" className="secondary" onClick={() => setAttempt((current) => current + 1)}>
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+      {exchange?.notes?.map((note) => (
+        <p className="muted" key={note}>
+          {note}
+        </p>
+      ))}
+      {exchange?.exchanges.map((pair, index) => (
+        <details className="event-detail-exchange" key={index} open={index === exchange.matched || exchange.exchanges.length === 1}>
+          <summary>
+            <code>{exchangeTitle(pair)}</code>
+            {index === exchange.matched && exchange.exchanges.length > 1 && <Badge tone="good">this event</Badge>}
+          </summary>
+          {pair.request && (
+            <div className="event-detail-exchange-message">
+              <h4>Request</h4>
+              <pre className="event-detail-plaintext event-detail-startline">
+                {pair.request.method} {pair.request.target} {pair.request.proto}
+              </pre>
+              <Headers snapshot={pair.request.headers} reveal={reveal} />
+              <ExchangeBody body={pair.request.body} />
+            </div>
+          )}
+          {pair.response ? (
+            <div className="event-detail-exchange-message">
+              <h4>Response</h4>
+              <pre className="event-detail-plaintext event-detail-startline">
+                {pair.response.proto} {pair.response.status_code} {pair.response.status}
+              </pre>
+              <Headers snapshot={pair.response.headers} reveal={reveal} />
+              <ExchangeBody body={pair.response.body} />
+            </div>
+          ) : (
+            <p className="muted">No response was recorded for this request.</p>
+          )}
+        </details>
+      ))}
+    </Section>
+  )
+}
+
 export function EventDetailDrawer({
   event,
   labelsAvailable,
@@ -180,6 +283,7 @@ export function EventDetailDrawer({
   const [detail, setDetail] = useState<EventDetail | null>(null)
   const [error, setError] = useState("")
   const [reveal, setReveal] = useState(false)
+  const [exchangeState, setExchangeState] = useState<HTTPExchange["state"] | "">("")
   const [category, setCategory] = useState<Category>("all")
   const [search, setSearch] = useState("")
   const [refCopied, setRefCopied] = useState("")
@@ -457,31 +561,35 @@ export function EventDetailDrawer({
               <KV label="Request bytes" value={payload.request_bytes} />
               <KV label="Response bytes" value={payload.response_bytes} />
             </dl>
-            {Array.isArray(requestHeaders.items) && (
+            {/* The Request / Response panel shows these once it has loaded. */}
+            {exchangeState !== "AVAILABLE" && Array.isArray(requestHeaders.items) && (
               <>
                 <h4>Request headers</h4>
                 <Headers snapshot={requestHeaders} reveal={reveal} />
               </>
             )}
-            {requestBody.preview !== undefined && (
+            {exchangeState !== "AVAILABLE" && requestBody.preview !== undefined && (
               <>
                 <h4>Request body</h4>
                 <Body snapshot={requestBody} />
               </>
             )}
-            {Array.isArray(responseHeaders.items) && (
+            {exchangeState !== "AVAILABLE" && Array.isArray(responseHeaders.items) && (
               <>
                 <h4>Response headers</h4>
                 <Headers snapshot={responseHeaders} reveal={reveal} />
               </>
             )}
-            {responseBody.preview !== undefined && (
+            {exchangeState !== "AVAILABLE" && responseBody.preview !== undefined && (
               <>
                 <h4>Response body</h4>
                 <Body snapshot={responseBody} />
               </>
             )}
           </Section>
+        )}
+        {RECORD_ID.test(recordID) && hasHTTPExchange(merged) && (category === "all" || category === "http") && (
+          <HTTPExchangePanel recordID={recordID} reveal={reveal} onState={setExchangeState} />
         )}
         {detail && (
           <details
