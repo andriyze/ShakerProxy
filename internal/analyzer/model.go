@@ -180,6 +180,8 @@ type Status struct {
 	CompletedCaptures uint64    `json:"completed_captures"`
 	DeliveredEvents   uint64    `json:"delivered_events"`
 	LastError         string    `json:"last_error,omitempty"`
+	// Live reports live analysis of the lab recording (Zeek only).
+	Live *LiveStatus `json:"live,omitempty"`
 }
 
 type ScanResult struct {

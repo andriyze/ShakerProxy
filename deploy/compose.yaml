@@ -163,6 +163,9 @@ services:
     pids_limit: 256
     mem_limit: 1g
     cpus: 2.0
+    # Live analysis finishes the segment being written (at most 10 s) and
+    # delivers Zeek's last records before it exits.
+    stop_grace_period: 30s
     tmpfs:
       - /work:rw,noexec,nosuid,size=384m,uid=0,gid=0,mode=0711
     volumes:

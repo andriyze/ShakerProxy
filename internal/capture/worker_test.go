@@ -58,6 +58,24 @@ func TestOutputTrackerPublishesOnlyPreviousDumpcapFile(t *testing.T) {
 	}
 }
 
+// Live analysis needs read access to each segment as soon as dumpcap starts
+// it, including rotations dumpcap 4.6 reports on its packet counter line.
+func TestOutputTrackerSharesEachSegmentDumpcapStarts(t *testing.T) {
+	var shared []string
+	tracker := &captureOutputTracker{status: WorkerStatus{Schema: SchemaVersion}, shareStarted: func(name string) { shared = append(shared, name) }}
+	tracker.consume(strings.NewReader(strings.Join([]string{
+		"Capturing on 'ens18'",
+		"File: /var/lib/shakerproxy/pcap/capture-x/artifacts/capture_00001_20261001092146.pcapng",
+		"Packets: 12",
+		"Packets: 14 File: /var/lib/shakerproxy/pcap/capture-x/artifacts/capture_00002_20261001092217.pcapng",
+		"Packets: 18",
+		"File: ../../session.json",
+	}, "\n")))
+	if want := []string{"capture_00001_20261001092146.pcapng", "capture_00002_20261001092217.pcapng"}; !reflect.DeepEqual(shared, want) {
+		t.Fatalf("shared %#v, want %#v", shared, want)
+	}
+}
+
 // dumpcap 4.6 (Ubuntu 26.04) reports a rotation on the packet counter line
 // rather than on its own line; missing it left every running capture's
 // segments unpublished, so analyzers never produced traffic events.

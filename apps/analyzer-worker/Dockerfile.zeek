@@ -8,10 +8,11 @@ COPY internal internal
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/analyzer-worker ./apps/analyzer-worker/cmd/analyzer-worker
 
 FROM zeek/zeek@sha256:94a604186e3b47c3e10215da86eac65e36253c866a45305e2850689b3b8418d7
-COPY apps/analyzer-worker/zeek/shakerproxy.zeek /etc/shakerproxy/zeek/shakerproxy.zeek
+COPY apps/analyzer-worker/zeek/shakerproxy.zeek apps/analyzer-worker/zeek/live.zeek /etc/shakerproxy/zeek/
 RUN chmod 0555 /etc/shakerproxy/zeek \
-    && chmod 0444 /etc/shakerproxy/zeek/shakerproxy.zeek \
-    && /usr/local/zeek/bin/zeek -a /etc/shakerproxy/zeek/shakerproxy.zeek
+    && chmod 0444 /etc/shakerproxy/zeek/shakerproxy.zeek /etc/shakerproxy/zeek/live.zeek \
+    && /usr/local/zeek/bin/zeek -a /etc/shakerproxy/zeek/shakerproxy.zeek \
+    && /usr/local/zeek/bin/zeek -a /etc/shakerproxy/zeek/shakerproxy.zeek /etc/shakerproxy/zeek/live.zeek
 COPY --from=build /out/analyzer-worker /usr/local/bin/analyzer-worker
 USER 0:0
 ENTRYPOINT ["/usr/local/bin/analyzer-worker"]

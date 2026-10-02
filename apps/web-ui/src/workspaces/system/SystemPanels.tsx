@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { api, apiBlob, describeError, downloadBlob } from "../../api"
 import type {
+  AnalyzerLiveStatus,
   AnalyzerStatusReport,
   CapabilityBundle,
   ConnectivityReport,
@@ -254,6 +255,20 @@ export function ServicePortPanel() {
   )
 }
 
+function liveAnalysisLine(live: AnalyzerLiveStatus): string {
+  const counts = `${live.events_delivered.toLocaleString()} events · ${live.segments_handed_off.toLocaleString()} segments left to segment analysis`
+  switch (live.state) {
+    case "FOLLOWING":
+      return `Live analysis following the lab recording${live.lag_millis > 0 ? ` · ${Math.round(live.lag_millis / 1000)}s behind` : ""} · ${counts}`
+    case "RECOVERING":
+      return `Live analysis restarting · ${counts}${live.last_error ? ` · ${live.last_error}` : ""}`
+    case "IDLE":
+      return `Live analysis waiting for a lab recording · ${counts}`
+    default:
+      return "Live analysis off · segments are analyzed as they close"
+  }
+}
+
 export function AnalyzerHealthPanel({ report, error }: { report: AnalyzerStatusReport | null; error: string }) {
   return (
     <section className="analyzer-health">
@@ -298,6 +313,7 @@ export function AnalyzerHealthPanel({ report, error }: { report: AnalyzerStatusR
                     </small>
                   )}
                   {health.last_error && <small className="analyzer-error">Last error · {health.last_error}</small>}
+                  {health.live && <small>{liveAnalysisLine(health.live)}</small>}
                 </>
               ) : (
                 <p>{entry.failure ?? "Analyzer status is not configured"}</p>
