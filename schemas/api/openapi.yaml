@@ -3310,7 +3310,7 @@ components:
         device_id: {type: string, pattern: "^device-[a-f0-9]{32}$"}
         address: {type: string, format: ipv4}
         endpoint: {type: string, enum: [SOURCE, DESTINATION]}
-        source: {type: string, enum: [DHCP4_LEASE, NDP, ARP, PINNED_ADDRESS]}
+        source: {type: string, enum: [DHCP4_LEASE, OBSERVED_DHCP, NDP, ARP, PINNED_ADDRESS]}
         confidence: {type: integer, minimum: 1, maximum: 100}
         valid_from: {type: string, format: date-time}
         valid_until: {type: string, format: date-time, description: Exclusive end of the matched address interval.}
@@ -3782,16 +3782,18 @@ components:
         address_aliases: {type: array, maxItems: 4096, items: {$ref: "#/components/schemas/AddressAlias"}}
         platform_hints:
           type: object
-          description: What each listed device most likely is, keyed by device ID, from the operating-system connectivity checks it made in the last 7 days (for example GrapheneOS phone from connectivitycheck.grapheneos.network). Derived on each request and never stored; best effort, so it is absent when the event store is slow or unavailable, and for API tokens without traffic:read.
+          description: "What each listed device most likely is, keyed by device ID, from the operating-system connectivity checks it made in the last 7 days (for example GrapheneOS phone from connectivitycheck.grapheneos.network), or from its DHCP request (source dhcp, for example Android device from android-dhcp-14). Derived on each request and never stored; best effort, so it is absent when the event store is slow or unavailable, and for API tokens without traffic:read."
           maxProperties: 50000
           additionalProperties:
             type: object
             additionalProperties: false
-            required: [platform, domain, last_seen]
+            required: [platform, last_seen]
             properties:
               platform: {type: string, maxLength: 64}
-              domain: {type: string, maxLength: 253}
+              domain: {type: string, maxLength: 253, description: "The connectivity check that identified the device; absent for a DHCP fingerprint."}
               last_seen: {type: string, format: date-time}
+              source: {type: string, enum: [dhcp], description: "Present when the device's DHCP request identified it."}
+              detail: {type: string, maxLength: 300, description: "The vendor class or option order that matched."}
     AddressAlias:
       type: object
       additionalProperties: false
@@ -3927,6 +3929,20 @@ components:
         device_id: {type: string, pattern: "^device-[a-f0-9]{32}$"}
         ca_trust: {$ref: "#/components/schemas/CATrust"}
         updated_at: {type: string, format: date-time}
+    ObservedDHCPIdentity:
+      type: object
+      additionalProperties: false
+      description: "The newest DHCP identity the device showed on the lab when another server (the network's router, in a single-arm lab or an inline bridge) answered it, from the exchanges the lab recording saw."
+      required: [hardware_addr, last_seen]
+      properties:
+        hardware_addr: {type: string, pattern: "^[0-9a-f]{2}(:[0-9a-f]{2}){5}$"}
+        host_name: {type: string, maxLength: 253, description: "The name the client gave itself (option 12), as it sent it."}
+        client_fqdn: {type: string, maxLength: 253, description: "Option 81."}
+        vendor_class: {type: string, maxLength: 255, description: "Option 60, for example android-dhcp-14 or MSFT 5.0."}
+        parameter_list: {type: string, maxLength: 255, pattern: "^[0-9]{1,3}(,[0-9]{1,3}){0,63}$", description: "Option 55 in the client's order, a fingerprint of its DHCP implementation."}
+        server: {type: string, format: ipv4, description: "The DHCP server that acknowledged the lease."}
+        router: {type: string, format: ipv4, description: "The default gateway the server handed out (option 3)."}
+        last_seen: {type: string, format: date-time}
     DeviceMatch:
       type: object
       additionalProperties: false
@@ -3939,6 +3955,9 @@ components:
         hardware_addresses: {type: array, items: {type: string}}
         online: {type: boolean}
         match: {type: string, enum: [id, mac, ip, name, name_prefix, name_contains]}
+        dhcp_host_name: {type: string, maxLength: 253, description: "The name the device gave another DHCP server on the lab."}
+        dhcp_vendor_class: {type: string, maxLength: 255}
+        dhcp_platform: {type: string, maxLength: 64, description: "What the DHCP request says the device is, for example Android device."}
     DeviceResolution:
       type: object
       additionalProperties: false
@@ -4172,13 +4191,14 @@ components:
         last_reconciled: {type: string, format: date-time}
         former_ids: {type: array, maxItems: 16, items: {type: string, pattern: "^device-[a-f0-9]{32}$"}, description: IDs of device records merged into this one; traffic recorded before the merge keeps them.}
         pinned_address: {type: string, maxLength: 45, description: The IP address an administrator named this device by. Every MAC address seen there joins the device.}
+        observed_dhcp: {$ref: "#/components/schemas/ObservedDHCPIdentity"}
     SuggestedName:
       type: object
       additionalProperties: false
       required: [name, source, confidence, first_seen, last_seen]
       properties:
         name: {type: string, minLength: 1, maxLength: 128}
-        source: {const: DHCP4_LEASE}
+        source: {type: string, enum: [DHCP4_LEASE, OBSERVED_DHCP], description: "DHCP4_LEASE is the name a device gave ShakerProxy's own DHCP server; OBSERVED_DHCP the name it gave another server (the network's router) in an exchange the lab recording saw."}
         confidence: {type: integer, minimum: 1, maximum: 100}
         first_seen: {type: string, format: date-time}
         last_seen: {type: string, format: date-time}
@@ -4823,7 +4843,7 @@ components:
       properties:
         kind: {type: string, enum: [MAC, DHCP_CLIENT_ID]}
         value: {type: string}
-        source: {type: string, enum: [DHCP4_LEASE, NDP, ARP, PINNED_ADDRESS]}
+        source: {type: string, enum: [DHCP4_LEASE, OBSERVED_DHCP, NDP, ARP, PINNED_ADDRESS]}
         confidence: {type: integer, minimum: 1, maximum: 100}
         first_seen: {type: string, format: date-time}
         last_seen: {type: string, format: date-time}
@@ -4834,7 +4854,7 @@ components:
       properties:
         address: {type: string, format: ipv4}
         family: {const: IPv4}
-        source: {type: string, enum: [DHCP4_LEASE, NDP, ARP, PINNED_ADDRESS]}
+        source: {type: string, enum: [DHCP4_LEASE, OBSERVED_DHCP, NDP, ARP, PINNED_ADDRESS]}
         confidence: {type: integer, minimum: 1, maximum: 100}
         valid_from: {type: string, format: date-time}
         valid_until: {type: string, format: date-time}
@@ -4849,7 +4869,7 @@ components:
       required: [hostname, source, confidence, first_seen, last_seen]
       properties:
         hostname: {type: string, maxLength: 253}
-        source: {const: DHCP4_LEASE}
+        source: {type: string, enum: [DHCP4_LEASE, OBSERVED_DHCP]}
         confidence: {type: integer, minimum: 1, maximum: 100}
         first_seen: {type: string, format: date-time}
         last_seen: {type: string, format: date-time}

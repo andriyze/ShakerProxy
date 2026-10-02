@@ -126,6 +126,12 @@ func platformCheckDomains() []string {
 	return domains
 }
 
+// DevicePlatformRank is how specific a connectivity-check hint is, on the
+// scale DHCPPlatform's rank uses.
+func DevicePlatformRank(hint DevicePlatformHint) int {
+	return platformChecks[hint.Domain].rank
+}
+
 // PreferDevicePlatformHint reports whether candidate is a better hint than
 // current: more specific first, then more recent.
 func PreferDevicePlatformHint(candidate, current DevicePlatformHint) bool {

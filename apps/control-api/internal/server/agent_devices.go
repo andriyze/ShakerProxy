@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"shakerproxy.dev/shakerproxy/internal/apitoken"
+	"shakerproxy.dev/shakerproxy/internal/ingest"
 	deviceinventory "shakerproxy.dev/shakerproxy/internal/inventory"
 )
 
@@ -42,6 +43,19 @@ type agentDeviceHostname struct {
 	LastSeen   time.Time `json:"last_seen"`
 }
 
+// agentDeviceDHCP is the DHCP identity a device showed on the lab, without
+// its MAC address.
+type agentDeviceDHCP struct {
+	HostName      string    `json:"host_name,omitempty"`
+	ClientFQDN    string    `json:"client_fqdn,omitempty"`
+	VendorClass   string    `json:"vendor_class,omitempty"`
+	ParameterList string    `json:"parameter_list,omitempty"`
+	Platform      string    `json:"platform,omitempty"`
+	Server        string    `json:"server,omitempty"`
+	Router        string    `json:"router,omitempty"`
+	LastSeen      time.Time `json:"last_seen"`
+}
+
 type agentDevice struct {
 	Schema                int                   `json:"schema"`
 	ID                    string                `json:"id"`
@@ -54,6 +68,7 @@ type agentDevice struct {
 	Vendor                string                `json:"vendor,omitempty"`
 	Addresses             []agentDeviceAddress  `json:"addresses"`
 	Hostnames             []agentDeviceHostname `json:"hostnames"`
+	DHCP                  *agentDeviceDHCP      `json:"dhcp,omitempty"`
 	FirstSeen             time.Time             `json:"first_seen"`
 	LastSeen              time.Time             `json:"last_seen"`
 	Online                bool                  `json:"online"`
@@ -264,6 +279,16 @@ func projectAgentDevice(device deviceinventory.Device) agentDevice {
 	if device.Vendor != nil {
 		vendor = device.Vendor.Name
 	}
+	var dhcp *agentDeviceDHCP
+	if observed := device.ObservedDHCP; observed != nil {
+		dhcp = &agentDeviceDHCP{
+			HostName: observed.HostName, ClientFQDN: observed.ClientFQDN, VendorClass: observed.VendorClass, ParameterList: observed.ParameterList,
+			Server: observed.Server, Router: observed.Router, LastSeen: observed.LastSeen,
+		}
+		if platform, _, _, ok := ingest.DHCPPlatform(observed.VendorClass, observed.ParameterList); ok {
+			dhcp.Platform = platform
+		}
+	}
 	return agentDevice{
 		Schema:                1,
 		ID:                    device.ID,
@@ -276,6 +301,7 @@ func projectAgentDevice(device deviceinventory.Device) agentDevice {
 		Vendor:                vendor,
 		Addresses:             addresses,
 		Hostnames:             hostnames,
+		DHCP:                  dhcp,
 		FirstSeen:             device.FirstSeen,
 		LastSeen:              device.LastSeen,
 		Online:                device.Online,

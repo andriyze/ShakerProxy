@@ -31,7 +31,18 @@ type deviceLine struct {
 	Addresses []string  `json:"addresses"`
 	Online    bool      `json:"online"`
 	LastSeen  time.Time `json:"last_seen"`
+	DHCP      *dhcpLine `json:"dhcp,omitempty"`
 	Summary   string    `json:"summary"`
+}
+
+// dhcpLine is what a device's DHCP request on the lab said about it when
+// another server (the network's router) answered it.
+type dhcpLine struct {
+	HostName      string `json:"host_name,omitempty"`
+	VendorClass   string `json:"vendor_class,omitempty"`
+	ParameterList string `json:"parameter_list,omitempty"`
+	Platform      string `json:"platform,omitempty"`
+	Server        string `json:"server,omitempty"`
 }
 
 type deviceList struct {
@@ -42,13 +53,14 @@ type deviceList struct {
 }
 
 type deviceMatchLine struct {
-	DeviceID  string   `json:"device_id"`
-	Name      string   `json:"name"`
-	Vendor    string   `json:"vendor,omitempty"`
-	Addresses []string `json:"addresses"`
-	Online    bool     `json:"online"`
-	Match     string   `json:"match"`
-	Summary   string   `json:"summary"`
+	DeviceID  string    `json:"device_id"`
+	Name      string    `json:"name"`
+	Vendor    string    `json:"vendor,omitempty"`
+	Addresses []string  `json:"addresses"`
+	Online    bool      `json:"online"`
+	Match     string    `json:"match"`
+	DHCP      *dhcpLine `json:"dhcp,omitempty"`
+	Summary   string    `json:"summary"`
 }
 
 type findDeviceResult struct {
@@ -82,10 +94,19 @@ func (s *Service) listDevices(ctx context.Context, _ *mcp.CallToolRequest, args 
 		if device.Online {
 			online++
 		}
-		result.Devices = append(result.Devices, deviceLine{
+		line := deviceLine{
 			DeviceID: device.ID, Name: device.DisplayName, Vendor: device.Vendor, Category: device.Category, Location: device.Location,
-			Addresses: addresses, Online: device.Online, LastSeen: device.LastSeen, Summary: deviceSummary(device.DisplayName, device.Vendor, addresses, device.Online),
-		})
+			Addresses: addresses, Online: device.Online, LastSeen: device.LastSeen,
+		}
+		identity := device.Vendor
+		if dhcp := device.DHCP; dhcp != nil {
+			line.DHCP = &dhcpLine{HostName: dhcp.HostName, VendorClass: dhcp.VendorClass, ParameterList: dhcp.ParameterList, Platform: dhcp.Platform, Server: dhcp.Server}
+			if identity == "" {
+				identity = dhcp.Platform
+			}
+		}
+		line.Summary = deviceSummary(device.DisplayName, identity, addresses, device.Online)
+		result.Devices = append(result.Devices, line)
 	}
 	result.Summary = fmt.Sprintf("%s (%d online).", countNoun(len(result.Devices), "device", "devices"), online)
 	if page.Truncated {
@@ -110,10 +131,19 @@ func (s *Service) findDevice(ctx context.Context, _ *mcp.CallToolRequest, args F
 	for _, match := range resolution.Matches {
 		// Hardware addresses are omitted from agent output; a MAC can still be
 		// used as a reference.
-		result.Matches = append(result.Matches, deviceMatchLine{
+		line := deviceMatchLine{
 			DeviceID: match.DeviceID, Name: match.FriendlyName, Vendor: match.Vendor, Addresses: match.Addresses,
-			Online: match.Online, Match: match.Match, Summary: deviceSummary(match.FriendlyName, match.Vendor, match.Addresses, match.Online),
-		})
+			Online: match.Online, Match: match.Match,
+		}
+		identity := match.Vendor
+		if match.DHCPHostName != "" || match.DHCPVendorClass != "" || match.DHCPPlatform != "" {
+			line.DHCP = &dhcpLine{HostName: match.DHCPHostName, VendorClass: match.DHCPVendorClass, Platform: match.DHCPPlatform}
+			if identity == "" {
+				identity = match.DHCPPlatform
+			}
+		}
+		line.Summary = deviceSummary(match.FriendlyName, identity, match.Addresses, match.Online)
+		result.Matches = append(result.Matches, line)
 	}
 	switch len(result.Matches) {
 	case 0:
