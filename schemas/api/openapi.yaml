@@ -1889,6 +1889,8 @@ paths:
         Omits MAC and client identities, owners and notes; keeps device IDs, display and friendly names,
         bounded address and hostname evidence, attribution, pinned_address (the IP address an administrator
         named the device by) and former_ids (device records merged into this one, e.g. earlier private MACs).
+        Callers that may read traffic (a session or traffic:read) also get platform, what the device most
+        likely is (e.g. GrapheneOS phone) and the connectivity check or DHCP request that showed it.
       security: [{bearerAuth: []}]
       parameters:
         - {in: query, name: q, schema: {type: string, maxLength: 128}}
@@ -1943,6 +1945,53 @@ paths:
         "200": {description: System overview, content: {application/json: {schema: {type: object}}}}
         "401": {$ref: "#/components/responses/Error"}
         "403": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /agent/captures:
+    get:
+      operationId: listAgentCaptures
+      description: >-
+        Compact capture list for AI agents and scripts (an administrator session or captures:read): each
+        recording's name, kind (automatic Lab traffic or VPN traffic, coverage_check, manual), state,
+        interface, segments, bytes, packets and drops, hold and case. Active recordings first, then newest.
+        Never returns file names, hashes, PCAP bytes or exports; GET /api/v1/captures has the full records.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        "200": {description: Bounded capture page, content: {application/json: {schema: {type: object}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /agent/cases:
+    get:
+      operationId: listAgentCases
+      description: >-
+        Case summaries for AI agents and scripts (an administrator session or cases:read), most recently
+        updated first: name, status, evidence counts by kind, hold state and the last timeline action.
+        A token restricted to some cases cannot list cases; it reads them one at a time.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        "200": {description: Bounded case page, content: {application/json: {schema: {type: object}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /agent/cases/{caseID}:
+    get:
+      operationId: getAgentCase
+      description: "One case for agents (an administrator session or cases:read): its summary, the newest 50 evidence items and the newest 20 timeline events, with whether more exist."
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: caseID, required: true, schema: {type: string, pattern: "^case-[a-f0-9]{32}$"}}
+      responses:
+        "200": {description: Bounded case detail, content: {application/json: {schema: {type: object}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
   /agent-connections/investigator:
     post:

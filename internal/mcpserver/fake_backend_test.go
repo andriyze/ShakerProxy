@@ -45,6 +45,15 @@ type fakeBackend struct {
 	exchangeErr  error
 	followBatch  agentapi.FollowBatch
 	follows      []agentapi.FollowRequest
+	controls     agentapi.DeviceControls
+	capturePage  agentapi.CapturePage
+	capturesErr  error
+	casePage     agentapi.CasePage
+	caseDetail   agentapi.CaseDetail
+	diagnostics  agentapi.Diagnostics
+	controlsFor  []string
+	captureLimit int
+	caseRequests []string
 
 	resolved        []string
 	reportRequest   agentapi.DeviceReportRequest

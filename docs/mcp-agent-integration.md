@@ -104,7 +104,8 @@ In the local ShakerProxy Web UI:
 1. Open **Automation and integrations**.
 2. Create a token named for the exact client, for example
    `Claude desktop investigation` or `Codex lab sensor`.
-3. Select only `system:read`, `devices:read`, and `traffic:read`.
+3. Select only `system:read`, `devices:read`, `traffic:read`, `captures:read`
+   and `cases:read` (the last two only for the `captures` and `cases` tools).
 4. Choose the shortest practical expiration.
 5. Copy the display-once `lgt_...` value.
 
@@ -230,7 +231,7 @@ stdout is the MCP transport. Diagnostics belong on stderr.
 
 ## 7. Implemented tools
 
-Twenty-one tools, all read-only (see [API and MCP parity](api-mcp-parity.md) for
+Twenty-five tools, all read-only (see [API and MCP parity](api-mcp-parity.md) for
 how they map to the Web UI and the API). Every tool is annotated `readOnlyHint: true`,
 `idempotentHint: true`, and `openWorldHint: false`, and every result is compact
 JSON with plain-language `summary` lines.
@@ -414,6 +415,41 @@ DNS is identified, and the names inside it stay hidden). Every event line in
 every tool also carries `encrypted_dns` (`DoH`, `DoT` or `DoQ`) and `blocked`
 with `blocked_reason`. Input: `{"device":"tv","window":"24h"}`. Scope:
 `traffic:read`.
+
+### `device_controls`
+
+A device's lab controls: whether ShakerProxy decrypts its HTTPS, blocks its
+internet access or blocks domains for it, and whether they are enforced now
+(for example not during an emergency bypass). Agents read them; changing them
+stays in the Web UI, CLI and API. Input: `{"device":"Pixel"}`. Scope:
+`devices:read`.
+
+### `captures`
+
+Packet recordings from `GET /api/v1/agent/captures`: the automatic "Lab
+traffic" and "VPN traffic" recordings, coverage checks and manual captures,
+recording ones first, with state, interface, segments, bytes, dropped packets,
+evidence holds and cases. File names, hashes, packet bytes and exports are
+never returned. Input: `{}` or `{"limit":10}`. Scope: `captures:read`.
+
+### `cases`
+
+Investigation cases from `GET /api/v1/agent/cases`: name, status, evidence
+counts by kind and evidence hold. With `case_id`, one case's newest 50
+evidence items (captures, exports and query snapshots with their query and
+match count) and newest 20 timeline events. A token restricted to some cases
+can read those cases but not list all of them. Input: `{}` or
+`{"case_id":"case-…"}`. Scope: `cases:read`.
+
+### `diagnostics`
+
+The checks `shakerproxy doctor` runs (interfaces, firewall, routes, DNS,
+forwarding, DHCP, Docker, services, disk, time, capture, packet drops), with
+problems first and their observations. Input: `{}`. Scope: `system:read`.
+
+`list_devices` also carries `platform` (what the device most likely is, e.g.
+`GrapheneOS phone`) and `platform_evidence` (the connectivity check or DHCP
+request that showed it) when the token has `traffic:read`.
 
 ### Renamed tools
 

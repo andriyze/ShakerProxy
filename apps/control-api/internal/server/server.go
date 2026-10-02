@@ -294,6 +294,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerProtocolRoutes(mux)
 	s.registerDeviceIntelRoutes(mux)
 	s.registerLabControlRoutes(mux)
+	s.registerAgentEvidenceRoutes(mux)
 	return s.wrapMux(mux)
 }
 

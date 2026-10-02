@@ -3,8 +3,8 @@ import { describeError } from "../../api"
 import { authFetch, responseError } from "../../shell/authFetch"
 
 // Read-only AI investigator (MCP) connection wizard. Creates a short-lived
-// token with exactly three read scopes and shows it once.
-export const REQUIRED_MCP_SCOPES = ["system:read", "devices:read", "traffic:read"] as const
+// token with exactly these read scopes (none sensitive) and shows it once.
+export const REQUIRED_MCP_SCOPES = ["system:read", "devices:read", "traffic:read", "captures:read", "cases:read"] as const
 const SECRET_DISPLAY_MS = 10 * 60 * 1000
 
 type ConnectionMode = "remote" | "local"
@@ -105,7 +105,7 @@ export function McpSetup() {
     }
     setBusy(true)
     clearSecret()
-    setStatus({ text: "Creating a 24-hour investigator token with exactly three read-only scopes…", error: false })
+    setStatus({ text: "Creating a 24-hour investigator token with read-only scopes…", error: false })
     try {
       const response = await authFetch("/api/v1/auth/tokens", {
         method: "POST",
@@ -149,7 +149,7 @@ export function McpSetup() {
       </header>
       <p className="mcp-setup-intro">
         Let an MCP-capable AI assistant read device and traffic information without making it an administrator. It sees
-        bounded system, device, DNS, TLS, pinning-candidate and HTTP metadata only.
+        bounded system, device, DNS, TLS, pinning-candidate and HTTP metadata, and summaries of captures and cases.
       </p>
       <div className="mcp-mode-picker" role="group" aria-label="Where the AI assistant runs">
         <button
@@ -214,8 +214,8 @@ export function McpSetup() {
           <div>
             <strong>Create a 24-hour investigator token</strong>
             <p>
-              Enter your ShakerProxy administrator password. This wizard fixes the scopes to system:read, devices:read, and
-              traffic:read; there are no write scopes.
+              Enter your ShakerProxy administrator password. This wizard fixes the scopes to system:read, devices:read,
+              traffic:read, captures:read and cases:read; there are no write scopes.
             </p>
           </div>
           <label className="visually-hidden" htmlFor="mcp-admin-password">

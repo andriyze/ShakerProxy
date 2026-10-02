@@ -39,6 +39,10 @@ type deviceLine struct {
 	// FormerIDs are older device records merged into this one; past events
 	// may carry them as device_id.
 	FormerIDs []string `json:"former_ids,omitempty"`
+	// Platform is what the device most likely is ("GrapheneOS phone") and
+	// PlatformEvidence what showed it.
+	Platform         string `json:"platform,omitempty"`
+	PlatformEvidence string `json:"platform_evidence,omitempty"`
 }
 
 // dhcpLine is what a device's DHCP request on the lab said about it when
@@ -112,6 +116,13 @@ func (s *Service) listDevices(ctx context.Context, _ *mcp.CallToolRequest, args 
 				identity = dhcp.Platform
 			}
 		}
+		if platform := device.Platform; platform != nil {
+			line.Platform, line.PlatformEvidence = platform.Platform, platformEvidence(*platform)
+			identity = platform.Platform
+			if device.Vendor != "" && device.Vendor != platform.Platform {
+				identity += ", " + device.Vendor
+			}
+		}
 		line.Summary = deviceSummary(device.DisplayName, identity, addresses, device.Online)
 		if device.PinnedAddress != "" {
 			line.Summary += fmt.Sprintf("; named by IP address %s, so traffic from it counts as this device whatever MAC it uses", device.PinnedAddress)
@@ -167,6 +178,21 @@ func (s *Service) findDevice(ctx context.Context, _ *mcp.CallToolRequest, args F
 		result.Summary = fmt.Sprintf("%q matches %d devices; ask the user which one or use a device_id.", reference, len(result.Matches))
 	}
 	return textResult(result)
+}
+
+// platformEvidence says what showed a device's platform, as the Devices
+// page does.
+func platformEvidence(platform agentapi.DevicePlatform) string {
+	if platform.Source == "dhcp" {
+		if platform.Detail == "" {
+			return "its DHCP request"
+		}
+		return "its DHCP request: " + platform.Detail
+	}
+	if platform.Domain == "" {
+		return "its system traffic"
+	}
+	return "its system traffic to " + platform.Domain
 }
 
 func deviceSummary(name, vendor string, addresses []string, online bool) string {

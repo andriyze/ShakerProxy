@@ -32,7 +32,12 @@ func TestAgentInvestigatorConnectionMintsOnlyFixedReadScopes(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	want := []apitoken.Scope{apitoken.ScopeSystemRead, apitoken.ScopeDevicesRead, apitoken.ScopeTrafficRead}
+	want := []apitoken.Scope{apitoken.ScopeSystemRead, apitoken.ScopeDevicesRead, apitoken.ScopeTrafficRead, apitoken.ScopeCapturesRead, apitoken.ScopeCasesRead}
+	for _, scope := range want {
+		if slices.Contains(apitoken.SensitiveScopes(), scope) {
+			t.Fatalf("the investigator profile carries the sensitive scope %s", scope)
+		}
+	}
 	// The token store canonicalizes scope order, so compare the minted token's scopes as a set.
 	if response.Profile != "INVESTIGATOR" || !slices.Equal(slices.Sorted(slices.Values(response.Token.Scopes)), slices.Sorted(slices.Values(want))) || !slices.Equal(response.FixedScopes, want) {
 		t.Fatalf("unexpected investigator profile: %#v", response)
