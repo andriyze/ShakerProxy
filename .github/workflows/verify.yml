@@ -96,7 +96,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             iproute2 iw hostapd wpasupplicant wireshark-common python3 virtme-ng qemu-system-x86 linux-image-generic \
-            iptables tcpdump dnsmasq-base busybox wireless-regdb
+            iptables tcpdump dnsmasq-base busybox-static wireless-regdb
           kernel="$(ls /boot/vmlinuz-*-generic | sort -V | tail -n 1)"
           version="${kernel#/boot/vmlinuz-}"
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "linux-modules-extra-$version"
