@@ -16,7 +16,20 @@
 set -euo pipefail
 
 netlab_skip() { printf 'SKIP: %s\n' "$1"; [[ "${SHAKERPROXY_NETLAB_REQUIRE:-0}" == 1 ]] && exit 1; exit 0; }
-fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  if [[ -n "${GATEWAY:-}" ]] && ip netns list 2>/dev/null | grep -q "^$GATEWAY"; then
+    {
+      printf '%s\n' "--- ShakerProxy nat" && ip netns exec "$GATEWAY" iptables -t nat -L -v -n
+      printf '%s\n' "--- ShakerProxy filter" && ip netns exec "$GATEWAY" iptables -L -v -n
+      printf '%s\n' "--- bridge" && ip -n "$GATEWAY" -d link show master spbr0
+      for log in dnsd upstream-dns dnsmasq apply; do
+        [[ -f "$LAB_TEMP/$log.log" ]] && printf -- '--- %s\n' "$log" && tail -n 20 "$LAB_TEMP/$log.log"
+      done
+    } >&2 || true
+  fi
+  exit 1
+}
 
 [[ "$(uname -s)" == Linux ]] || netlab_skip "inline bridge netlab requires Linux"
 [[ "$EUID" -eq 0 ]] || netlab_skip "inline bridge netlab requires root"
@@ -89,33 +102,28 @@ done
 # the test device.
 ip -n "$ROUTER" link add lan type bridge
 ip -n "$ROUTER" link set lan up
-ip link add "${RUN_ID}ru" type veth peer name up0
-ip link set "${RUN_ID}ru" netns "$ROUTER"
-ip link set up0 netns "$GATEWAY"
-ip link add "${RUN_ID}rp" type veth peer name peer0
-ip link set "${RUN_ID}rp" netns "$ROUTER"
-ip link set peer0 netns "$PEER"
-ip link add dev0 type veth peer name eth0
-ip link set dev0 netns "$GATEWAY"
-ip link set eth0 netns "$CLIENT"
+# Each veth is created in its namespaces, so names never meet the host's.
+ip link add "${RUN_ID}ru" netns "$ROUTER" type veth peer name up0 netns "$GATEWAY"
+ip link add "${RUN_ID}rp" netns "$ROUTER" type veth peer name peer0 netns "$PEER"
+ip link add dev0 netns "$GATEWAY" type veth peer name eth0 netns "$CLIENT"
 for port in "${RUN_ID}ru" "${RUN_ID}rp"; do
   ip -n "$ROUTER" link set "$port" master lan
   ip -n "$ROUTER" link set "$port" up
 done
-ip -n "$ROUTER" addr add 192.0.2.1/24 dev lan
+ip -n "$ROUTER" addr add 192.168.77.1/24 dev lan
 # The internet, as far as this lab goes: an upstream resolver.
 ip -n "$ROUTER" link add inet type dummy
 ip -n "$ROUTER" addr add 10.81.0.53/32 dev inet
 ip -n "$ROUTER" link set inet up
-ip -n "$PEER" addr add 192.0.2.30/24 dev peer0
+ip -n "$PEER" addr add 192.168.77.30/24 dev peer0
 ip -n "$PEER" link set peer0 up
-ip -n "$PEER" route add default via 192.0.2.1
+ip -n "$PEER" route add default via 192.168.77.1
 # ShakerProxy before the plan: its address on the upstream port, like a
 # freshly installed appliance.
-ip -n "$GATEWAY" addr add 192.0.2.20/24 dev up0
+ip -n "$GATEWAY" addr add 192.168.77.20/24 dev up0
 ip -n "$GATEWAY" link set up0 up
 ip -n "$GATEWAY" link set dev0 up
-ip -n "$GATEWAY" route add default via 192.0.2.1
+ip -n "$GATEWAY" route add default via 192.168.77.1
 ip -n "$CLIENT" link set eth0 up
 # Docker's FORWARD policy, which bridged frames meet once br_netfilter is on.
 ip netns exec "$GATEWAY" iptables -N DOCKER-USER
@@ -127,7 +135,7 @@ ip netns exec "$GATEWAY" iptables -P FORWARD DROP
 # sent to it can only come from ShakerProxy). The upstream resolver and the
 # peer's web server.
 ip netns exec "$ROUTER" dnsmasq --keep-in-foreground --conf-file=/dev/null --port=0 --interface=lan --bind-interfaces \
-  --dhcp-range=192.0.2.100,192.0.2.150,255.255.255.0,1h --dhcp-option=3,192.0.2.1 --dhcp-option=6,192.0.2.1 \
+  --dhcp-range=192.168.77.100,192.168.77.150,255.255.255.0,1h --dhcp-option=3,192.168.77.1 --dhcp-option=6,192.168.77.1 \
   --dhcp-leasefile="$LAB_TEMP/router.leases" --pid-file="$LAB_TEMP/dnsmasq.pid" --log-dhcp >"$LAB_TEMP/dnsmasq.log" 2>&1 &
 PIDS+=($!)
 ip netns exec "$ROUTER" python3 "$ROOT/tests/netlab/fixtures/dns-origin.py" >"$LAB_TEMP/upstream-dns.log" 2>&1 &
@@ -144,7 +152,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
     def log_message(self, *args):
         pass
-http.server.HTTPServer(("192.0.2.30", 8080), Handler).serve_forever()
+http.server.HTTPServer(("192.168.77.30", 8080), Handler).serve_forever()
 ' >"$LAB_TEMP/peer-http.log" 2>&1 &
 PIDS+=($!)
 ip netns exec "$GATEWAY" env \
@@ -168,9 +176,9 @@ ip -n "$GATEWAY" link set spbr0 address "$UP_MAC"
 ip -n "$GATEWAY" addr flush dev up0
 ip -n "$GATEWAY" link set up0 master spbr0
 ip -n "$GATEWAY" link set dev0 master spbr0
-ip -n "$GATEWAY" addr add 192.0.2.20/24 dev spbr0
+ip -n "$GATEWAY" addr add 192.168.77.20/24 dev spbr0
 ip -n "$GATEWAY" link set spbr0 up
-ip -n "$GATEWAY" route add default via 192.0.2.1 2>/dev/null || ip -n "$GATEWAY" route replace default via 192.0.2.1
+ip -n "$GATEWAY" route add default via 192.168.77.1 2>/dev/null || ip -n "$GATEWAY" route replace default via 192.168.77.1
 role apply >"$LAB_TEMP/apply.log"
 ip netns exec "$GATEWAY" iptables -S SHAKERPROXY-FORWARD | grep -q -- '-i spbr0 -o spbr0 -j ACCEPT' || fail "the plan's bridge forward rule is missing"
 ip netns exec "$GATEWAY" iptables -t nat -S SHAKERPROXY-SEC-PREROUTING | grep -- '--physdev-in dev0' | grep -q 'udp.*REDIRECT --to-ports 1053' || {
@@ -203,7 +211,7 @@ case "$reason" in
   BOUND|RENEW|REBIND|REBOOT)
     ip addr add "$new_ip_address/$new_subnet_mask" dev "$interface"
     ip route replace default via "$new_routers"
-    printf 'address=%s\nrouter=%s\ndns=%s\n' "$new_ip_address" "$new_routers" "$new_domain_name_servers" >"$LEASE_REPORT"
+    printf 'address=%s\nrouter=%s\ndns=%s\n' "$new_ip_address" "$new_routers" "$new_domain_name_servers" >"$(dirname "$0")/lease"
     ;;
 esac
 SCRIPT
@@ -218,17 +226,17 @@ case "$1" in
   bound|renew)
     ip addr add "$ip/$mask" dev "$interface"
     ip route replace default via "$router"
-    printf 'address=%s\nrouter=%s\ndns=%s\n' "$ip" "$router" "$dns" >"$LEASE_REPORT"
+    printf 'address=%s\nrouter=%s\ndns=%s\n' "$ip" "$router" "$dns" >"$(dirname "$0")/lease"
     ;;
 esac
 SCRIPT
   chmod 0755 "$LAB_TEMP/dhcp-script"
   ip netns exec "$CLIENT" env LEASE_REPORT="$LAB_TEMP/lease" timeout 30 busybox udhcpc -i eth0 -n -q -s "$LAB_TEMP/dhcp-script" >"$LAB_TEMP/udhcpc.log" 2>&1 || { cat "$LAB_TEMP/udhcpc.log"; fail "the device got no DHCP lease through the bridge"; }
 fi
-grep -q '^router=192.0.2.1$' "$LAB_TEMP/lease" || { cat "$LAB_TEMP/lease"; fail "the lease does not name the router as gateway"; }
-grep -q '^dns=192.0.2.1$' "$LAB_TEMP/lease" || { cat "$LAB_TEMP/lease"; fail "the lease does not name the router as DNS server"; }
+grep -q '^router=192.168.77.1$' "$LAB_TEMP/lease" || { cat "$LAB_TEMP/lease"; fail "the lease does not name the router as gateway"; }
+grep -q '^dns=192.168.77.1$' "$LAB_TEMP/lease" || { cat "$LAB_TEMP/lease"; fail "the lease does not name the router as DNS server"; }
 CLIENT_IP="$(sed -n 's/^address=//p' "$LAB_TEMP/lease")"
-[[ "$CLIENT_IP" == 192.0.2.1[0-5][0-9] ]] || fail "unexpected lease $CLIENT_IP"
+[[ "$CLIENT_IP" == 192.168.77.1[0-5][0-9] ]] || fail "unexpected lease $CLIENT_IP"
 
 # 4. The device uses the network as its router told it to.
 ip netns exec "$CLIENT" python3 -c '
@@ -251,21 +259,21 @@ def receive_exact(connection, length):
 udp_query = query("udp.bridge.shakerproxy.test", 0x1234)
 udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 udp.settimeout(5)
-udp.sendto(udp_query, ("192.0.2.1", 53))
+udp.sendto(udp_query, ("192.168.77.1", 53))
 response, server = udp.recvfrom(4096)
-assert server[0] == "192.0.2.1", server
+assert server[0] == "192.168.77.1", server
 assert response[:2] == udp_query[:2] and response[-4:] == socket.inet_aton("203.0.113.9"), response
 
 tcp_query = query("tcp.bridge.shakerproxy.test", 0x5678)
-tcp = socket.create_connection(("192.0.2.1", 53), 5)
+tcp = socket.create_connection(("192.168.77.1", 53), 5)
 tcp.sendall(struct.pack("!H", len(tcp_query)) + tcp_query)
 length = struct.unpack("!H", receive_exact(tcp, 2))[0]
 response = receive_exact(tcp, length)
 assert response[:2] == tcp_query[:2] and response[-4:] == socket.inet_aton("203.0.113.9"), response
 
 # Another device on the router side sees the device itself: no NAT.
-body = urllib.request.urlopen("http://192.0.2.30:8080/", timeout=5).read().decode()
-assert body.startswith("peer=192.0.2.1"), body
+body = urllib.request.urlopen("http://192.168.77.30:8080/", timeout=5).read().decode()
+assert body.startswith("peer=192.168.77.1"), body
 ' || fail "the device's DNS or bridged traffic did not work"
 grep -Fxq 'udp-query=udp.bridge.shakerproxy.test' "$LAB_TEMP/upstream-dns.log" || fail "the device's UDP DNS did not reach ShakerProxy's forwarder"
 grep -Fxq 'tcp-query=tcp.bridge.shakerproxy.test' "$LAB_TEMP/upstream-dns.log" || fail "the device's TCP DNS did not reach ShakerProxy's forwarder"
@@ -278,17 +286,17 @@ sleep 1
 kill -INT "${PIDS[-1]}" 2>/dev/null || true
 wait "${PIDS[-1]}" 2>/dev/null || true
 tcpdump -nn -e -r "$LAB_TEMP/device-port.pcap" 2>/dev/null >"$LAB_TEMP/device-port.txt"
-grep -q '192.0.2.1.67 > 192.0.2.1[0-9][0-9].68\|0.0.0.0.68 > 255.255.255.255.67' "$LAB_TEMP/device-port.txt" || { head -20 "$LAB_TEMP/device-port.txt"; fail "the device port recording has no DHCP"; }
+grep -q '192.168.77.1.67 > 192.168.77.1[0-9][0-9].68\|0.0.0.0.68 > 255.255.255.255.67' "$LAB_TEMP/device-port.txt" || { head -20 "$LAB_TEMP/device-port.txt"; fail "the device port recording has no DHCP"; }
 grep -q 'ARP' "$LAB_TEMP/device-port.txt" || fail "the device port recording has no ARP"
-grep -q "IP $CLIENT_IP.[0-9]* > 192.0.2.1.53:" "$LAB_TEMP/device-port.txt" || fail "the device port recording does not show the DNS query as sent to the router"
-grep -q "IP $CLIENT_IP.[0-9]* > 192.0.2.30.8080:" "$LAB_TEMP/device-port.txt" || fail "the device port recording does not show device-to-device traffic"
+grep -q "$CLIENT_IP.[0-9]* > 192.168.77.1.53:" "$LAB_TEMP/device-port.txt" || fail "the device port recording does not show the DNS query as sent to the router"
+grep -q "$CLIENT_IP.[0-9]* > 192.168.77.30.8080:" "$LAB_TEMP/device-port.txt" || fail "the device port recording does not show device-to-device traffic"
 
 # 5. Roll back: ShakerProxy's chains and bridge netfilter, then (in place of
 # Netplan) the bridge goes and the address returns to the upstream port.
 role rollback >"$LAB_TEMP/rollback.log"
 ip -n "$GATEWAY" link del spbr0
-ip -n "$GATEWAY" addr add 192.0.2.20/24 dev up0
-ip -n "$GATEWAY" route replace default via 192.0.2.1
+ip -n "$GATEWAY" addr add 192.168.77.20/24 dev up0
+ip -n "$GATEWAY" route replace default via 192.168.77.1
 for table in filter nat; do
   if ip netns exec "$GATEWAY" iptables -t "$table" -S | grep -E -- '-N SHAKERPROXY-(FORWARD|POSTROUTING)$' >/dev/null; then
     fail "ShakerProxy's plan chains remain in $table after rollback"
@@ -298,8 +306,8 @@ if ip netns exec "$GATEWAY" iptables -t nat -S 2>/dev/null | grep -q -- '--physd
   fail "the bridge DNS redirect remains after rollback"
 fi
 [[ "$(ip netns exec "$GATEWAY" cat /proc/sys/net/bridge/bridge-nf-call-iptables)" == "$(cat "$LAB_TEMP/bridge-nf.before")" ]] || fail "bridge netfilter was not restored"
-ip netns exec "$GATEWAY" ping -c 1 -W 2 192.0.2.1 >/dev/null || fail "ShakerProxy lost the network after rollback"
-if ip netns exec "$CLIENT" ping -c 1 -W 2 192.0.2.30 >/dev/null 2>&1; then
+ip netns exec "$GATEWAY" ping -c 1 -W 2 192.168.77.1 >/dev/null || fail "ShakerProxy lost the network after rollback"
+if ip netns exec "$CLIENT" ping -c 1 -W 2 192.168.77.30 >/dev/null 2>&1; then
   fail "the device still reaches the network without the bridge"
 fi
 

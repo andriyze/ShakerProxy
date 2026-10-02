@@ -37,9 +37,9 @@ func TestBridgeNetlabRole(t *testing.T) {
 			{StableID: "netlab-device", CurrentName: os.Getenv("SHAKERPROXY_BRIDGELAB_DEVICE"), Role: networkplan.RoleLab},
 		},
 		Management: networkplan.Management{PreserveActiveSSH: true},
-		WAN: networkplan.WANConfiguration{IPv4Mode: networkplan.WANIPv4Static, IPv4Address: "192.0.2.20/24", IPv4Gateway: "192.0.2.1",
+		WAN: networkplan.WANConfiguration{IPv4Mode: networkplan.WANIPv4Static, IPv4Address: "192.168.77.20/24", IPv4Gateway: "192.168.77.1",
 			IPv6Mode: networkplan.WANIPv6None, DNSMode: networkplan.WANDNSUseDHCP, AllowWorkingWANChange: true},
-		IPv4: networkplan.IPv4Configuration{Enabled: true, LabCIDR: "192.0.2.0/24", GatewayAddress: "192.0.2.20"},
+		IPv4: networkplan.IPv4Configuration{Enabled: true, LabCIDR: "192.168.77.0/24", GatewayAddress: "192.168.77.20"},
 		IPv6: networkplan.IPv6Configuration{Strategy: networkplan.IPv6ObserveOnly},
 	}
 	preview := networkplan.BuildPreview(plan, time.Now())

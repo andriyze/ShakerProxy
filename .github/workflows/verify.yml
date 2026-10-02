@@ -60,11 +60,11 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             iproute2 iptables nftables tcpdump wireshark-common radvd conntrack dnsutils \
-            wireguard-tools iputils-ping netcat-openbsd socat
+            wireguard-tools iputils-ping netcat-openbsd socat dnsmasq-base isc-dhcp-client
           sudo modprobe wireguard
       - name: Network namespace lab
         run: |
-          for test in run.sh single-arm.sh ipv6-lab.sh dns-forwarding.sh coverage-probes.sh vpn-mode.sh; do
+          for test in run.sh single-arm.sh ipv6-lab.sh dns-forwarding.sh coverage-probes.sh vpn-mode.sh bridge-mode.sh; do
             echo "::group::$test"
             sudo env "PATH=$PATH" "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" SHAKERPROXY_NETLAB_REQUIRE=1 "./tests/netlab/$test"
             echo "::endgroup::"
