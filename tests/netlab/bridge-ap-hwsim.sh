@@ -341,6 +341,12 @@ assert response[:2] == tcp_query[:2] and response[-4:] == socket.inet_aton("203.
 PY
 }
 query_router "$STATION" wifi.bridge.shakerproxy.test || fail "the Wi-Fi device's DNS to the router was not answered by ShakerProxy"
+# The upstream fixture answers one UDP and one TCP query and exits; start a
+# fresh one for the wired device.
+for _ in $(seq 1 50); do ip netns exec "$ROUTER" ss -lnu | grep -q '10.81.0.53:53 ' || break; sleep .1; done
+ip netns exec "$ROUTER" python3 "$ROOT/tests/netlab/fixtures/dns-origin.py" >>"$LAB_TEMP/upstream-dns.log" 2>&1 &
+PIDS+=($!)
+for _ in $(seq 1 50); do ip netns exec "$ROUTER" ss -lnu | grep -q '10.81.0.53:53 ' && ip netns exec "$ROUTER" ss -lnt | grep -q '10.81.0.53:53 ' && break; sleep .1; done
 query_router "$CLIENT" wired.bridge.shakerproxy.test || fail "the wired device's DNS to the router was not answered by ShakerProxy"
 for name in udp.wifi udp.wired tcp.wifi tcp.wired; do
   grep -Fq "query=$name.bridge.shakerproxy.test" "$LAB_TEMP/upstream-dns.log" || fail "the $name DNS query did not reach ShakerProxy's forwarder"
