@@ -7,6 +7,7 @@ import { api, describeError } from "../../api"
 import { sortedDeviceExtensions } from "../../features"
 import { DeviceAuditEntries } from "./DeviceHistory"
 import type { Device, DeviceMutationResult } from "../../types"
+import { PinnedAddressControls } from "./NamedDevices"
 
 export function DeviceDetailDrawer({
   deviceID,
@@ -170,6 +171,18 @@ export function DeviceDetailDrawer({
                 View traffic
               </button>
             </div>
+            <PinnedAddressControls
+              device={device}
+              onChanged={(updated) => {
+                if (updated) {
+                  setDevice(updated)
+                  setFriendlyName(updated.friendly_name ?? "")
+                } else {
+                  onClose()
+                }
+                void onChanged()
+              }}
+            />
             {device.attribution_warnings?.map((warning) => (
               <p className="device-warning" key={warning}>
                 {warning}

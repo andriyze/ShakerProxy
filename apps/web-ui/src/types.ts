@@ -730,6 +730,7 @@ export type Device = {
   attribution_warnings?: string[]
   last_reconciled: string
   former_ids?: string[]
+  pinned_address?: string
 }
 
 export type PCAPSelectionFileImpact = {

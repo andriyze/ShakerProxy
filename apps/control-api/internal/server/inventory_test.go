@@ -585,3 +585,48 @@ func TestDeviceSplitAndMergeEndpointsRequireExactEvidenceAndAuditBoth(t *testing
 		t.Fatalf("unexpected split/merge audit: %#v err=%v", audit, err)
 	}
 }
+
+func TestNamingADeviceByItsAddressThroughTheAPI(t *testing.T) {
+	server, session := configuredAPIServer(t, filepath.Join(t.TempDir(), "absent.sock"))
+	now := time.Date(2026, 10, 1, 21, 0, 0, 0, time.UTC)
+	server.inventory = &inventory.Store{Path: filepath.Join(t.TempDir(), "inventory.json"), Now: func() time.Time { return now }}
+	server.nameResolver = &inventory.NameResolver{Store: server.inventory}
+
+	wrong := authenticatedJSONRequest(http.MethodPost, "/api/v1/devices", `{"password":"wrong","name":"Pixel 9","address":"192.168.10.201"}`, session, "device-name-api-auth")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, wrong)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("naming without the password returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	body := `{"password":"` + activationTestPassword + `","name":"Pixel 9","address":"192.168.10.201"}`
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, authenticatedJSONRequest(http.MethodPost, "/api/v1/devices", body, session, "device-name-api-0001"))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"pinned_address":"192.168.10.201"`) || !strings.Contains(recorder.Body.String(), `"friendly_name":"Pixel 9"`) || strings.Contains(recorder.Body.String(), activationTestPassword) {
+		t.Fatalf("naming an address returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var created inventory.MutationResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &created); err != nil || len(created.Devices) != 1 {
+		t.Fatalf("decode named device: %v %s", err, recorder.Body.String())
+	}
+	// The name is usable in Traffic filters right away.
+	ids, _, err := server.nameResolver.ResolveSelectors([]string{"Pixel 9"}, nil)
+	if err != nil || len(ids["Pixel 9"]) != 1 || ids["Pixel 9"][0] != created.Devices[0].ID {
+		t.Fatalf("device.name did not resolve the named device: %v err=%v", ids, err)
+	}
+	bad := `{"password":"` + activationTestPassword + `","name":"Router","address":"not an ip"}`
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, authenticatedJSONRequest(http.MethodPost, "/api/v1/devices", bad, session, "device-name-api-0002"))
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "IP address") {
+		t.Fatalf("an invalid address returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	unpin := `{"password":"` + activationTestPassword + `"}`
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, authenticatedJSONRequest(http.MethodDelete, "/api/v1/devices/"+created.Devices[0].ID+"/pinned-address", unpin, session, "device-unpin-api-0001"))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("removing a named device that was never seen returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	snapshot, err := server.inventory.Snapshot()
+	if err != nil || len(snapshot.Devices) != 0 {
+		t.Fatalf("the never-seen named device was not removed: %+v err=%v", snapshot.Devices, err)
+	}
+}

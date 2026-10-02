@@ -106,6 +106,11 @@ func (s *Store) ReconcileDHCP4(leases []DHCP4Lease) (Snapshot, error) {
 			}
 		}
 		if deviceIndex < 0 {
+			if index, ok := pinnedDevice(doc.Devices, lease.Address); ok {
+				deviceIndex = index
+			}
+		}
+		if deviceIndex < 0 {
 			if len(doc.Devices) >= MaxDevices {
 				return Snapshot{}, errors.New("device inventory limit exceeded")
 			}

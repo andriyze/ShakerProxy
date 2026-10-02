@@ -5,6 +5,7 @@ import { navigate } from "../../features"
 import { deviceQuery } from "../../lib/trafficPresets"
 import { DeviceAuditLog, DeviceTrafficDeletionJobs } from "./DeviceHistory"
 import { DeviceRow } from "./DeviceRow"
+import { AddDeviceByAddress } from "./NamedDevices"
 import { DeviceDetailDrawer } from "./DeviceDetailDrawer"
 import { AddressAliasManager, DeviceAliasExportControls, DeviceAliasImportControls } from "./DeviceAliases"
 import {
@@ -100,6 +101,7 @@ export function DeviceInventory() {
         <span>{snapshot ? `${snapshot.devices.filter((device) => device.online).length} ONLINE` : "LOADING"}</span>
       </div>
       {error && <ErrorBox message={error} onRetry={() => void refresh()} />}
+      <AddDeviceByAddress onAdded={() => void refresh()} />
       <form className="device-filters" key={JSON.stringify(filters)} onSubmit={applyFilters}>
         <label>
           View

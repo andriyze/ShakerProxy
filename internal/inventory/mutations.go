@@ -680,6 +680,9 @@ func mergeDeviceEvidence(target *Device, source Device) ([]string, error) {
 	}
 	mergeCATrust(target, source)
 	mergeFormerIDs(target, source)
+	if target.PinnedAddress == "" {
+		target.PinnedAddress = source.PinnedAddress
+	}
 	tags, err := normalizeMetadata(DeviceMetadata{Tags: append(append([]string(nil), target.Tags...), source.Tags...)})
 	if err != nil {
 		return nil, err
