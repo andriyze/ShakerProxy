@@ -201,7 +201,7 @@ func upsertNeighborIdentity(device *Device, observation NeighborObservation) {
 		if identity.Kind != IdentityMAC || identity.Value != observation.HardwareAddr {
 			continue
 		}
-		if isNeighborSource(identity.Source) {
+		if timedAddressSource(identity.Source) {
 			if observation.SeenAt.Before(identity.FirstSeen) {
 				identity.FirstSeen = observation.SeenAt
 			}
@@ -258,11 +258,12 @@ func upsertNeighborAddress(device *Device, observation NeighborObservation, now 
 	})
 }
 
-// refreshNeighborActivity recomputes the time-based Active flag of NDP and
-// ARP address windows; DHCP windows keep the lease state set by ReconcileDHCP4.
+// refreshNeighborActivity recomputes the time-based Active flag of NDP, ARP
+// and observed DHCP address windows; ShakerProxy's own DHCP windows keep the
+// lease state set by ReconcileDHCP4.
 func refreshNeighborActivity(device *Device, now time.Time) {
 	for index := range device.Addresses {
-		if isNeighborSource(device.Addresses[index].Source) {
+		if timedAddressSource(device.Addresses[index].Source) {
 			device.Addresses[index].Active = device.Addresses[index].ValidUntil.After(now)
 		}
 	}
@@ -279,15 +280,21 @@ func hasActiveAddress(device Device) bool {
 
 func hasActiveNeighborAddress(device Device) bool {
 	for _, address := range device.Addresses {
-		if isNeighborSource(address.Source) && address.Active {
+		if timedAddressSource(address.Source) && address.Active {
 			return true
 		}
 	}
 	return false
 }
 
+// timedAddressSource reports address windows whose activity follows the
+// clock: neighbor entries and observed leases.
+func timedAddressSource(source EvidenceSource) bool {
+	return isNeighborSource(source) || source == SourceObservedDHCP
+}
+
 func validIdentitySource(source EvidenceSource) bool {
-	return source == SourceDHCP4Lease || isNeighborSource(source)
+	return source == SourceDHCP4Lease || source == SourceObservedDHCP || isNeighborSource(source)
 }
 
 // validAddressEvidence accepts DHCPv4 lease windows for IPv4 and NDP windows
@@ -302,7 +309,7 @@ func validAddressEvidence(address AddressObservation) bool {
 		return parsed.Is4() && address.Family == "IPv4"
 	case SourceNDP:
 		return parsed.Is6() && !parsed.Is4In6() && parsed.Zone() == "" && address.Family == "IPv6"
-	case SourceARP:
+	case SourceARP, SourceObservedDHCP:
 		return parsed.Is4() && address.Family == "IPv4"
 	}
 	return false
@@ -315,7 +322,7 @@ func validAddressSelector(address netip.Addr, source EvidenceSource) bool {
 		return address.Is4()
 	case SourceNDP:
 		return address.Is6() && !address.Is4In6() && address.Zone() == ""
-	case SourceARP:
+	case SourceARP, SourceObservedDHCP:
 		return address.Is4()
 	}
 	return false

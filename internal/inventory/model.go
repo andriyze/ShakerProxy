@@ -211,6 +211,9 @@ type Device struct {
 	// Whatever MAC appears at it (a phone rotating its private MAC) joins
 	// this device.
 	PinnedAddress string `json:"pinned_address,omitempty"`
+	// ObservedDHCP is the newest DHCP identity the device showed on the lab
+	// when another server (the network's router) answered it.
+	ObservedDHCP *ObservedDHCPIdentity `json:"observed_dhcp,omitempty"`
 }
 
 // MarshalJSON always writes identities, addresses and hostnames as lists:
@@ -395,9 +398,12 @@ func validateDevice(device Device) error {
 		}
 	}
 	for _, hostname := range device.Hostnames {
-		if normalizeHostname(hostname.Hostname) != hostname.Hostname || hostname.Source != SourceDHCP4Lease || hostname.Confidence < 1 || hostname.Confidence > 100 || hostname.LastSeen.Before(hostname.FirstSeen) {
+		if normalizeHostname(hostname.Hostname) != hostname.Hostname || hostname.Source != SourceDHCP4Lease && hostname.Source != SourceObservedDHCP || hostname.Confidence < 1 || hostname.Confidence > 100 || hostname.LastSeen.Before(hostname.FirstSeen) {
 			return errors.New("device hostname evidence is invalid")
 		}
+	}
+	if device.ObservedDHCP != nil && !validObservedDHCPIdentity(*device.ObservedDHCP) {
+		return errors.New("device observed DHCP identity is invalid")
 	}
 	switch device.VendorState {
 	case "":

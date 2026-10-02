@@ -648,6 +648,10 @@ func mergeDeviceEvidence(target *Device, source Device) ([]string, error) {
 	if len(target.Identities) > MaxIdentities || len(target.Addresses) > MaxAddresses || len(target.Hostnames) > MaxHostnames {
 		return nil, errors.New("device merge would exceed evidence bounds")
 	}
+	if source.ObservedDHCP != nil && (target.ObservedDHCP == nil || source.ObservedDHCP.LastSeen.After(target.ObservedDHCP.LastSeen)) {
+		observed := *source.ObservedDHCP
+		target.ObservedDHCP = &observed
+	}
 	if target.FriendlyName == "" {
 		target.FriendlyName = source.FriendlyName
 	} else if source.FriendlyName != "" && source.FriendlyName != target.FriendlyName {
