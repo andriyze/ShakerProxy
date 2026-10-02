@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help verify fmt-check docs-check registry-check test test-go test-ui test-mitm test-mitm-image compose-check security-check shell-check package package-smoke release-images release-bundle release-bundle-smoke vm-confirm vm-timeout vm-daemon-kill vm-reboot vm-host-safety vm-dhcp vm-capture ingest-db-smoke live-events-smoke analyzer-smoke netlab netlab-mitmproxy dev dev-observe dev-down dev-logs dev-ps dev-reset dev-cli dev-demo dev-demo-live ui-dev
+.PHONY: help verify fmt-check docs-check registry-check test test-go test-ui test-mitm test-mitm-image compose-check security-check shell-check package package-smoke release-images release-bundle release-bundle-smoke vm-confirm vm-timeout vm-daemon-kill vm-reboot vm-host-safety vm-dhcp vm-capture ingest-db-smoke live-events-smoke analyzer-smoke netlab netlab-wifi netlab-mitmproxy dev dev-observe dev-down dev-logs dev-ps dev-reset dev-cli dev-demo dev-demo-live ui-dev
 
 PACKAGE_VERSION ?= 0.1.0-dev.1
 GO_IMAGE := golang:1.25.1-bookworm@sha256:c423747fbd96fd8f0b1102d947f51f9b266060217478e5f9bf86f145969562ee
@@ -167,7 +167,11 @@ netlab: ## Network namespace lab suite (sudo)
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/ipv6-lab.sh
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/coverage-probes.sh
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/vpn-mode.sh
+	sudo ./tests/netlab/wifi-hwsim.sh
 	SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/mitmproxy-container.sh
+
+netlab-wifi: ## Wi-Fi visibility lab test with simulated radios (sudo, needs mac80211_hwsim)
+	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/wifi-hwsim.sh
 
 netlab-mitmproxy: ## mitmproxy container lab test
 	./tests/netlab/mitmproxy-container.sh

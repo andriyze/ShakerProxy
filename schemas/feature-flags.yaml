@@ -327,6 +327,24 @@
       "enabled_by_default": false
     },
     {
+      "id": "wifi_visibility",
+      "name": "Wi-Fi visibility",
+      "status": "experimental",
+      "badge": "EXPERIMENTAL",
+      "summary": "A passive monitor interface on a monitor-capable adapter records lab devices' 802.11 management frames: networks they search for, authentication, association, roaming and disconnect reasons, and nearby networks; it never transmits, and nearby devices are recorded only on explicit opt-in with 24-hour retention.",
+      "owning_document": "docs/wifi-visibility.md",
+      "evidence": [
+        "internal/wifi/capture_test.go",
+        "internal/wifi/observer_test.go",
+        "internal/wifi/fuzz_test.go",
+        "host/gatewayd/internal/daemon/wifi_monitor_test.go",
+        "internal/ingest/wifi_postgres_integration_test.go",
+        "docs/wifi-visibility.md"
+      ],
+      "promotion_gate": "Named monitor-capable adapters pass monitor creation, channel tuning, beside-AP operation, frame capture, attribution, nearby-scope filtering, restart restore and clean removal on packaged Ubuntu hosts, plus the mac80211_hwsim netlab run.",
+      "enabled_by_default": false
+    },
+    {
       "id": "appliance_configuration_lock",
       "name": "Appliance-wide configuration lock",
       "status": "experimental",

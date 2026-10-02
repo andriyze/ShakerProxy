@@ -129,6 +129,8 @@ func main() {
 	if database != nil {
 		defer database.Close()
 		go runDatabaseDrain(ctx, logger, spool, databaseSink, savedViews)
+		// Wi-Fi events about nearby devices and networks are kept 24 hours.
+		go ingest.RunNearbyWiFiRetention(ctx, databaseSink, logger)
 	}
 	go func() {
 		<-ctx.Done()

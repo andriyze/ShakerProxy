@@ -19,7 +19,7 @@ test("coverage results read as plain words", () => {
 })
 
 test("the System page runs the coverage check and lists every way around ShakerProxy", () => {
-  assert.match(webUIFile("workspaces/system/SystemWorkspace.tsx"), /<VisibilityCoveragePanel \/>\s*<TestLabPanel \/>/)
+  assert.match(webUIFile("workspaces/system/SystemWorkspace.tsx"), /<VisibilityCoveragePanel \/>\s*<WiFiVisibilityPanel \/>\s*<TestLabPanel \/>/)
   const panel = webUIFile("workspaces/system/VisibilityCoveragePanel.tsx")
   assert.match(panel, /api<CoverageOverview>\("\/api\/v1\/coverage"\)/)
   assert.match(panel, /withPassword\("run the visibility coverage check"/)

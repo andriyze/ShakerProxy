@@ -79,6 +79,11 @@ func main() {
 			logger.Warn("VPN mode is on but could not be brought up; retrying", "error", err)
 		}
 		go vpnManager.Run(ctx)
+		// Wi-Fi visibility stays off until a tester turns it on; Keep
+		// restores it after a restart.
+		wifiMonitor := daemon.NewProductionWiFiMonitor(server, logger)
+		server.SetWiFiMonitor(wifiMonitor)
+		go wifiMonitor.Keep(ctx)
 	}
 
 	if traffic == nil {

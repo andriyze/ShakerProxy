@@ -1,9 +1,9 @@
-import type { RecentEvent } from "../types"
+import type { RecentEvent, WiFiEventFields } from "../types"
 
 // The live Traffic stream shows each lookup, connection and web request on one
 // line: what kind it is, which client, and what it talked to.
 
-export type StreamKind = "dns" | "tls" | "quic" | "http" | "discovery" | "alert" | "other"
+export type StreamKind = "dns" | "tls" | "quic" | "http" | "discovery" | "wifi" | "alert" | "other"
 
 // Discovery is how devices find each other and announce themselves on the
 // network (AirPlay, casting, smart-home apps), mostly multicast.
@@ -81,6 +81,12 @@ export const STREAM_KINDS: { id: StreamKind; label: string; description: string;
     label: "Discovery",
     description: "How devices find each other and announce their names: mDNS/Bonjour, SSDP/UPnP, LLMNR, NetBIOS, DHCP",
     query: `(${DISCOVERY_QUERY} AND NOT source:SURICATA)`,
+  },
+  {
+    id: "wifi",
+    label: "Wi-Fi",
+    description: "What devices do on the radio: networks they search for, joining, roaming and disconnects (needs Wi-Fi visibility on the System page)",
+    query: "kind:wifi.*",
   },
   { id: "alert", label: "Alerts", description: "Suricata alerts", query: "kind:suricata.alert" },
   {
@@ -223,7 +229,13 @@ function instantConnectionKind(event: RecentEvent): StreamKind {
   return "other"
 }
 
+// isWiFiEvent reports an event of ShakerProxy's passive Wi-Fi monitor.
+export function isWiFiEvent(event: Pick<RecentEvent, "source" | "kind">): boolean {
+  return event.source === "HOST" && event.kind.startsWith("wifi.")
+}
+
 export function streamKind(event: RecentEvent): StreamKind {
+  if (isWiFiEvent(event)) return "wifi"
   if (event.kind === INSTANT_CONNECTION) return instantConnectionKind(event)
   if (event.alert_signature || event.kind === "suricata.alert") return "alert"
   if (discoveryProtocol(event)) return "discovery"
@@ -254,11 +266,12 @@ function endpoint(address?: string, port?: number): string {
 // reported whose details (server name, bytes) are still being analyzed.
 export type StreamLine = { kind: StreamKind; badge: string; name: string; detail: string; peer: string; problem: boolean; pending?: boolean }
 
-const INSTANT_BADGES: Record<StreamKind, string> = { dns: "DNS", tls: "TLS", quic: "QUIC", http: "HTTP", discovery: "", alert: "ALERT", other: "" }
+const INSTANT_BADGES: Record<StreamKind, string> = { dns: "DNS", tls: "TLS", quic: "QUIC", http: "HTTP", discovery: "", wifi: "", alert: "ALERT", other: "" }
 
 // streamLine is what one row says, e.g. DNS · maps.google.com · A → 142.250.1.1
 export function streamLine(event: RecentEvent): StreamLine {
   if (event.blocked) return blockedStreamLine(event)
+  if (isWiFiEvent(event)) return wifiStreamLine(event)
   if (event.app_protocol === "doh" || event.app_protocol === "dot" || event.app_protocol === "doq") return dohStreamLine(event)
   const kind = streamKind(event)
   const peer = endpoint(event.destination_ip, event.destination_port)
@@ -496,6 +509,72 @@ export function mergeInstantConnections<T extends RecentEvent>(events: readonly 
 // StreamEnd is one side of a row: what it is, then its address.
 export type StreamEnd = { primary: string; secondary: string }
 
+// networkLabel names a Wi-Fi network as a row shows it.
+export function networkLabel(fields: WiFiEventFields | undefined): string {
+  if (!fields) return "a network"
+  if (fields.ssid) return `“${fields.ssid}”`
+  if (fields.wildcard) return "any network"
+  if (fields.hidden) return "hidden network"
+  return fields.bssid ?? "a network"
+}
+
+function radioDetail(fields: WiFiEventFields): string {
+  return [fields.signal_dbm !== undefined ? `${fields.signal_dbm} dBm` : "", fields.channel ? `ch ${fields.channel}` : ""].filter(Boolean).join(" · ")
+}
+
+const WIFI_BADGES: Record<string, string> = {
+  "wifi.probe": "PROBE",
+  "wifi.auth": "AUTH",
+  "wifi.assoc": "JOIN",
+  "wifi.deauth": "DEAUTH",
+  "wifi.disassoc": "LEAVE",
+  "wifi.beacon_summary": "AP",
+}
+
+// wifiStreamLine says what a device did on the radio, e.g.
+// PROBE · “HomeWiFi” · -52 dBm · ch 6, or JOIN · “ShakerProxy-Lab”.
+function wifiStreamLine(event: RecentEvent): StreamLine {
+  const fields = event.wifi
+  const badge = WIFI_BADGES[event.kind] ?? "WI-FI"
+  if (!fields) return { kind: "wifi", badge, name: event.kind, detail: "", peer: "", problem: false }
+  const radio = radioDetail(fields)
+  const possible = fields.possible_mac ? `possibly ${fields.possible_mac} (randomized address)` : ""
+  switch (event.kind) {
+    case "wifi.probe":
+      return { kind: "wifi", badge, name: fields.wildcard ? "scan for any network" : `search for ${networkLabel(fields)}`, detail: [radio, possible].filter(Boolean).join(" · "), peer: "", problem: false }
+    case "wifi.auth":
+    case "wifi.assoc": {
+      const failed = fields.success === false
+      const roamed = event.kind === "wifi.assoc" && fields.reassociation && fields.previous_bssid
+      const verb = event.kind === "wifi.auth" ? `authenticated (${fields.algorithm ?? "open"})` : roamed ? `roamed from ${fields.previous_bssid}` : fields.reassociation ? "rejoined" : "joined"
+      const outcome = fields.no_response ? "no answer from the access point" : failed ? `refused: ${fields.status ?? "unknown reason"}` : verb
+      return { kind: "wifi", badge: roamed && !failed ? "ROAM" : badge, name: networkLabel(fields), detail: [outcome, radio].filter(Boolean).join(" · "), peer: fields.bssid ?? "", problem: failed || Boolean(fields.no_response) }
+    }
+    case "wifi.deauth":
+    case "wifi.disassoc": {
+      const reason = fields.protected ? "protected frame (reason hidden)" : fields.reason ?? ""
+      const who = fields.direction === "from_ap" ? "dropped by the access point" : "device left"
+      return { kind: "wifi", badge, name: networkLabel(fields), detail: [who, reason].filter(Boolean).join(" · "), peer: fields.bssid ?? "", problem: fields.direction === "from_ap" }
+    }
+    case "wifi.beacon_summary": {
+      const range = fields.signal_min_dbm !== undefined && fields.signal_max_dbm !== undefined && fields.signal_min_dbm !== fields.signal_max_dbm ? `${fields.signal_min_dbm}…${fields.signal_max_dbm} dBm` : radio
+      return { kind: "wifi", badge, name: networkLabel(fields), detail: [fields.security ?? "", range, fields.channel ? `ch ${fields.channel}` : ""].filter((part, index, all) => part && all.indexOf(part) === index).join(" · "), peer: fields.bssid ?? "", problem: fields.security === "open" || fields.security === "wep" }
+    }
+  }
+  return { kind: "wifi", badge, name: networkLabel(fields), detail: radio, peer: fields.bssid ?? "", problem: false }
+}
+
+// wifiEnds: a Wi-Fi row goes from the device (or the access point) to the
+// network (or the device).
+function wifiEnds(event: RecentEvent, deviceName: string): { from: StreamEnd; to: StreamEnd; inbound: boolean } {
+  const fields = event.wifi
+  const client: StreamEnd = { primary: deviceName || fields?.client_mac || "—", secondary: deviceName ? fields?.client_mac ?? "" : fields?.randomized_mac ? "randomized address" : "" }
+  const network: StreamEnd = { primary: networkLabel(fields), secondary: fields?.bssid ?? "" }
+  if (event.kind === "wifi.beacon_summary") return { from: network, to: { primary: "everyone nearby", secondary: "beacon" }, inbound: false }
+  if (fields?.direction === "from_ap") return { from: network, to: client, inbound: true }
+  return { from: client, to: event.kind === "wifi.probe" ? { primary: networkLabel(fields), secondary: "probe request" } : network, inbound: false }
+}
+
 // streamEnds says where traffic went from and to. The device side carries its
 // name; the other side its address, so each row reads "Pixel
 // 192.168.10.201:42612 → 140.82.121.4:443". inbound marks traffic towards
@@ -507,6 +586,7 @@ export function streamEnds(event: RecentEvent, deviceName: string): { from: Stre
   const protocol = (event.protocol ?? "").toUpperCase()
   const remote = (address: string): StreamEnd => ({ primary: address || "—", secondary: protocol })
   const local = (address: string): StreamEnd => ({ primary: deviceName || address || "—", secondary: deviceName ? address : "" })
+  if (isWiFiEvent(event)) return wifiEnds(event, deviceName)
   if (event.kind === "shakerproxy.dns") {
     return { from: local(source), to: { primary: "ShakerProxy DNS", secondary: destination || "port 53" }, inbound: false }
   }

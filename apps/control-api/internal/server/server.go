@@ -224,6 +224,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/vpn/devices", s.requireAuth(http.HandlerFunc(s.addVPNDevice)))
 	mux.Handle("DELETE /api/v1/vpn/devices/{peerID}", s.requireAuth(http.HandlerFunc(s.revokeVPNDevice)))
 	mux.Handle("PUT /api/v1/dns-visibility", s.requireLabWrite(http.HandlerFunc(s.putDNSVisibility)))
+	mux.Handle("GET /api/v1/wifi-visibility", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.getWiFiVisibility)))
+	mux.Handle("PUT /api/v1/wifi-visibility", s.requireLabWrite(http.HandlerFunc(s.putWiFiVisibility)))
 	mux.Handle("POST /api/v1/traffic-policy/rollback", s.requireAuth(http.HandlerFunc(s.rollbackTrafficPolicy)))
 	mux.Handle("GET /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesRead, http.HandlerFunc(s.listCaptures)))
 	mux.Handle("POST /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.startCapture)))

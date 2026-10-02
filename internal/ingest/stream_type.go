@@ -19,10 +19,11 @@ const (
 	StreamAlert     = "alert"
 	StreamOther     = "other"
 	StreamBlocked   = "blocked"
+	StreamWiFi      = "wifi"
 )
 
 // StreamTypes lists the stream types in display order.
-var StreamTypes = []string{StreamDNS, StreamTLS, StreamQUIC, StreamHTTP, StreamDiscovery, StreamAlert, StreamOther, StreamBlocked}
+var StreamTypes = []string{StreamDNS, StreamTLS, StreamQUIC, StreamHTTP, StreamDiscovery, StreamWiFi, StreamAlert, StreamOther, StreamBlocked}
 
 // discoveryPorts are destination ports of local discovery: mDNS, LLMNR,
 // SSDP, NetBIOS, DHCP, DHCPv6, WS-Discovery and Ubiquiti discovery.
@@ -41,6 +42,8 @@ func StreamType(event RecentEvent) string {
 	switch {
 	case event.Blocked:
 		return StreamBlocked
+	case isHostWiFi(event.Source, event.Kind):
+		return StreamWiFi
 	case contains(encryptedDNSApps, event.AppProtocol):
 		return StreamDNS
 	case event.Kind == HostConnKind:
@@ -73,6 +76,7 @@ func StreamType(event RecentEvent) string {
 // normalized_events columns.
 var streamTypeSQL = `CASE
  WHEN ` + blockedFlagSQL + ` THEN '` + StreamBlocked + `'
+ WHEN source = 'HOST' AND starts_with(kind, 'wifi.') THEN '` + StreamWiFi + `'
  WHEN COALESCE(app_protocol, '') IN (` + sqlStrings(encryptedDNSApps) + `) THEN '` + StreamDNS + `'
  WHEN kind = '` + HostConnKind + `' THEN CASE
    WHEN lower(COALESCE(protocol, '')) = 'udp' AND (destination_port = 443 OR COALESCE(tls_server_name, '') <> '') THEN '` + StreamQUIC + `'

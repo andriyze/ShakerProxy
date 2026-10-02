@@ -25,6 +25,7 @@ if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
     systemctl disable --now shakerproxy-hostapd.service >/dev/null 2>&1 || true
     systemctl disable --now shakerproxy-radvd.service >/dev/null 2>&1 || true
     systemctl stop 'shakerproxy-capture@*.service' >/dev/null 2>&1 || true
+    systemctl stop shakerproxy-wifi-capture.service shakerproxy-wifi-worker.service >/dev/null 2>&1 || true
   fi
 fi
 

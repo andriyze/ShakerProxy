@@ -33,6 +33,8 @@ docker run --rm --platform linux/amd64 -v "$PACKAGE_PATH:/package.deb:ro" "$UBUN
   test -x /pkg/usr/libexec/shakerproxy/shakerproxy-pki
   test -x /pkg/usr/libexec/shakerproxy/shakerproxy-interception-pki
   test -x /pkg/usr/libexec/shakerproxy/shakerproxy-testlabd
+  test -x /pkg/usr/libexec/shakerproxy/shakerproxy-wifi-worker
+  /pkg/usr/libexec/shakerproxy/shakerproxy-wifi-worker version >/dev/null
   mkdir -p /runtime/etc /runtime/data
   /pkg/usr/libexec/shakerproxy/shakerproxy-pki --etc-root /runtime/etc/shakerproxy --data-root /runtime/data/shakerproxy --edge-gid 1234 ensure >/tmp/pki-status.json
   test "$(stat -c %a /runtime/etc/shakerproxy/pki/management/root-ca.key)" = 400
@@ -72,6 +74,10 @@ docker run --rm --platform linux/amd64 -v "$PACKAGE_PATH:/package.deb:ro" "$UBUN
   grep -Fqx "ExecStart=/usr/sbin/hostapd /etc/shakerproxy/hostapd/shakerproxy.conf" /pkg/lib/systemd/system/shakerproxy-hostapd.service
   grep -Fqx "CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW" /pkg/lib/systemd/system/shakerproxy-hostapd.service
   if grep -Fq "shakerproxy-hostapd" /pkg/DEBIAN/postinst; then echo "package setup must not enable the Wi-Fi access point" >&2; exit 1; fi
+  grep -Fqx "ExecStart=/usr/libexec/shakerproxy/shakerproxy-wifi-worker" /pkg/lib/systemd/system/shakerproxy-wifi-worker.service
+  grep -Fqx "PrivateNetwork=true" /pkg/lib/systemd/system/shakerproxy-wifi-worker.service
+  test -f /pkg/lib/systemd/system/shakerproxy-wifi-capture.service
+  if grep -Fq "enable shakerproxy-wifi" /pkg/DEBIAN/postinst; then echo "package setup must not turn Wi-Fi visibility on" >&2; exit 1; fi
   grep -Fqx "    systemctl disable --now shakerproxy-hostapd.service >/dev/null 2>&1 || true" /pkg/DEBIAN/prerm
   grep -Fqx "d /run/lock/shakerproxy 0750 root shakerproxy-host -" /pkg/usr/lib/tmpfiles.d/shakerproxy.conf
   grep -Fqx "  /usr/libexec/shakerproxy/shakerproxy-provision-runtime" /pkg/DEBIAN/postinst

@@ -105,7 +105,7 @@ const (
 var mainstream = map[string]bool{
 	"http": true, "tls": true, "quic": true, "dns": true, "ntp": true, "dhcp": true,
 	"dhcpv6": true, "icmp": true, "icmpv6": true, "mdns": true, "ssdp": true, "llmnr": true,
-	"netbios-ns": true,
+	"netbios-ns": true, "wifi": true,
 }
 
 func tcp(ports ...int) []Port { return portsFor("tcp", ports...) }
@@ -143,6 +143,7 @@ var catalog = []Protocol{
 	{ID: "doq", Label: "DNS over QUIC", Category: CategoryEncryptedDNS, Visibility: encrypted, Description: "Encrypted DNS over QUIC.", Ports: udp(853)},
 	{ID: "doh", Label: "DNS over HTTPS", Category: CategoryEncryptedDNS, Visibility: encrypted, Description: "Encrypted DNS carried inside HTTPS."},
 	{ID: "ntp", Label: "NTP", Category: CategoryNetworkManagement, Visibility: cleartext, Description: "Network time.", Ports: udp(123)},
+	{ID: "wifi", Label: "Wi-Fi (802.11 management)", Category: CategoryNetworkManagement, Visibility: cleartext, Description: "How devices search for, join, roam between and leave Wi-Fi networks, recorded by a passive monitor interface."},
 	{ID: "dhcp", Label: "DHCP", Category: CategoryNetworkManagement, Visibility: cleartext, Description: "IPv4 address assignment.", Ports: udp(67, 68)},
 	{ID: "dhcpv6", Label: "DHCPv6", Category: CategoryNetworkManagement, Visibility: cleartext, Description: "IPv6 address assignment.", Ports: udp(546, 547)},
 	{ID: "icmp", Label: "ICMP", Category: CategoryNetworkManagement, Visibility: cleartext, Description: "IPv4 control messages (ping, unreachable)."},

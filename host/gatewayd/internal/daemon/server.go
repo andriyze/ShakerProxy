@@ -50,6 +50,7 @@ type Server struct {
 	configLock *configlock.Manager
 	traffic    *TrafficPolicyManager
 	vpn        *VPNManager
+	wifi       *WiFiMonitor
 	// vpnRecorder records the VPN interface beside the lab recording.
 	vpnRecorder *LabRecorder
 
@@ -142,6 +143,9 @@ func (s *Server) SetConfigurationLock(manager *configlock.Manager) {
 }
 
 func (s *Server) SetTrafficPolicyManager(manager *TrafficPolicyManager) { s.traffic = manager }
+
+// SetWiFiMonitor enables the Wi-Fi visibility methods.
+func (s *Server) SetWiFiMonitor(monitor *WiFiMonitor) { s.wifi = monitor }
 
 func (s *Server) Serve(ctx context.Context, socketPath string) error {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o750); err != nil {
@@ -443,6 +447,27 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 		probeContext, cancel := context.WithTimeout(ctx, 7*time.Second)
 		defer cancel()
 		return probeConnectivity(probeContext), nil
+	case "GetWiFiMonitor":
+		if err := decodeEmpty(); err != nil {
+			return nil, err
+		}
+		if s.wifi == nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32040, Message: "Wi-Fi visibility is unavailable in this daemon profile"}
+		}
+		return s.wifi.Status(ctx), nil
+	case "SetWiFiMonitor":
+		if s.wifi == nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32040, Message: "Wi-Fi visibility is unavailable in this daemon profile"}
+		}
+		var params gatewayprotocol.SetWiFiMonitorParams
+		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil || params.Settings.Validate() != nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32602, Message: "invalid parameters"}
+		}
+		status, err := s.wifi.Set(ctx, params)
+		if err != nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32090, Message: err.Error()}
+		}
+		return status, nil
 	case "GetTrafficPolicy":
 		if s.traffic == nil {
 			return nil, &gatewayprotocol.RPCError{Code: -32070, Message: "traffic policy is unavailable in this daemon profile"}
@@ -1022,7 +1047,7 @@ func hostMutationCategory(method string) (configlock.Category, bool) {
 	switch method {
 	case "StageNetworkPlan", "RollbackNetworkPlan", "ConfirmNetworkPlan", "SetOperatingMode", "EnableEmergencyBypass", "DisableEmergencyBypass":
 		return configlock.CategoryNetwork, true
-	case "StartCapture", "StopCapture":
+	case "StartCapture", "StopCapture", "SetWiFiMonitor":
 		return configlock.CategoryCapture, true
 	case "SetCaptureEvidenceHold", "ApplyCaptureRetentionPolicy":
 		return configlock.CategoryRetention, true

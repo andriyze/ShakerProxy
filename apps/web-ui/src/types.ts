@@ -959,6 +959,74 @@ export type RecentEvent = {
   http_host?: string
   http_path?: string
   http_status?: number
+  // What a Wi-Fi event (kind wifi.*) says; every string came off the air.
+  wifi?: WiFiEventFields
+}
+
+// WiFiEventFields are the details of an 802.11 management frame event from
+// ShakerProxy's passive Wi-Fi monitor.
+export type WiFiEventFields = {
+  scope: "lab" | "nearby"
+  client_mac?: string
+  randomized_mac?: boolean
+  bssid?: string
+  ssid?: string
+  wildcard?: boolean
+  hidden?: boolean
+  channel?: number
+  frequency_mhz?: number
+  signal_dbm?: number
+  signal_min_dbm?: number
+  signal_max_dbm?: number
+  count?: number
+  direction?: "from_client" | "from_ap"
+  reason_code?: number
+  reason?: string
+  protected?: boolean
+  status_code?: number
+  status?: string
+  success?: boolean
+  no_response?: boolean
+  algorithm?: string
+  reassociation?: boolean
+  previous_bssid?: string
+  security?: string
+  possible_mac?: string
+}
+
+// WiFiVisibility mirrors GET /api/v1/wifi-visibility.
+export type WiFiVisibility = {
+  schema: number
+  settings: { enabled: boolean; adapter?: string; channel_mode: "auto" | "fixed" | "hop"; channel?: number; nearby: boolean }
+  available: boolean
+  reason?: string
+  active: boolean
+  interface?: string
+  adapter?: string
+  phy?: string
+  shared_with_access_point: boolean
+  channel_mode?: "fixed" | "hop" | "access-point"
+  channel?: number
+  frequency_mhz?: number
+  hop_channels?: number[]
+  capturing: boolean
+  worker_running: boolean
+  lab_ssid?: string
+  lab_devices: number
+  adapters: {
+    interface: string
+    phy?: string
+    monitor_supported: boolean
+    monitor_alongside_ap: boolean
+    access_point: boolean
+    in_use: boolean
+    bands: string[]
+    channels: number[]
+  }[]
+  last_error?: string
+  nearby_retention_hours: number
+  checked_at: string
+  notes: string[]
 }
 
 export type EventFacets = {
@@ -994,7 +1062,7 @@ export type RecentEventPage = {
 }
 
 // The summary's stream types; docs/traffic-stream-types.md has the rules.
-export type EventStreamType = "dns" | "tls" | "quic" | "http" | "discovery" | "alert" | "other" | "blocked"
+export type EventStreamType = "dns" | "tls" | "quic" | "http" | "discovery" | "wifi" | "alert" | "other" | "blocked"
 
 export type EventStreamCounts = Record<EventStreamType, number>
 

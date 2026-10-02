@@ -167,6 +167,13 @@
           ]
         },
         {
+          "feature_id": "wifi_visibility",
+          "level": "not-certified",
+          "evidence": [
+            "docs/wifi-visibility.md"
+          ]
+        },
+        {
           "feature_id": "protocol_discovery",
           "level": "not-certified",
           "evidence": [
@@ -359,6 +366,13 @@
           ]
         },
         {
+          "feature_id": "wifi_visibility",
+          "level": "not-certified",
+          "evidence": [
+            "docs/wifi-visibility.md"
+          ]
+        },
+        {
           "feature_id": "protocol_discovery",
           "level": "not-certified",
           "evidence": [
@@ -542,6 +556,13 @@
           "level": "not-certified",
           "evidence": [
             "docs/wifi-access-point.md"
+          ]
+        },
+        {
+          "feature_id": "wifi_visibility",
+          "level": "not-certified",
+          "evidence": [
+            "docs/wifi-visibility.md"
           ]
         },
         {

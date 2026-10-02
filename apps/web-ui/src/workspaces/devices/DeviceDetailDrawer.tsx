@@ -9,6 +9,7 @@ import { sortedDeviceExtensions } from "../../features"
 import { DeviceAuditEntries } from "./DeviceHistory"
 import type { Device, DeviceMutationResult, DevicePlatformHint } from "../../types"
 import { PinnedAddressControls } from "./NamedDevices"
+import { DeviceWiFiPanel } from "./DeviceWiFiPanel"
 
 export function DeviceDetailDrawer({
   deviceID,
@@ -191,6 +192,7 @@ export function DeviceDetailDrawer({
                 {warning}
               </p>
             ))}
+            <DeviceWiFiPanel deviceID={device.id} formerIDs={device.former_ids} />
             {extensions.map((extension) => (
               <section
                 key={extension.id}

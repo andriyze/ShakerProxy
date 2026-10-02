@@ -26,7 +26,7 @@ test("the UI classifies every shared fixture like the server", () => {
 
 test("the fixture covers every stream type", () => {
   const covered = new Set(cases.map(({ type }) => type))
-  assert.deepEqual([...covered].sort(), ["alert", "blocked", "discovery", "dns", "http", "other", "quic", "tls"])
+  assert.deepEqual([...covered].sort(), ["alert", "blocked", "discovery", "dns", "http", "other", "quic", "tls", "wifi"])
 })
 
 test("the server leaves out the same analyzer duplicates as All", () => {

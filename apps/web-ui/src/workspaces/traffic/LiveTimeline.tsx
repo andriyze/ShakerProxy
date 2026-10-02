@@ -1,7 +1,7 @@
 import React from "react"
 import { STREAM_KINDS, type StreamKind, type TimelineBucket } from "../../lib/liveTraffic"
 
-const ORDER: StreamKind[] = ["dns", "tls", "quic", "http", "discovery", "alert", "other"]
+const ORDER: StreamKind[] = ["dns", "tls", "quic", "http", "discovery", "wifi", "alert", "other"]
 
 // LiveTimeline is the strip above the stream, after Kibana's and Datadog's
 // histograms: how much of each kind of traffic happened over the window.

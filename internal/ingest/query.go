@@ -103,6 +103,9 @@ type RecentEvent struct {
 	// when it is not known.
 	DestinationOrganization string `json:"destination_organization,omitempty"`
 	DestinationCategory     string `json:"destination_category,omitempty"`
+	// WiFi is what a Wi-Fi event (kind wifi.*) says: the network, signal,
+	// channel, reason or status.
+	WiFi *WiFiFields `json:"wifi,omitempty"`
 	// Summary is one plain-language line built by EventSummary.
 	Summary string `json:"summary,omitempty"`
 }
