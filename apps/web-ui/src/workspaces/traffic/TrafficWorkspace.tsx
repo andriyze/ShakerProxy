@@ -67,6 +67,27 @@ export function TrafficWorkspace() {
   const [draftQuery, setDraftQuery] = useState(advanced)
   const [filters, setFilters] = useState<LiveFilters>(() => liveFiltersFromURL(window.location.search))
   const [holding, setHolding] = useState(false)
+  const [wide, setWide] = useState(() => new URLSearchParams(window.location.search).get("traffic_view") === "wide")
+  const setWideView = (next: boolean) => {
+    setWide(next)
+    const url = new URL(window.location.href)
+    if (next) url.searchParams.set("traffic_view", "wide")
+    else url.searchParams.delete("traffic_view")
+    window.history.replaceState({}, "", url)
+  }
+  useEffect(() => {
+    document.body.classList.toggle("traffic-wide", wide)
+    if (!wide) return () => document.body.classList.remove("traffic-wide")
+    const leave = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !document.querySelector(".event-detail-drawer")) setWideView(false)
+    }
+    document.addEventListener("keydown", leave)
+    return () => {
+      document.removeEventListener("keydown", leave)
+      document.body.classList.remove("traffic-wide")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wide])
   const directory = useDeviceDirectory()
   const formerIDs = (id: string) => directory?.get(id)?.device.former_ids ?? []
   const query = useMemo(
@@ -490,6 +511,21 @@ export function TrafficWorkspace() {
             <button type="button" className="quiet event-stream-toggle" onClick={toggleLivePause}>
               {manualPaused ? "Resume live" : "Pause live"}
             </button>
+            <button type="button" className="quiet" aria-pressed={wide} onClick={() => setWideView(!wide)}>
+              {wide ? "Exit wide view" : "Wide view"}
+            </button>
+            {wide && (
+              <button
+                type="button"
+                className="quiet"
+                onClick={() => {
+                  if (document.fullscreenElement) void document.exitFullscreen()
+                  else void document.documentElement.requestFullscreen?.()
+                }}
+              >
+                Full screen
+              </button>
+            )}
           </div>
         </header>
         <LiveFilterBar filters={filters} directory={directory} onChange={(next) => applyFilters(next)} />
@@ -749,6 +785,7 @@ export function TrafficWorkspace() {
             </section>
           )}
         </details>
+        <div className="traffic-extras">
         {page && <p className="event-generated">Updated {new Date(page.generated_at).toLocaleString()}</p>}
         <TrafficExport query={query} source={source} />
         <details className="traffic-save">
@@ -765,10 +802,13 @@ export function TrafficWorkspace() {
           />
           <EventQuerySnapshotControl query={page?.canonical_query ?? query} source={source} />
         </details>
+        </div>
       </section>
-      <TrafficOverview onDevice={filterDevice} />
-      <HTTPActivity />
-      <FeatureViews workspace="traffic" />
+      <div className="traffic-extras">
+        <TrafficOverview onDevice={filterDevice} />
+        <HTTPActivity />
+        <FeatureViews workspace="traffic" />
+      </div>
     </>
   )
 }

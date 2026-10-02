@@ -159,3 +159,25 @@ test("discovery traffic on the network has its own type", () => {
   assert.match(chip("other"), /NOT dst\.port:1900/)
   assert.ok(composeLiveQuery(DEFAULT_LIVE_FILTERS).length < 2048)
 })
+
+test("rows say where traffic went from and to", async () => {
+  const { streamEnds, ownerLine, transferLine } = await import("../../apps/web-ui/src/lib/liveTraffic.ts")
+  const outbound = { ...base, kind: "zeek.conn", protocol: "tcp", source_ip: "192.168.10.201", source_port: 42612, destination_ip: "140.82.121.4", destination_port: 443, attribution_evidence: { endpoint: "SOURCE" } }
+  assert.deepEqual(streamEnds(outbound, "Pixel"), { from: { primary: "Pixel", secondary: "192.168.10.201:42612" }, to: { primary: "140.82.121.4:443", secondary: "TCP" }, inbound: false })
+  const inbound = { ...outbound, source_ip: "52.1.2.3", source_port: 443, destination_ip: "192.168.10.201", destination_port: 50000, attribution_evidence: { endpoint: "DESTINATION" } }
+  const ends = streamEnds(inbound, "Pixel")
+  assert.equal(ends.inbound, true)
+  assert.equal(ends.to.primary, "Pixel")
+  assert.equal(ends.from.primary, "52.1.2.3:443")
+  assert.equal(streamEnds({ ...base, kind: "shakerproxy.dns", source_ip: "192.168.10.201", source_port: 41000, destination_ip: "192.168.10.177", destination_port: 53 }, "Pixel").to.primary, "ShakerProxy DNS")
+  assert.equal(ownerLine({ ...base, destination_organization: "GitHub", destination_category: "cloud-platform" }), "GitHub · cloud platform")
+  assert.equal(transferLine({ ...base, bytes_sent: 3100, bytes_received: 22600 }), "↑ 3 KB ↓ 22 KB")
+  assert.equal(transferLine({ ...base, network_bytes: 512 }), "512 B")
+})
+
+test("the Traffic page has a wide view", () => {
+  const traffic = webUIFile("workspaces/traffic/TrafficWorkspace.tsx")
+  assert.match(traffic, /document\.body\.classList\.toggle\("traffic-wide", wide\)/)
+  assert.match(traffic, /traffic_view/)
+  assert.match(webUIFile("styles/live-traffic.css"), /body\.traffic-wide main\.workspace\{max-width:none/)
+})

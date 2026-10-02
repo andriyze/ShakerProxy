@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { foldSplitConnections, forwardedLookups, isAnalyzerDuplicate } from "../../lib/eventSummary"
 import { eventDeviceTitle, splitDeviceTitle, type DeviceDirectory } from "../../lib/deviceTitle"
-import { collapseRepeats, mergeInstantConnections, streamLine } from "../../lib/liveTraffic"
+import { collapseRepeats, mergeInstantConnections, ownerLine, streamEnds, streamLine, transferLine } from "../../lib/liveTraffic"
 import type { RecentEvent } from "../../types"
 
 // TrafficStream lists events newest first, one line each. Rows that arrive
@@ -54,15 +54,25 @@ export function TrafficStream({
       <div className="stream-head" role="row">
         <span>Time</span>
         <span>Type</span>
-        <span>Client</span>
+        <span>From</span>
+        <span aria-hidden="true" />
+        <span>To</span>
         <span>What</span>
         <span>Details</span>
-        <span>To</span>
       </div>
       <div className="stream-rows" role="rowgroup">
         {rows.map(({ event, count }) => {
           const line = streamLine(event)
-          const [client, clientIP] = splitDeviceTitle(eventDeviceTitle(event, directory))
+          const [client] = splitDeviceTitle(eventDeviceTitle(event, directory))
+          const ends = streamEnds(event, client)
+          const transfer = transferLine(event)
+          const flags = [
+            line.kind === "http" && event.source !== "MITMPROXY" ? "cleartext" : "",
+            event.tls_interception_state === "INTERCEPTED" ? "decrypted" : "",
+            event.blocked ? "blocked" : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")
           const at = new Date(event.occurred_at)
           return (
             <div
@@ -83,19 +93,27 @@ export function TrafficStream({
                 {at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })}
               </time>
               <span className={`stream-badge ${line.kind}`}>{line.badge}</span>
-              <span className="stream-client" title={clientIP ? `${client} · ${clientIP}` : client || event.source_ip}>
-                {client || event.source_ip || "—"}
+              <Cell primary={ends.from.primary} secondary={ends.from.secondary} className="stream-from" />
+              <span className="stream-arrow" aria-label={ends.inbound ? "to the device" : "to"}>
+                {ends.inbound ? "←" : "→"}
               </span>
-              <strong className="stream-name" title={count > 1 ? `${line.name} · ${count} times within a minute` : line.name}>
-                {line.name}
-                {count > 1 && <span className="stream-count">×{count}</span>}
-              </strong>
-              <span className="stream-detail" title={line.pending ? "Opened just now; the server name and size follow once the recording is analyzed" : line.detail}>
-                {line.pending ? "opened" : line.detail}
-              </span>
-              <span className="stream-peer" title={line.peer}>
-                {line.peer}
-              </span>
+              <Cell primary={ends.to.primary} secondary={ends.to.secondary} className="stream-to" />
+              <Cell
+                primary={
+                  <>
+                    {line.name}
+                    {count > 1 && <span className="stream-count">×{count}</span>}
+                  </>
+                }
+                title={count > 1 ? `${line.name} · ${count} times within a minute` : line.name}
+                secondary={ownerLine(event)}
+                className="stream-what"
+              />
+              <Cell
+                primary={line.pending ? "opened" : line.detail || transfer}
+                secondary={line.pending ? "details follow from the recording" : line.detail && transfer && line.detail !== transfer ? transfer : flags}
+                className="stream-detail"
+              />
             </div>
           )
         })}
@@ -106,5 +124,25 @@ export function TrafficStream({
         </button>
       ) : null}
     </div>
+  )
+}
+
+// Cell is a two-line stream cell: the value, and a smaller line under it.
+function Cell({
+  primary,
+  secondary,
+  className,
+  title,
+}: {
+  primary: React.ReactNode
+  secondary?: string
+  className: string
+  title?: string
+}) {
+  return (
+    <span className={`stream-cell ${className}`} title={title ?? (typeof primary === "string" ? [primary, secondary].filter(Boolean).join(" · ") : undefined)}>
+      <span className="stream-primary">{primary}</span>
+      {secondary ? <span className="stream-secondary">{secondary}</span> : null}
+    </span>
   )
 }

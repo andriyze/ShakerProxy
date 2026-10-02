@@ -24,22 +24,28 @@
 .live-domains{padding:0 12px}
 .live-domains .live-chip{min-height:24px;font-size:12px}
 .stream{border:1px solid #1f3a40;border-radius:8px;overflow:hidden;background:#071316}
-.stream-head,.stream-row{display:grid;grid-template-columns:78px 62px minmax(90px,180px) minmax(180px,2.2fr) minmax(110px,1.2fr) minmax(110px,1fr);align-items:center;gap:10px;padding:0 12px}
+.stream-head,.stream-row{display:grid;grid-template-columns:68px 62px minmax(110px,1.1fr) 16px minmax(120px,1fr) minmax(170px,2fr) minmax(120px,1.1fr);align-items:center;gap:10px;padding:0 12px}
 .stream-head{height:30px;background:#0d2227;color:#9bb0b4;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .stream-rows{max-height:max(360px,calc(100vh - 330px));overflow-y:auto;overscroll-behavior:contain}
-.stream-row{height:30px;border-top:1px solid #10262b;font-size:13px;cursor:pointer;content-visibility:auto;contain-intrinsic-size:auto 30px}
+.stream-row{min-height:42px;padding-top:4px;padding-bottom:4px;border-top:1px solid #10262b;font-size:13px;cursor:pointer;content-visibility:auto;contain-intrinsic-size:auto 42px}
 .stream-row:hover{background:#0e2328}
 .stream-row:focus-visible{outline:2px solid #7fe0b5;outline-offset:-2px}
 .stream-row.selected{background:#123a35}
-.stream-row.problem .stream-detail{color:#ff8f8f}
+.stream-row.problem .stream-detail .stream-primary{color:#ff8f8f}
 .stream-row.fresh{animation:stream-in 1.6s ease-out}
 @keyframes stream-in{from{background:rgba(127,224,181,.22);transform:translateY(-3px)}to{background:transparent;transform:none}}
 @media (prefers-reduced-motion:reduce){.stream-row.fresh{animation:none}}
 .stream-row>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stream-row time,.stream-peer{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#9bb0b4}
-.stream-client{color:#cfe0e3}
-.stream-name{font-weight:600;color:#f1f7f8}
-.stream-detail{color:#b9cbce}
+.stream-cell{display:grid;min-width:0;line-height:1.3}
+.stream-primary,.stream-secondary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stream-secondary{color:#7f979c;font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+.stream-from .stream-primary,.stream-to .stream-primary{color:#cfe0e3}
+.stream-to .stream-primary{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.stream-what .stream-primary{font-weight:600;color:#f1f7f8}
+.stream-what .stream-secondary{font-family:inherit;color:#93b5ad}
+.stream-detail .stream-primary{color:#b9cbce}
+.stream-arrow{color:#5f7c80;text-align:center}
 .stream-badge{justify-self:start;padding:1px 7px;border-radius:5px;font-size:11px;font-weight:700;letter-spacing:.04em;border:1px solid #2c4a50;color:#9bb0b4}
 .stream-badge.dns{color:#8cc4ff;border-color:#2f5f8f;background:#0f2338}
 .stream-badge.tls{color:#7fe0b5;border-color:#2c6b57;background:#0d2a22}
@@ -52,10 +58,11 @@
 @media (max-width:900px){
   .live-filters{top:116px}
   .stream-head{display:none}
-  .stream-row{grid-template-columns:64px 52px 1fr;grid-template-rows:auto auto;height:auto;padding:6px 10px;row-gap:2px}
-  .stream-client{grid-column:1/3;grid-row:2;font-size:12px;color:#9bb0b4}
-  .stream-detail{grid-column:3;grid-row:2;font-size:12px}
-  .stream-peer{display:none}
+  .stream-row{grid-template-columns:60px 52px 1fr;grid-template-rows:auto auto;padding:6px 10px;row-gap:2px}
+  .stream-from{grid-column:1/3;grid-row:2}
+  .stream-arrow,.stream-to{display:none}
+  .stream-what{grid-column:3;grid-row:1}
+  .stream-detail{grid-column:3;grid-row:2}
   .stream-rows{max-height:none}
   .live-filter-label{width:100%}
 }
@@ -64,4 +71,14 @@
 .stream-row.pending .stream-detail{color:#6f878b;font-style:italic}
 .stream-badge.discovery{color:#f2a7e3;border-color:#7a3f6e;background:#2a1226}
 .live-chip.kind.discovery.on{border-color:#f2a7e3;background:#2a1226}
+
+/* Wide view: the stream fills the window. */
+body.traffic-wide .app-body{grid-template-columns:minmax(0,1fr)}
+body.traffic-wide .side-nav,body.traffic-wide .workspace-head,body.traffic-wide .traffic-extras,body.traffic-wide .live-note{display:none}
+body.traffic-wide main.workspace{max-width:none;padding:10px 14px 16px}
+body.traffic-wide .live-traffic{padding:10px 12px;gap:8px}
+body.traffic-wide .live-head h2{font-size:18px;margin:0}
+body.traffic-wide .live-filters{top:0}
+body.traffic-wide .stream-rows{max-height:calc(100vh - 300px)}
+body.traffic-wide .stream-head,body.traffic-wide .stream-row{grid-template-columns:70px 64px minmax(150px,1.1fr) 16px minmax(170px,1.1fr) minmax(260px,2.4fr) minmax(170px,1.2fr)}
 

@@ -430,3 +430,40 @@ export function mergeInstantConnections<T extends RecentEvent>(events: readonly 
       }
     })
 }
+
+// StreamEnd is one side of a row: what it is, then its address.
+export type StreamEnd = { primary: string; secondary: string }
+
+// streamEnds says where traffic went from and to. The device side carries its
+// name; the other side its address, so each row reads "Pixel
+// 192.168.10.201:42612 → 140.82.121.4:443". inbound marks traffic towards
+// the device.
+export function streamEnds(event: RecentEvent, deviceName: string): { from: StreamEnd; to: StreamEnd; inbound: boolean } {
+  const source = endpoint(event.source_ip, event.source_port)
+  const destination = endpoint(event.destination_ip, event.destination_port)
+  const inbound = event.attribution_evidence?.endpoint === "DESTINATION"
+  const protocol = (event.protocol ?? "").toUpperCase()
+  const remote = (address: string): StreamEnd => ({ primary: address || "—", secondary: protocol })
+  const local = (address: string): StreamEnd => ({ primary: deviceName || address || "—", secondary: deviceName ? address : "" })
+  if (event.kind === "shakerproxy.dns") {
+    return { from: local(source), to: { primary: "ShakerProxy DNS", secondary: destination || "port 53" }, inbound: false }
+  }
+  return inbound
+    ? { from: remote(source), to: local(destination), inbound }
+    : { from: local(source), to: remote(destination), inbound }
+}
+
+// whatSecondary is the line under a row's subject: who operates the
+// destination and what kind of service it is.
+export function ownerLine(event: RecentEvent): string {
+  const category = event.destination_category && event.destination_category !== "unknown" ? event.destination_category.replace(/-/g, " ") : ""
+  return [event.destination_organization ?? "", category].filter(Boolean).join(" · ")
+}
+
+// transferLine is bytes each way when known ("↑ 3 KB ↓ 22 KB"), else the total.
+export function transferLine(event: RecentEvent): string {
+  const sent = event.bytes_sent
+  const received = event.bytes_received
+  if (sent !== undefined || received !== undefined) return `↑ ${compactBytes(sent ?? 0)} ↓ ${compactBytes(received ?? 0)}`
+  return event.network_bytes ? compactBytes(event.network_bytes) : ""
+}
