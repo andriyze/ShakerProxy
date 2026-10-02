@@ -197,9 +197,11 @@ func (s Source) singleArmFilter() (string, error) {
 	// own interface, since a shared LAN otherwise floods the capture with other
 	// hosts' multicast and broadcast. ShakerProxy's own traffic (the NATed
 	// copy of each flow, its upstream DNS, management sessions) is left out,
-	// except the DNS it answers for lab devices.
+	// except the DNS it answers for lab devices. So is the host's own
+	// multicast and broadcast (IPv6 router solicitations, printer discovery
+	// on a desktop install): ShakerProxy forwards only unicast for devices.
 	if mac, err := interfaceHardwareAddress(s.InterfaceName); err == nil {
-		return fmt.Sprintf("ether host %[1]s and (not host %[2]s or (dst host %[2]s and dst port 53) or (src host %[2]s and src port 53))", mac, gateway), nil
+		return fmt.Sprintf("ether host %[1]s and not (ether src %[1]s and ether multicast) and (not host %[2]s or (dst host %[2]s and dst port 53) or (src host %[2]s and src port 53))", mac, gateway), nil
 	}
 	// Without the interface address, leave out only ShakerProxy talking to
 	// (or hearing from) a host outside the lab. BPF "net" matches either

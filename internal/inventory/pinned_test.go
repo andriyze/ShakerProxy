@@ -147,3 +147,33 @@ func operationSuffix(value string) string {
 	}
 	return string(out) + "-op"
 }
+
+// A phone that reconnects with a new private MAC sends traffic before its new
+// neighbor entry is seen; that traffic belongs to the device named by the
+// address, not to "Unknown device".
+func TestANamedAddressAttributesTrafficBeforeItsNeighborEntryIsSeen(t *testing.T) {
+	now := time.Date(2026, 10, 2, 12, 51, 0, 0, time.UTC)
+	store := deterministicMutationStore(t, now)
+	named, err := store.NameAddress("admin", "name-address-000020", AddressName{Name: "Pixel", Address: "192.168.10.201"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attributor := &Attributor{Store: store, Now: func() time.Time { return now }}
+	match, err := attributor.ResolveAddress(netip.MustParseAddr("192.168.10.201"), now.Add(3*time.Second))
+	if err != nil || !match.Matched || match.DeviceID != named.Devices[0].ID || match.Source != SourcePinnedAddress || match.Confidence != PinnedAddressConfidence {
+		t.Fatalf("named address was not attributed: %+v err=%v", match, err)
+	}
+	other, err := attributor.ResolveAddress(netip.MustParseAddr("192.168.10.202"), now)
+	if err != nil || other.Matched {
+		t.Fatalf("an unnamed address was attributed: %+v err=%v", other, err)
+	}
+	// Once the neighbor entry is seen, its window attributes as before.
+	if _, err := store.ReconcileNeighbors([]NeighborObservation{neighborObservation("192.168.10.201", "b6:53:83:65:54:a2", now)}); err != nil {
+		t.Fatal(err)
+	}
+	fresh := &Attributor{Store: store, Now: func() time.Time { return now.Add(time.Minute) }}
+	window, err := fresh.ResolveAddress(netip.MustParseAddr("192.168.10.201"), now.Add(30*time.Second))
+	if err != nil || !window.Matched || window.DeviceID != named.Devices[0].ID || window.Source != SourceARP {
+		t.Fatalf("the observed window should attribute once seen: %+v err=%v", window, err)
+	}
+}

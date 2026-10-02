@@ -868,7 +868,7 @@ export type AttributionEvidence = {
   device_id: string
   address: string
   endpoint: "SOURCE" | "DESTINATION"
-  source: "DHCP4_LEASE" | "NDP" | "ARP"
+  source: "DHCP4_LEASE" | "NDP" | "ARP" | "PINNED_ADDRESS"
   confidence: number
   valid_from: string
   valid_until: string

@@ -2979,7 +2979,7 @@ components:
         device_id: {type: string, pattern: "^device-[a-f0-9]{32}$"}
         address: {type: string, format: ipv4}
         endpoint: {type: string, enum: [SOURCE, DESTINATION]}
-        source: {type: string, enum: [DHCP4_LEASE, NDP, ARP]}
+        source: {type: string, enum: [DHCP4_LEASE, NDP, ARP, PINNED_ADDRESS]}
         confidence: {type: integer, minimum: 1, maximum: 100}
         valid_from: {type: string, format: date-time}
         valid_until: {type: string, format: date-time, description: Exclusive end of the matched address interval.}
@@ -4492,7 +4492,7 @@ components:
       properties:
         kind: {type: string, enum: [MAC, DHCP_CLIENT_ID]}
         value: {type: string}
-        source: {type: string, enum: [DHCP4_LEASE, NDP, ARP]}
+        source: {type: string, enum: [DHCP4_LEASE, NDP, ARP, PINNED_ADDRESS]}
         confidence: {type: integer, minimum: 1, maximum: 100}
         first_seen: {type: string, format: date-time}
         last_seen: {type: string, format: date-time}
@@ -4503,7 +4503,7 @@ components:
       properties:
         address: {type: string, format: ipv4}
         family: {const: IPv4}
-        source: {type: string, enum: [DHCP4_LEASE, NDP, ARP]}
+        source: {type: string, enum: [DHCP4_LEASE, NDP, ARP, PINNED_ADDRESS]}
         confidence: {type: integer, minimum: 1, maximum: 100}
         valid_from: {type: string, format: date-time}
         valid_until: {type: string, format: date-time}

@@ -163,6 +163,8 @@ func attributionSourceMatchesFamily(address netip.Addr, source inventory.Evidenc
 		return address.Is6() && !address.Is4In6() && address.Zone() == ""
 	case inventory.SourceARP:
 		return address.Is4()
+	case inventory.SourcePinnedAddress:
+		return address.Zone() == "" && !address.Is4In6()
 	}
 	return false
 }

@@ -94,7 +94,7 @@ func TestSingleArmCaptureRecordsOnlyTrafficThroughShakerProxy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "ether host bc:24:11:43:c2:5e and (not host 192.168.10.177 or (dst host 192.168.10.177 and dst port 53) or (src host 192.168.10.177 and src port 53))"
+	want := "ether host bc:24:11:43:c2:5e and not (ether src bc:24:11:43:c2:5e and ether multicast) and (not host 192.168.10.177 or (dst host 192.168.10.177 and dst port 53) or (src host 192.168.10.177 and src port 53))"
 	if !strings.Contains(strings.Join(arguments, "\x00"), "-f\x00"+want) {
 		t.Fatalf("single-arm capture filter = %q, want %q", arguments, want)
 	}
