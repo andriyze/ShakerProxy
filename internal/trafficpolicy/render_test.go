@@ -382,3 +382,36 @@ func TestInternetBlockWorksWhenTheLabAndInternetShareAnInterface(t *testing.T) {
 	indexOf(t, rules.FilterRules, "-A SHAKERPROXY-FORWARD -i ens5 -m mac --mac-source 0e:ff:c0:be:18:05 ! -d 172.31.32.0/20 -j DROP")
 	assertAbsent(t, rules.FilterRules, "! -o ens5")
 }
+
+func TestVPNDevicesGetTheLabRulesByAddress(t *testing.T) {
+	context := renderContext()
+	context.VPN = &Segment{
+		Interface: "wg-lab", IPv4CIDR: "10.89.0.0/24", GatewayIPv4: "10.89.0.1", IPv6Prefix: "fd89::/64", GatewayIPv6: "fd89::1",
+		Devices: map[string]DeviceMatch{renderDeviceB: {IPv4: []string{"10.89.0.2"}, IPv6: []string{"fd89::2"}}},
+	}
+	policy := renderPolicy(func(p *Policy) {
+		p.TLS.Enabled = true
+		p.EncryptedDNS.BlockDoT = true
+		p.DeviceControls = []DeviceControl{{DeviceID: renderDeviceB, BlockInternet: true}}
+	})
+	rules := mustRender(t, policy, context)
+	indexOf(t, rules.NATRules, "-A SHAKERPROXY-PREROUTING -i wg-lab -s 10.89.0.0/24 -d 10.89.0.1 -p udp --dport 53 -j REDIRECT --to-ports 1053")
+	indexOf(t, rules.FilterRules, "-A SHAKERPROXY-INPUT -i wg-lab -s 10.89.0.0/24 -p udp --dport 1053 -m conntrack --ctstate DNAT -j ACCEPT")
+	indexOf(t, rules.FilterRules, "-A SHAKERPROXY-FORWARD -i wg-lab -s 10.89.0.0/24 ! -d 10.89.0.0/24 -p tcp --dport 853")
+	indexOf(t, rules.FilterRules, "-A SHAKERPROXY-FORWARD -i wg-lab -s 10.89.0.2 ! -d 10.89.0.0/24 -j DROP")
+	indexOf(t, rules.FilterRulesIPv6, "-A SHAKERPROXY-FORWARD -i wg-lab -s fd89::2 ! -d fd89::/64 -j DROP")
+	// The lab keeps its own rules; the CA onboarding page stays lab-only.
+	indexOf(t, rules.NATRules, "-i lab0 -s 10.77.0.0/24 -d 10.77.0.1 -p tcp --dport 80 -j DNAT")
+	assertAbsent(t, rules.NATRules, "-i wg-lab -s 10.89.0.0/24 -d 10.89.0.1 -p tcp --dport 80 -j DNAT")
+	if len(rules.UnmatchedDevices) != 0 {
+		t.Fatalf("a VPN device was reported unmatched: %v", rules.UnmatchedDevices)
+	}
+	// One listener protection block for both segments.
+	if count := strings.Count(strings.Join(rules.FilterRules, "\n"), "-A SHAKERPROXY-INPUT -p udp --dport 1053 -j DROP"); count != 1 {
+		t.Fatalf("listener drop appears %d times", count)
+	}
+	// A VPN-only appliance renders the VPN alone.
+	vpnOnly := mustRender(t, renderPolicy(func(p *Policy) {}), RenderContext{VPN: context.VPN, IPv6Listeners: true})
+	indexOf(t, vpnOnly.NATRules, "-i wg-lab -s 10.89.0.0/24 -d 10.89.0.1 -p tcp --dport 53 -j REDIRECT --to-ports 1053")
+	assertAbsent(t, vpnOnly.NATRules, "lab0")
+}

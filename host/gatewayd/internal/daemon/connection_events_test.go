@@ -35,7 +35,7 @@ func connectionEvent(protocol, source, destination string) conntrack.Event {
 }
 
 func TestConnectionScopeKeepsLabTrafficToElsewhereOnly(t *testing.T) {
-	scope := labConnectionScope(singleArmLabStore())
+	scope := labConnectionScope(singleArmLabStore(), nil)
 	if scope == nil {
 		t.Fatal("a confirmed single-arm plan has no connection scope")
 	}
@@ -61,7 +61,7 @@ func TestConnectionScopeKeepsLabTrafficToElsewhereOnly(t *testing.T) {
 	}
 	off := singleArmLabStore()
 	off.state.OperatingMode = gatewayprotocol.ModeSetupSafe
-	if labConnectionScope(off) != nil {
+	if labConnectionScope(off, nil) != nil {
 		t.Fatal("connections are reported while the lab is off")
 	}
 }

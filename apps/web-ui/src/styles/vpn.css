@@ -1,0 +1,120 @@
+/* VPN mode on the Network page. */
+.vpn-devices .vpn-headline {
+  font-weight: 600;
+}
+.vpn-devices .vpn-headline.warning {
+  color: #f2c46d;
+}
+.vpn-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin: 0.75rem 0;
+}
+.vpn-add label {
+  display: grid;
+  gap: 0.25rem;
+  min-width: min(18rem, 100%);
+}
+.vpn-peers {
+  list-style: none;
+  margin: 0.75rem 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.vpn-peer {
+  display: grid;
+  grid-template-columns: auto minmax(10rem, 1fr) minmax(12rem, 2fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.vpn-peer small {
+  color: var(--muted);
+}
+.vpn-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.vpn-peer.online .vpn-dot {
+  background: var(--mint);
+}
+.vpn-peer.never .vpn-dot {
+  background: transparent;
+  border: 2px solid var(--muted);
+}
+.vpn-confirm {
+  display: flex;
+  gap: 0.5rem;
+}
+.vpn-added {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: flex-start;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 2px solid var(--mint);
+  border-radius: 10px;
+}
+.vpn-added h3 {
+  margin-top: 0;
+}
+.vpn-added .lgf-qr {
+  flex: none;
+  max-width: 100%;
+  height: auto;
+}
+.vpn-added > div {
+  flex: 1 1 18rem;
+}
+.vpn-once,
+.vpn-hint {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.vpn-added-actions,
+.vpn-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.vpn-settings {
+  margin-top: 1rem;
+}
+.vpn-settings form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  max-width: 40rem;
+}
+.vpn-settings label {
+  display: grid;
+  gap: 0.25rem;
+}
+.vpn-settings label.vpn-switch {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.vpn-notes {
+  margin: 0.75rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+}
+@media (max-width: 640px) {
+  .vpn-peer {
+    grid-template-columns: auto 1fr;
+  }
+  .vpn-peer > :nth-child(3),
+  .vpn-peer > :nth-child(4) {
+    grid-column: 2;
+  }
+}

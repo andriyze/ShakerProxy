@@ -46,6 +46,37 @@ var qrGoldens = []struct {
 		"99c5fa68e25aee473c73cc3387493c246a21445ac712cc31384a6c10f6016946",
 		"283114109353814d1aba1c8042b13b41c2d69881f6798e036db5c19e747f7833",
 	}},
+	{"http://" + strings.Repeat("d", 240), 11, [8]string{
+		"79d516673ea5495a8df4f8c2bd00a1684eca4424db8ffa9de7f3cf1d881a204c",
+		"8fa72d7f949cc8c5464320c3dbe8e1177452d7bd733833acfb2f40a0f8b9424f",
+		"ddf1e2235591062eeab30e9d0b0ab397275e94bd7170d27cccb2467333d6bdc1",
+		"e6da5d95aefd972c07581e77fd459f73030e135746503f9103a86f12db347227",
+		"85fbfeda5b0cbda567f72ebd017d528ed2f2e036f6ab2df73bb6841b4f0861fd",
+		"8f6abeb91d0acd7e7f9c0c6de13a2d598866a120b86dda276598b396f4f14856",
+		"12b9b7437b9fb0d2c06cf1605296d5bb1e854da6f1ab37bc444706594dd48118",
+		"ed096d34a368853c40316bc9108c821d5577fe50ad42f3e40f40583d696159e8",
+	}},
+	// A WireGuard VPN device configuration, as `shakerproxy vpn add` shows it.
+	{"[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 10.89.0.2/32, fd12:3456:789a:1::2/128\nDNS = 10.89.0.1\n\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = 192.168.10.177:51820\nPersistentKeepalive = 25\n", 12, [8]string{
+		"c9c98f131da15d5cc7bc992628e76680e5fb10b68810a70b549cca4d0293058f",
+		"1cd211d239eb5ce29dcf2b9127424ce2d43f89512a87608116ec955c8d4e47fe",
+		"ab3e44ec442bf16d39d8d858c5a3d5e5a93510659e018aca444ce5c19b00f6c4",
+		"3d62b957e96f212eee50693e7ff1d86f6a27bc4b4309a4eaa111e4ddc0eaa4c3",
+		"1d59be470b25994e586381000ebf79a616c22086a13e224dccc9d5ed9cad783c",
+		"74ddc17bd44028916024f078dbb1da9a01b1f83b68e4cc91b96610b615eebc18",
+		"54259683437fe0a47e46d2707eaa9b4721ca3fddeb946315e707d4442ff62559",
+		"7fa6c9b6943141ccc935dedf3bbe6c964f9df4588247614fb9f039b54583cb05",
+	}},
+	{"http://" + strings.Repeat("c", 600), 19, [8]string{
+		"ee394e7fdd5e7712d2b75b9432a319ba809fd2fdda94f49c1430225b79423401",
+		"c4f56d8895f171c93c7e9f47a1f5ee5ec5214371a23e7ab7ec5658ff04309dc6",
+		"2e3483de2a60a18b7ec23e14f6aafc4296b37a4b40f4b497363cee38fc178de2",
+		"ba65fc9b33f5eee985e8f1d52c71961188d61d6e071dbebf3be8fb0dfcba5687",
+		"03ab00409fb9e90b173b00a9e19a144bc7ce7a74ae1d1d2116dd1e02eff847fb",
+		"84275bb8bd22314e742cb7a5684673cf165e33a86cb5dc8eee5e41f326009c56",
+		"ab1eae01ac82f831d9f6d78dcc8535231387512fc028902899f9ab6019860cad",
+		"f58b1ee8366042616c1063b785e860e0facaa3e593c9403d703dfccc7c0cba68",
+	}},
 }
 
 func TestQRMatchesReferenceEncoder(t *testing.T) {
@@ -79,8 +110,11 @@ func TestQRAutomaticMaskIsOneOfTheReferenceSymbols(t *testing.T) {
 }
 
 func TestQRRejectsOversizedPayload(t *testing.T) {
-	if _, err := encodeQR(bytes.Repeat([]byte("x"), 214)); err == nil {
-		t.Fatal("encoder accepted a payload beyond version 10-M")
+	if _, err := encodeQR(bytes.Repeat([]byte("x"), 666)); err != nil {
+		t.Fatalf("encoder rejected a payload that fits version 20-M: %v", err)
+	}
+	if _, err := encodeQR(bytes.Repeat([]byte("x"), 667)); err == nil {
+		t.Fatal("encoder accepted a payload beyond version 20-M")
 	}
 	if _, err := encodeQRWithMask([]byte("x"), 8); err == nil {
 		t.Fatal("encoder accepted an invalid mask")

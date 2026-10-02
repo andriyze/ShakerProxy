@@ -31,6 +31,12 @@ type RoutingInput struct {
 	BlockDoQ         bool
 	BlockKnownDoH    bool
 	RedirectPlainDNS bool
+	// VPN is true while VPN mode is up (and no emergency bypass): devices
+	// on the WireGuard VPN send everything through ShakerProxy.
+	VPN           bool
+	VPNDevices    int
+	VPNPeerToPeer bool
+	VPNIPv6Routed bool
 }
 
 const (
@@ -41,24 +47,53 @@ const (
 	FindingEncryptedDNS   = "encrypted-dns"
 	FindingPlainDNS       = "outside-dns"
 	FindingLocalDiscovery = "local-discovery"
+	FindingVPN            = "vpn-full-tunnel"
 )
 
 // InspectRouting names every way a real device could bypass ShakerProxy.
 func InspectRouting(in RoutingInput) []Finding {
 	if !in.Routing {
+		if in.VPN {
+			// A VPN-only appliance: the VPN is the whole lab.
+			return append([]Finding{vpnFinding(in)}, encryptedDNSFindings(in)...)
+		}
 		return []Finding{{
 			ID:     FindingNotRouting,
 			Title:  "No lab is routing",
 			Status: FindingGap,
 			Detail: "No confirmed lab network routes devices through ShakerProxy, so nothing devices do is visible.",
-			Fix:    "Set up and confirm a lab on the Network page.",
+			Fix:    "Set up and confirm a lab on the Network page, or turn on VPN mode and add a device.",
 		}}
 	}
 	singleArm := in.Topology == "SINGLE_ARM"
 	findings := []Finding{ipv6Finding(in, singleArm), dhcpFinding(in, singleArm), peerFinding(in, singleArm)}
 	findings = append(findings, encryptedDNSFindings(in)...)
 	findings = append(findings, discoveryFinding(singleArm))
+	if in.VPN {
+		findings = append(findings, vpnFinding(in))
+	}
 	return findings
+}
+
+// vpnFinding describes the WireGuard VPN path: a full tunnel leaves a
+// device no other router, DHCP server or IPv6 path, so the lab's bypass
+// findings do not apply to VPN devices.
+func vpnFinding(in RoutingInput) Finding {
+	finding := Finding{ID: FindingVPN, Title: "VPN devices (WireGuard)", Status: FindingOK}
+	ipv6 := "IPv6 stays inside the tunnel, so they use IPv4."
+	if in.VPNIPv6Routed {
+		ipv6 = "IPv6 is routed through ShakerProxy too."
+	}
+	peers := "They cannot reach each other."
+	if in.VPNPeerToPeer {
+		peers = "Traffic between two VPN devices also crosses ShakerProxy."
+	}
+	finding.Detail = fmt.Sprintf("%d VPN device(s) send all their traffic through ShakerProxy, local-network destinations included: no other router, DHCP server or IPv6 path can take it around ShakerProxy. %s %s Local discovery (mDNS, SSDP) of the device's own network does not cross the tunnel.", in.VPNDevices, ipv6, peers)
+	if in.VPNDevices == 0 {
+		finding.Status = FindingUnknown
+		finding.Fix = "Add a device under VPN devices on the Network page and scan its QR code with the WireGuard app."
+	}
+	return finding
 }
 
 func routesIPv6(strategy string) bool {

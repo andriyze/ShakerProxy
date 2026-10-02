@@ -35,8 +35,8 @@ Usage:
 Read-only tools: list_devices, find_device, device_report, device_activity,
 compare_runs, protocols, search_traffic, traffic_summary, dns_lookups,
 tls_issues, http_requests, test_sessions, system_status, dns_visibility,
-visibility_coverage. Devices can be named by friendly name, IP address, MAC
-address, or device ID.
+visibility_coverage, vpn_devices. Devices can be named by friendly name, IP
+address, MAC address, or device ID.
 
 Try asking your AI: "What does my TV talk to?", "Is the camera secure?",
 "What changed between firmware 1.2 and 1.3?"

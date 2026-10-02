@@ -179,6 +179,12 @@ func requestOperationID(r *http.Request, valid func(string) bool) (string, bool)
 		}
 		return strings.TrimSpace(values[0]), true
 	}
+	return newOperationID()
+}
+
+// newOperationID returns a random operation ID for a mutation the server
+// makes on its own behalf.
+func newOperationID() (string, bool) {
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {
 		return "", false

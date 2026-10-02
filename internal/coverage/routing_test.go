@@ -69,3 +69,18 @@ func TestNothingRoutingIsOneGap(t *testing.T) {
 		t.Fatalf("findings = %+v", list)
 	}
 }
+
+// A VPN device has no other router, DHCP server or IPv6 path.
+func TestVPNDevicesHaveNoBypass(t *testing.T) {
+	vpnOnly := findingsByID(InspectRouting(RoutingInput{VPN: true, VPNDevices: 2, PolicyAvailable: true, RedirectPlainDNS: true}))
+	if _, gap := vpnOnly[FindingNotRouting]; gap || vpnOnly[FindingVPN].Status != FindingOK || vpnOnly[FindingPlainDNS].Status != FindingOK {
+		t.Fatalf("VPN-only findings = %+v", vpnOnly)
+	}
+	if !strings.Contains(vpnOnly[FindingVPN].Detail, "2 VPN device(s)") || !strings.Contains(vpnOnly[FindingVPN].Detail, "cannot reach each other") {
+		t.Fatalf("VPN finding = %+v", vpnOnly[FindingVPN])
+	}
+	withLab := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "SINGLE_ARM", VPN: true, VPNPeerToPeer: true, VPNIPv6Routed: true}))
+	if withLab[FindingDHCP].Status != FindingGap || withLab[FindingVPN].Status != FindingUnknown || withLab[FindingVPN].Fix == "" || !strings.Contains(withLab[FindingVPN].Detail, "IPv6 is routed") {
+		t.Fatalf("lab and VPN findings = %+v", withLab)
+	}
+}

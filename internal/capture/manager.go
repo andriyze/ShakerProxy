@@ -42,26 +42,34 @@ func (m *Manager) Start(ctx context.Context, request StartRequest, source Source
 	if err != nil {
 		return View{}, err
 	}
-	var active *View
-	for index, view := range views {
+	var active []View
+	for _, view := range views {
 		if view.Session.Request.IdempotencyKey == request.IdempotencyKey {
 			if view.Session.Request == request && view.Session.Source == source {
 				return view, nil
 			}
 			return View{}, errors.New("capture idempotency key conflicts with an existing request")
 		}
-		if view.Active && active == nil {
-			active = &views[index]
+		if view.Active {
+			active = append(active, view)
 		}
 	}
-	if active != nil {
-		// One capture runs at a time, so disk use stays one ring. A manual
-		// capture takes over from the automatic lab recording, which gatewayd
-		// resumes when the manual capture ends.
-		if !active.Session.Request.Automatic || request.Automatic {
+	// One capture runs per interface, so disk use stays one ring each. A
+	// manual capture takes over from the automatic recording of its
+	// interface, which gatewayd resumes when the manual capture ends. The
+	// automatic recordings of different interfaces (the lab and the VPN)
+	// run side by side: a pcapng file mixing Ethernet and raw-IP interfaces
+	// cannot be read by Zeek or Suricata.
+	for _, view := range active {
+		if !view.Session.Request.Automatic || view.Session.Source.InterfaceName == source.InterfaceName && request.Automatic {
 			return View{}, errors.New("another capture session is active")
 		}
-		if err := m.Controller.Stop(ctx, active.Session.ID); err != nil {
+	}
+	for _, view := range active {
+		if request.Automatic || view.Session.Source.InterfaceName != source.InterfaceName {
+			continue
+		}
+		if err := m.Controller.Stop(ctx, view.Session.ID); err != nil {
 			return View{}, fmt.Errorf("stop the automatic lab recording: %w", err)
 		}
 	}

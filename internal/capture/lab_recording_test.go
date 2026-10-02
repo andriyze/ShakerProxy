@@ -170,3 +170,61 @@ func TestTidyLabRecordingsFinalizesARecordingAHostRestartCutOff(t *testing.T) {
 		t.Fatalf("interrupted recording was not finalized: %+v", after)
 	}
 }
+
+var vpnSource = Source{InterfaceName: "wg-lab", InterfaceStableID: "wireguard:wg-lab"}
+
+func TestTheVPNRecordingRunsBesideTheLabRecording(t *testing.T) {
+	manager, controller, now := labRecordingManager(t)
+	lab, err := manager.Start(t.Context(), LabRecordingRequest("plan"), labSource, "ROUTED_PASSTHROUGH", "plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A pcapng file mixing the lab's Ethernet frames and the VPN's raw IP
+	// packets cannot be read by Zeek or Suricata, so the VPN gets its own.
+	vpn, err := manager.Start(t.Context(), VPNRecordingRequest("vpn-0123456789abcdef"), vpnSource, "ROUTED_PASSTHROUGH", "vpn-0123456789abcdef")
+	if err != nil {
+		t.Fatalf("the VPN recording was refused next to the lab recording: %v", err)
+	}
+	if vpn.Session.Request.Name != VPNRecordingName || !controller.active[lab.Session.ID] || !controller.active[vpn.Session.ID] {
+		t.Fatalf("active = %v", controller.active)
+	}
+	if _, err := manager.Start(t.Context(), VPNRecordingRequest("vpn-0123456789abcdef"), vpnSource, "ROUTED_PASSTHROUGH", "vpn-0123456789abcdef"); err == nil {
+		t.Fatal("a second VPN recording started")
+	}
+	// A manual capture of the lab replaces only the lab recording.
+	manual, err := manager.Start(t.Context(), StartRequest{Name: "Phone test", Administrator: "admin", IdempotencyKey: "capture-request-manual-03", Mode: ModeFull}, labSource, "ROUTED_PASSTHROUGH", "plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if controller.active[lab.Session.ID] || !controller.active[vpn.Session.ID] || !controller.active[manual.Session.ID] {
+		t.Fatalf("after the manual capture: %v", controller.active)
+	}
+	if _, err := manager.Start(t.Context(), LabRecordingRequest("plan"), labSource, "ROUTED_PASSTHROUGH", "plan"); err == nil {
+		t.Fatal("the lab recording replaced a running manual capture")
+	}
+	// Tidying keeps the newest finished recordings of each interface.
+	finish(t, manager, controller, manual.Session.ID, *now)
+	finish(t, manager, controller, lab.Session.ID, *now)
+	finish(t, manager, controller, vpn.Session.ID, *now)
+	var labs []string
+	for day := 1; day <= 3; day++ {
+		*now = now.Add(24 * time.Hour)
+		view, err := manager.Start(t.Context(), LabRecordingRequest("plan"), labSource, "ROUTED_PASSTHROUGH", "plan")
+		if err != nil {
+			t.Fatal(err)
+		}
+		finish(t, manager, controller, view.Session.ID, now.Add(time.Hour))
+		labs = append(labs, view.Session.ID)
+	}
+	if err := manager.TidyLabRecordings(t.Context(), LabRecordingKeep); err != nil {
+		t.Fatal(err)
+	}
+	ids, _ := manager.Store.ListSessionIDs()
+	remaining := map[string]bool{}
+	for _, id := range ids {
+		remaining[id] = true
+	}
+	if !remaining[vpn.Session.ID] || !remaining[manual.Session.ID] || !remaining[labs[1]] || !remaining[labs[2]] || remaining[labs[0]] || remaining[lab.Session.ID] || len(remaining) != 4 {
+		t.Fatalf("after tidying: %v", remaining)
+	}
+}

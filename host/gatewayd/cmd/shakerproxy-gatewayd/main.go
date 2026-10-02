@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"shakerproxy.dev/shakerproxy/host/gatewayd/internal/daemon"
+	"shakerproxy.dev/shakerproxy/internal/vpn"
 )
 
 func main() {
@@ -23,6 +24,7 @@ func main() {
 	onboardingEndpointsPath := flag.String("onboarding-endpoints", daemon.DefaultOnboardingEndpointsPath, "public lab-side CA onboarding endpoints projection")
 	enableNetworkApply := flag.Bool("enable-network-apply", false, "enable production-gated transactional network activation")
 	connectionEventSpool := flag.String("connection-event-spool", envOr("SHAKERPROXY_CONNECTION_EVENT_SPOOL", daemon.DefaultConnectionEventSpool), "host event spool for live lab connections, or off")
+	vpnStatePath := flag.String("vpn-state", vpn.DefaultStatePath, "root-only WireGuard VPN state path")
 	flag.Parse()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	store, err := daemon.OpenStateStore(*statePath)
@@ -52,17 +54,31 @@ func main() {
 			os.Exit(1)
 		}
 		server = daemon.NewServerWithHostServices(store, logger, activation, captures)
-		// Record lab traffic whenever a confirmed lab plan routes.
+		// VPN mode: a WireGuard segment beside the lab (or without one).
+		vpnManager := daemon.NewProductionVPNManager(store, *vpnStatePath, *trafficPolicyLockPath, logger)
+		server.SetVPNManager(vpnManager)
+		// Record lab (and VPN) traffic whenever a confirmed lab plan routes.
 		go server.RecordLabTraffic(ctx)
 		// Report each connection a lab device opens within about a second.
-		go daemon.ReportLabConnections(ctx, store, *connectionEventSpool, logger)
+		go daemon.ReportLabConnections(ctx, store, vpnManager.TrafficSegment, *connectionEventSpool, logger)
 		traffic = daemon.NewProductionTrafficPolicyManager(store, *trafficPolicyPath, *trafficRuntimePath, *cloudTrafficPolicyStatusPath, *trafficPolicyLockPath, logger)
 		traffic.OnboardingPath = *onboardingEndpointsPath
+		traffic.VPN = vpnManager.TrafficSegment
+		vpnManager.Changed = func() {
+			server.VPNChanged()
+			traffic.Wake()
+		}
 		if err := traffic.Ensure(ctx); err != nil {
 			logger.Error("traffic policy manager unavailable", "error", err)
 			os.Exit(1)
 		}
 		server.SetTrafficPolicyManager(traffic)
+		// VPN mode stays off unless an administrator turned it on. A VPN that
+		// cannot come up never stops the gateway; it is retried and reported.
+		if err := vpnManager.Ensure(ctx); err != nil {
+			logger.Warn("VPN mode is on but could not be brought up; retrying", "error", err)
+		}
+		go vpnManager.Run(ctx)
 	}
 
 	if traffic == nil {
