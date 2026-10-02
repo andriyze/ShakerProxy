@@ -57,7 +57,7 @@ test("chips compose one filter, including a client's merged records", () => {
 
 test("filters survive a reload through the page address", () => {
   const url = new URL("https://127.0.0.1:8443/#/traffic")
-  const filters = { kinds: ["tls", "quic"], clients: [PHONE], time: "last_5m", search: "github" }
+  const filters = { kinds: ["tls", "quic"], clients: [PHONE], time: "last_5m", search: "github", include: [], exclude: [] }
   writeLiveFiltersToURL(url, filters)
   assert.deepEqual(liveFiltersFromURL(url.search), filters)
   assert.deepEqual(liveFiltersFromURL("").kinds, ALL_STREAM_KINDS)
@@ -206,4 +206,41 @@ test("network chatter gets plain badges", () => {
   const line = (extra) => streamLine({ ...base, kind: "zeek.conn", protocol: "udp", ...extra })
   assert.equal(line({ destination_ip: "255.255.255.255", destination_port: 10001, app_protocol: "ubnt-discovery", protocol_category: "local-discovery" }).badge, "UniFi")
   assert.equal(line({ destination_ip: "192.168.200.255", destination_port: 58866, app_protocol: "local-broadcast", protocol_category: "local-discovery" }).badge, "Bcast")
+})
+
+test("the Live view filters by facets and the row menu, and draws a timeline", async () => {
+  const { pageFacets, pageTimeline, validFieldFilter } = await import("../../apps/web-ui/src/lib/liveTraffic.ts")
+  const now = Date.parse("2026-10-02T14:00:00Z")
+  const events = [
+    { ...base, record_id: "1", kind: "zeek.conn", protocol: "tcp", device_id: PHONE, tls_server_name: "www.github.com", destination_organization: "GitHub", destination_port: 443, occurred_at: "2026-10-02T13:59:30Z" },
+    { ...base, record_id: "2", kind: "zeek.conn", protocol: "tcp", device_id: PHONE, tls_server_name: "api.github.com", destination_organization: "GitHub", destination_port: 443, occurred_at: "2026-10-02T13:59:40Z" },
+    { ...base, record_id: "3", kind: "shakerproxy.dns", source: "HOST", source_ip: "192.168.10.50", dns_query: "tv.example.co.uk", occurred_at: "2026-10-02T13:50:00Z" },
+  ]
+  const facets = pageFacets(events, (event) => (event.device_id ? "Pixel" : ""))
+  assert.deepEqual(facets.clients.map((value) => [value.label, value.count, value.filter]), [["Pixel", 2, `device.id:${PHONE}`], ["192.168.10.50", 1, "src.ip:192.168.10.50"]])
+  assert.deepEqual(facets.owners.map((value) => [value.label, value.filter]), [["GitHub", "owner:github"]])
+  assert.deepEqual(facets.domains.map((value) => [value.label, value.count]), [["github.com", 2], ["example.co.uk", 1]])
+  assert.equal(facets.ports[0].filter, "dst.port:443")
+  const timeline = pageTimeline(events, 60, now, 15 * 60_000)
+  assert.equal(timeline.length, 60)
+  assert.equal(timeline.reduce((sum, bucket) => sum + bucket.total, 0), 3)
+  assert.equal(timeline.reduce((sum, bucket) => sum + (bucket.counts.tls ?? 0), 0), 2)
+  assert.ok(timeline.at(-1).start > Date.parse("2026-10-02T13:59:40Z"), "the newest bucket is last")
+  // Field filters from the address bar cannot smuggle query syntax.
+  for (const ok of ["owner:google", "dst.port:443", "github.com", "src.ip:192.168.10.50", `device.id:${PHONE}`]) assert.ok(validFieldFilter(ok), ok)
+  for (const bad of ["a OR b", "owner:x)", "NOT x", "x\"", "foo:bar"]) assert.ok(!validFieldFilter(bad), bad)
+  const query = composeLiveQuery({ ...DEFAULT_LIVE_FILTERS, include: ["owner:github", "a OR b"], exclude: ["dst.port:53"] })
+  assert.match(query, / AND owner:github AND NOT dst\.port:53$/)
+  assert.doesNotMatch(query, /a OR b/)
+  const url = new URL("https://127.0.0.1:8443/#/traffic")
+  writeLiveFiltersToURL(url, { ...DEFAULT_LIVE_FILTERS, include: ["owner:github"], exclude: ["dst.port:53"] })
+  assert.deepEqual([liveFiltersFromURL(url.search).include, liveFiltersFromURL(url.search).exclude], [["owner:github"], ["dst.port:53"]])
+})
+
+test("the wide Traffic view is a three-pane Live view", () => {
+  const traffic = webUIFile("workspaces/traffic/TrafficWorkspace.tsx")
+  assert.match(traffic, /<LiveFacetsPane/)
+  assert.match(traffic, /<LiveTimeline/)
+  assert.match(traffic, /<EventDetailDrawer\s+docked/)
+  assert.match(webUIFile("workspaces/traffic/TrafficStream.tsx"), /onContextMenu=/)
 })

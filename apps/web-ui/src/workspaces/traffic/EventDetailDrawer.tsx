@@ -354,12 +354,15 @@ export function EventDetailDrawer({
   onClose,
   onRenamed,
   onFilterDevice,
+  docked = false,
 }: {
   event: RecentEvent
   labelsAvailable: boolean
   onClose: () => void
   onRenamed: (device: Device) => void
   onFilterDevice: (deviceID: string) => void
+  // Docked: a pane beside the list (the Live view), not an overlay.
+  docked?: boolean
 }) {
   const [detail, setDetail] = useState<EventDetail | null>(null)
   const [error, setError] = useState("")
@@ -441,7 +444,7 @@ export function EventDetailDrawer({
   )
 
   return (
-    <aside className="event-detail-drawer" aria-labelledby="event-detail-title">
+    <aside className={`event-detail-drawer${docked ? " docked" : ""}`} aria-labelledby="event-detail-title">
       <header className="event-detail-drawer__header ed-header">
         <div className="ed-title">
           <span className={`stream-badge ${titleLine.kind}`}>{titleLine.badge}</span>
