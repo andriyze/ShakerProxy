@@ -134,8 +134,14 @@ func (r StartRequest) Validate() error {
 	if r.SegmentSeconds < 10 || r.SegmentSeconds > 3600 {
 		return errors.New("capture segment duration must be between 10 and 3600 seconds")
 	}
-	if r.MaxFiles < 2 || r.MaxFiles > 64 {
-		return errors.New("capture ring must contain between 2 and 64 files")
+	// The automatic lab recording rotates every 10 s, so it needs more files
+	// to keep the same span; capture manifests hold up to 128.
+	maxFiles := 64
+	if r.Automatic {
+		maxFiles = LabRecordingMaxFiles
+	}
+	if r.MaxFiles < 2 || r.MaxFiles > maxFiles {
+		return fmt.Errorf("capture ring must contain between 2 and %d files", maxFiles)
 	}
 	if r.StopAfterSeconds < 10 || r.StopAfterSeconds > 86400 {
 		return errors.New("capture stop deadline must be between 10 seconds and 24 hours")

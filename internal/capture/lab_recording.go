@@ -11,18 +11,23 @@ import (
 )
 
 // The lab recording is the capture gatewayd keeps running while a confirmed
-// lab plan routes, so testers never have to remember to start one. It is an
-// ordinary full-packet ring (DefaultMaxFiles x DefaultSegmentSizeMiB, so at
-// most 512 MiB on disk) that gatewayd restarts every day, after a reboot and
-// whenever the lab plan changes. Only LabRecordingKeep finished recordings
-// are kept, so automatic recording never holds more than
-// (LabRecordingKeep+1) x 512 MiB. Recordings under an evidence hold are kept
-// until the hold is released.
+// lab plan routes, so testers never have to remember to start one. It is a
+// full-packet ring that gatewayd restarts every day, after a reboot and
+// whenever the lab plan changes. Its segments close every 10 s, so connection
+// details reach Traffic about 10 s after the traffic (analysis takes 1-3 s
+// per segment); 120 files of at most 4 MiB keep about 20 minutes of low-rate
+// traffic within 480 MiB, under a manual capture's 512 MiB. Only
+// LabRecordingKeep finished recordings are kept, so automatic recording never
+// holds more than (LabRecordingKeep+1) x 480 MiB. Recordings under an evidence
+// hold are kept until the hold is released.
 const (
 	LabRecordingName          = "Lab traffic"
 	LabRecordingAdministrator = "ShakerProxy"
 	LabRecordingDuration      = 24 * time.Hour
 	LabRecordingKeep          = 2
+	LabRecordingSegmentSecs   = 10
+	LabRecordingMaxFiles      = 120
+	LabRecordingSegmentMiB    = 4
 	labRecordingDescription   = "Recorded automatically while the lab routes. A manual capture replaces it until the manual capture ends."
 	labRecordingStartReason   = "automatic lab recording"
 	labRecordingInterrupted   = "interrupted before it finished (host restart)"
@@ -38,6 +43,7 @@ func LabRecordingRequest(planHash string) StartRequest {
 	}
 	return StartRequest{
 		Name: LabRecordingName, Description: labRecordingDescription, Mode: ModeFull,
+		SegmentSeconds: LabRecordingSegmentSecs, MaxFiles: LabRecordingMaxFiles, SegmentSizeMiB: LabRecordingSegmentMiB,
 		StopAfterSeconds: int(LabRecordingDuration / time.Second),
 		Administrator:    LabRecordingAdministrator, StartReason: labRecordingStartReason,
 		IdempotencyKey: "lab-recording-" + scope + "-" + rand.Text(),

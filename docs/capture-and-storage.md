@@ -20,11 +20,13 @@ ShakerProxy), so Traffic, Devices and reports always have data.
 - **Manual captures replace it.** One capture runs at a time, so a manual capture
   (or a test session started with `--capture`) stops the automatic recording,
   and gatewayd starts it again once the manual capture ends.
-- **Disk.** Each recording is a ring of 64 files of at most 8 MiB (512 MiB). Only
-  the two newest finished recordings are kept; older ones are deleted through the
-  normal verified capture deletion, which leaves analyzed events in place.
-  Recordings under an evidence hold are kept until the hold is released.
-  Automatic recording therefore never keeps more than 1.5 GiB of PCAP. It does
+- **Disk.** Each recording is a ring of 120 files of at most 4 MiB (480 MiB) that
+  rotates every 10 seconds, so connection details reach Traffic about 10 seconds
+  after the traffic and about 20 minutes of low-rate traffic stay downloadable.
+  Only the two newest finished recordings are kept; older ones are deleted
+  through the normal verified capture deletion, which leaves analyzed events in
+  place. Recordings under an evidence hold are kept until the hold is released.
+  Automatic recording therefore never keeps more than 1.4 GiB of PCAP. It does
   not start while CPU, memory or capture disk pressure is critical, and the
   capture worker's emergency free-space reserve still applies.
 - **A reboot mid-recording.** The cut-off recording is sealed with its retained

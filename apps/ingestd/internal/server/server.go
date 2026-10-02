@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -120,6 +122,8 @@ func (s *Server) Handler() http.Handler {
 	}
 	mux.Handle("POST /v1/adapters/zeek", s.requireToken(http.HandlerFunc(s.acceptZeek)))
 	mux.Handle("POST /v1/adapters/suricata", s.requireToken(http.HandlerFunc(s.acceptSuricata)))
+	mux.Handle("POST /v1/adapters/zeek/batch", s.requireToken(http.HandlerFunc(s.acceptZeekBatch)))
+	mux.Handle("POST /v1/adapters/suricata/batch", s.requireToken(http.HandlerFunc(s.acceptSuricataBatch)))
 	mux.Handle("GET /v1/stats", s.requireToken(http.HandlerFunc(s.stats)))
 	return securityHeaders(mux)
 }
@@ -338,6 +342,129 @@ func (s *Server) acceptAdapter(w http.ResponseWriter, r *http.Request, normalize
 		}
 	}
 	s.writeAcceptResult(w, result)
+}
+
+func (s *Server) acceptZeekBatch(w http.ResponseWriter, r *http.Request) {
+	s.acceptAdapterBatch(w, r, ingest.NormalizeZeekJSON)
+}
+
+func (s *Server) acceptSuricataBatch(w http.ResponseWriter, r *http.Request) {
+	s.acceptAdapterBatch(w, r, ingest.NormalizeSuricataEVE)
+}
+
+// adapterBatchResult answers a batch with one result per event line, in order.
+type adapterBatchResult struct {
+	Schema  int                   `json:"schema"`
+	Results []ingest.AcceptResult `json:"results"`
+}
+
+// acceptAdapterBatch takes one analyzer output line per NDJSON line and
+// stores them with one round of disk syncs (Spool.AcceptBatch). Each event is
+// normalized, deduplicated, quarantined, forwarded and checked for detections
+// exactly as on the one-event route; only the durability work is shared.
+func (s *Server) acceptAdapterBatch(w http.ResponseWriter, r *http.Request, normalize func([]byte, string, string) (ingest.Envelope, error)) {
+	if r.Header.Get("Content-Type") != "application/x-ndjson" {
+		writeError(w, http.StatusUnsupportedMediaType, "content_type_required", "Content-Type must be application/x-ndjson")
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, ingest.MaxAdapterBatchBytes+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "read_failed", "adapter batch could not be read")
+		return
+	}
+	if len(raw) > ingest.MaxAdapterBatchBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "batch_too_large", "adapter batch exceeds the byte limit")
+		return
+	}
+	lines := make([][]byte, 0, 64)
+	for _, line := range bytes.Split(raw, []byte("\n")) {
+		line = bytes.TrimSuffix(line, []byte("\r"))
+		if len(line) == 0 {
+			continue
+		}
+		if len(line) > ingest.MaxPayloadBytes {
+			writeError(w, http.StatusRequestEntityTooLarge, "event_too_large", "an adapter event exceeds the byte limit")
+			return
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 || len(lines) > ingest.MaxAcceptBatchRecords {
+		writeError(w, http.StatusRequestEntityTooLarge, "batch_size_invalid", "an adapter batch holds 1 to "+strconv.Itoa(ingest.MaxAcceptBatchRecords)+" events")
+		return
+	}
+	sourceVersion, captureSessionID := r.Header.Get("X-ShakerProxy-Source-Version"), r.Header.Get("X-ShakerProxy-Capture-Session-ID")
+	results := make([]ingest.AcceptResult, len(lines))
+	envelopes := make([]ingest.Envelope, 0, len(lines))
+	encoded := make([][]byte, 0, len(lines))
+	positions := make([]int, 0, len(lines))
+	for index, line := range lines {
+		envelope, normalizeErr := normalize(line, sourceVersion, captureSessionID)
+		if normalizeErr != nil {
+			result, quarantineErr := s.spool.Quarantine(line, normalizeErr.Error())
+			if quarantineErr != nil {
+				writeError(w, http.StatusInsufficientStorage, "spool_unavailable", quarantineErr.Error())
+				return
+			}
+			results[index] = result
+			continue
+		}
+		data, marshalErr := json.Marshal(envelope)
+		if marshalErr != nil {
+			writeError(w, http.StatusInternalServerError, "normalization_failed", "normalized event could not be encoded")
+			return
+		}
+		envelopes = append(envelopes, envelope)
+		encoded = append(encoded, data)
+		positions = append(positions, index)
+	}
+	var accepted []ingest.AcceptResult
+	var acceptErr error
+	if len(encoded) > 0 {
+		accepted, acceptErr = s.spool.AcceptBatch(encoded)
+	}
+	// Events committed before a failing one are stored; forward them and
+	// check them for detections now, because a retry only sees duplicates.
+	for index, result := range accepted {
+		results[positions[index]] = result
+		if !result.Accepted || result.Duplicate {
+			continue
+		}
+		if s.forwarders != nil {
+			if forwardErr := s.forwarders.Enqueue(envelopes[index]); forwardErr != nil {
+				s.logger.Error("safe event forwarding enqueue failed", "event_id", envelopes[index].EventID, "error", forwardErr)
+			}
+		}
+		if detectionErr := s.emitDetections(envelopes[index]); detectionErr != nil {
+			s.logger.Error("native detection evaluation failed", "event_id", envelopes[index].EventID, "error", detectionErr)
+		}
+	}
+	if acceptErr != nil {
+		switch {
+		case errors.Is(acceptErr, ingest.ErrCaptureTombstoned):
+			writeError(w, http.StatusGone, "capture_deleted", "capture-derived events are no longer accepted")
+		case errors.Is(acceptErr, ingest.ErrEventSelectionTombstoned):
+			writeError(w, http.StatusGone, "event_selection_deleted", "events in this deleted device/time selection are no longer accepted")
+		default:
+			writeError(w, http.StatusInsufficientStorage, "spool_unavailable", acceptErr.Error())
+		}
+		return
+	}
+	for index, result := range accepted {
+		if !result.Accepted {
+			continue
+		}
+		if err := s.enqueueCloudMetadata(r.Context(), envelopes[index]); err != nil {
+			s.logger.Warn("cloud metadata queue unavailable; analyzer should retry", "event_id", envelopes[index].EventID, "error", err)
+			writeError(w, http.StatusServiceUnavailable, "cloud_queue_unavailable", "events are safe locally but cloud queueing must be retried")
+			return
+		}
+	}
+	for _, result := range results {
+		if result.Quarantined {
+			s.logger.Warn("ingest event quarantined", "record_id", result.RecordID, "reason", result.Reason)
+		}
+	}
+	writeJSON(w, http.StatusOK, adapterBatchResult{Schema: ingest.SchemaVersion, Results: results})
 }
 
 func (s *Server) enqueueCloudMetadata(ctx context.Context, envelope ingest.Envelope) error {

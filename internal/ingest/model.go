@@ -13,14 +13,16 @@ import (
 )
 
 const (
-	SchemaVersion      = 1
-	MaxEventBytes      = 256 << 10
-	MaxPayloadBytes    = 192 << 10
-	MaxTextBytes       = 256
-	DefaultSpoolBytes  = int64(1 << 30)
-	DefaultReserve     = uint64(1 << 30)
-	MaxPendingRecords  = 100000
-	MaxQuarantineBytes = 4096
+	SchemaVersion   = 1
+	MaxEventBytes   = 256 << 10
+	MaxPayloadBytes = 192 << 10
+	// MaxAdapterBatchBytes bounds one NDJSON batch from an analyzer.
+	MaxAdapterBatchBytes = 8 << 20
+	MaxTextBytes         = 256
+	DefaultSpoolBytes    = int64(1 << 30)
+	DefaultReserve       = uint64(1 << 30)
+	MaxPendingRecords    = 100000
+	MaxQuarantineBytes   = 4096
 )
 
 type Source string
