@@ -44,7 +44,7 @@ func (l *fakeCoverageLab) CoverageProbe(_ context.Context, plan coverage.Plan) (
 	l.plan = plan
 	outcomes := []coverage.ProbeOutcome{}
 	for _, probe := range coverage.Probes {
-		outcomes = append(outcomes, coverage.ProbeOutcome{ID: probe.ID, SentAt: time.Now().UTC(), Sent: probe.ID != coverage.ProbeIPv6, Skipped: probe.ID == coverage.ProbeIPv6})
+		outcomes = append(outcomes, coverage.ProbeOutcome{ID: probe.ID, SentAt: time.Now().UTC(), Sent: true})
 	}
 	return testlab.CoverageProbeResponse{Schema: 1, RunID: plan.RunID, Outcomes: outcomes}, nil
 }
@@ -68,19 +68,31 @@ type coverageEventStore struct {
 	lab     *fakeCoverageLab
 	mu      sync.Mutex
 	queries []string
+	// routerAdverts are the senders of recorded IPv6 router advertisements.
+	routerAdverts []string
 }
 
 func (s *coverageEventStore) QueryRecent(_ context.Context, query ingest.RecentEventQuery) (ingest.RecentEventPage, error) {
 	s.mu.Lock()
 	s.queries = append(s.queries, query.Filter.Canonical)
+	adverts := s.routerAdverts
 	s.mu.Unlock()
+	now := time.Now().UTC()
+	if strings.Contains(query.Filter.Canonical, "src.port:134") {
+		events := []ingest.RecentEvent{}
+		for _, source := range adverts {
+			events = append(events, ingest.RecentEvent{RecordID: "ra-" + source, Source: "ZEEK", Kind: "zeek.conn", OccurredAt: now,
+				SourceIP: source, SourcePort: 134, DestinationIP: "ff02::1", DestinationPort: 133, Protocol: "icmp"})
+		}
+		return ingest.RecentEventPage{Events: events}, nil
+	}
 	plan := s.lab.currentPlan()
-	if plan.RunID == "" || !strings.Contains(query.Filter.Canonical, "198.18.240.0/24") {
+	if plan.RunID == "" || !strings.Contains(query.Filter.Canonical, "198.18.240.0/24") || !strings.Contains(query.Filter.Canonical, coverage.ClientIPv6CIDR) {
 		return ingest.RecentEventPage{Events: []ingest.RecentEvent{}}, nil
 	}
-	now := time.Now().UTC()
 	return ingest.RecentEventPage{Events: []ingest.RecentEvent{
 		{RecordID: "dns", Source: "HOST", Kind: "shakerproxy.dns", OccurredAt: now, ReceivedAt: now, SourceIP: coverage.NormalClient, DNSQuery: plan.DNSGatewayName},
+		{RecordID: "dns6", Source: "HOST", Kind: "shakerproxy.dns", OccurredAt: now, ReceivedAt: now, SourceIP: coverage.NormalClientIPv6, DNSQuery: plan.DNSIPv6Name},
 		{RecordID: "tls", Source: "ZEEK", Kind: "zeek.conn", OccurredAt: now, ReceivedAt: now, SourceIP: coverage.NormalClient, DestinationIP: coverage.TargetIPv4,
 			DestinationPort: coverage.PortHTTPS, Protocol: "tcp", AppProtocol: "tls", TLSServerName: plan.TLSServerName},
 	}}, nil
@@ -183,10 +195,13 @@ func TestCoverageRunProbesThroughTheRealPathAndReportsGaps(t *testing.T) {
 	if results[coverage.ProbeDNSGateway].Status != coverage.StatusPass || results[coverage.ProbeHTTPS].Status != coverage.StatusPass {
 		t.Fatalf("seen probes did not pass: %+v", report.Results)
 	}
-	if results[coverage.ProbeSSH].Status != coverage.StatusFail || results[coverage.ProbeIPv6].Status != coverage.StatusSkip {
-		t.Fatalf("unseen probes must fail and IPv6 skip: %+v", report.Results)
+	if results[coverage.ProbeDNSIPv6].Status != coverage.StatusPass {
+		t.Fatalf("the DNS forwarder's IPv6 lookup did not pass: %+v", results[coverage.ProbeDNSIPv6])
 	}
-	if report.GapCount == 0 || report.PassCount != 2 {
+	if results[coverage.ProbeSSH].Status != coverage.StatusFail || results[coverage.ProbeICMPv6].Status != coverage.StatusFail {
+		t.Fatalf("unseen probes must fail: %+v", report.Results)
+	}
+	if report.GapCount == 0 || report.PassCount != 3 {
 		t.Fatalf("counts: pass %d gaps %d", report.PassCount, report.GapCount)
 	}
 	started, stopped := false, false
@@ -251,6 +266,38 @@ func TestOnlyOneCoverageRunAtATime(t *testing.T) {
 	server.CoverageHandler().ServeHTTP(recorder, authenticatedJSONRequest(http.MethodPost, "/api/v1/coverage/runs", `{"password":"`+activationTestPassword+`"}`, session, ""))
 	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "coverage_running") {
 		t.Fatalf("second run returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+// ShakerProxy's own router advertisements come from its link-local address
+// (fe80::1 on ens18 in the fake gateway); only other senders are routers
+// that let devices bypass it.
+func TestRouterAdvertisementsFromAnotherRouterAreAGap(t *testing.T) {
+	server, _, _, _ := coverageTestServer(t)
+	store := server.eventReader.(*coverageEventStore)
+	findings := func(adverts ...string) coverage.Finding {
+		store.mu.Lock()
+		store.routerAdverts = adverts
+		store.mu.Unlock()
+		for _, finding := range server.inspectCoverageRouting(context.Background()) {
+			if finding.ID == coverage.FindingIPv6 {
+				return finding
+			}
+		}
+		t.Fatal("no IPv6 finding")
+		return coverage.Finding{}
+	}
+	if own := findings("fe80::1"); own.Status != coverage.FindingOK {
+		t.Fatalf("ShakerProxy's own advertisement = %+v", own)
+	}
+	foreign := findings("fe80::1", "FE80::BE24:11FF:FE00:1", "fe80::be24:11ff:fe00:1")
+	if foreign.Status != coverage.FindingGap || !strings.Contains(foreign.Detail, "(fe80::be24:11ff:fe00:1)") {
+		t.Fatalf("another router's advertisement = %+v", foreign)
+	}
+
+	server.eventReader = nil
+	if unknown := findings(); unknown.Status != coverage.FindingUnknown {
+		t.Fatalf("without recorded traffic = %+v", unknown)
 	}
 }
 

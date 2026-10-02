@@ -18,6 +18,9 @@ type Observation struct {
 	// ToBroadcast is true when the destination is a broadcast or multicast
 	// address.
 	ToBroadcast bool
+	// IPv6 is true for a flow between IPv6 addresses. Zeek names ICMPv6
+	// "icmp", so only the address family tells it from ICMP.
+	IPv6 bool
 }
 
 // Classification is the result of Classify.
@@ -112,6 +115,9 @@ func Classify(observation Observation) Classification {
 	}
 	switch transport {
 	case "icmp":
+		if observation.IPv6 {
+			return classification("icmpv6", EvidenceAnalyzer, false)
+		}
 		return classification("icmp", EvidenceAnalyzer, false)
 	case "icmpv6", "ipv6-icmp", "icmp6":
 		return classification("icmpv6", EvidenceAnalyzer, false)

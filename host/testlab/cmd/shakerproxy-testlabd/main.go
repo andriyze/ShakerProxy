@@ -29,6 +29,7 @@ type daemon struct {
 	// coverageRun is the visibility coverage run that owns the prepared lab.
 	coverageRun     string
 	coverageForward string
+	coverageIPv6    labIPv6
 	coverageTimer   *time.Timer
 }
 

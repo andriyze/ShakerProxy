@@ -39,6 +39,14 @@ const (
 	DNSClient    = "198.18.240.30"
 	TargetIPv4   = "198.18.241.254"
 
+	// The lab's IPv6 is a unique-local prefix that never leaves the
+	// appliance: subnet f0 is the client bridge and f1 the target side,
+	// mirroring 198.18.240.0/24 and 198.18.241.0/24.
+	ClientIPv6CIDR   = "fd8a:6c1e:4b37:f0::/64"
+	GatewayIPv6      = "fd8a:6c1e:4b37:f0::1"
+	NormalClientIPv6 = "fd8a:6c1e:4b37:f0::10"
+	TargetIPv6       = "fd8a:6c1e:4b37:f1::fe"
+
 	// Ports the virtual target serves for the probes.
 	PortHTTP       = 8080
 	PortHTTPS      = 8443
@@ -73,8 +81,17 @@ const (
 	ProbeNTP        = "ntp"
 	ProbeMDNS       = "mdns"
 	ProbeSSDP       = "ssdp"
-	ProbeIPv6       = "ipv6"
+	ProbeDNSIPv6    = "dns-ipv6"
+	ProbeHTTPIPv6   = "http-ipv6"
+	ProbeHTTPSIPv6  = "https-ipv6"
+	ProbeQUICIPv6   = "quic-ipv6"
+	ProbeTCPIPv6    = "tcp-ipv6"
+	ProbeUDPIPv6    = "udp-ipv6"
+	ProbeICMPv6     = "icmpv6"
 )
+
+// CategoryIPv6 groups the probes sent over IPv6.
+const CategoryIPv6 = "ipv6"
 
 type Probe struct {
 	ID          string `json:"id"`
@@ -100,7 +117,23 @@ var Probes = []Probe{
 	{ProbeNTP, "NTP", "network", "An NTP time request"},
 	{ProbeMDNS, "mDNS / Bonjour (AirPlay discovery)", "local-discovery", "An mDNS query for AirPlay receivers on the local network"},
 	{ProbeSSDP, "SSDP / UPnP (casting discovery)", "local-discovery", "An SSDP M-SEARCH on the local network"},
-	{ProbeIPv6, "IPv6", "ip", "Any of the above over IPv6"},
+	{ProbeDNSIPv6, "DNS over IPv6 (AAAA)", CategoryIPv6, "An AAAA lookup sent over IPv6 to the gateway, answered by ShakerProxy's DNS forwarder"},
+	{ProbeHTTPIPv6, "HTTP over IPv6", CategoryIPv6, "A cleartext HTTP GET over IPv6"},
+	{ProbeHTTPSIPv6, "HTTPS / TLS over IPv6", CategoryIPv6, "A TLS handshake with a server name (SNI) over IPv6"},
+	{ProbeQUICIPv6, "QUIC over IPv6", CategoryIPv6, "A QUIC v1 Initial packet with a server name over IPv6"},
+	{ProbeTCPIPv6, "TCP over IPv6, unusual port", CategoryIPv6, "A TCP connection to an unregistered port over IPv6"},
+	{ProbeUDPIPv6, "UDP over IPv6, unusual port", CategoryIPv6, "A UDP datagram to an unregistered port over IPv6"},
+	{ProbeICMPv6, "ICMPv6 echo (ping)", CategoryIPv6, "Two ICMPv6 echo requests"},
+}
+
+// IPv6Probe reports whether the probe with this ID is sent over IPv6.
+func IPv6Probe(id string) bool {
+	for _, probe := range Probes {
+		if probe.ID == id {
+			return probe.Category == CategoryIPv6
+		}
+	}
+	return false
 }
 
 // Plan holds the markers that make one run's evidence unique, so a check
@@ -116,6 +149,12 @@ type Plan struct {
 	DoQServerName  string    `json:"doq_server_name"`
 	QUICServerName string    `json:"quic_server_name"`
 	MDNSService    string    `json:"mdns_service"`
+	// The IPv6 probes carry their own markers, so neither family's
+	// evidence can pass the other's probe.
+	DNSIPv6Name        string `json:"dns_ipv6_name"`
+	HTTPIPv6Path       string `json:"http_ipv6_path"`
+	TLSIPv6ServerName  string `json:"tls_ipv6_server_name"`
+	QUICIPv6ServerName string `json:"quic_ipv6_server_name"`
 }
 
 // NewPlan derives the run's markers from its ID. The names live under
@@ -134,6 +173,11 @@ func NewPlan(runID string, startedAt time.Time) Plan {
 		DoQServerName:  fmt.Sprintf("doq-%s.coverage.shakerproxy.test", tag),
 		QUICServerName: fmt.Sprintf("quic-%s.coverage.shakerproxy.test", tag),
 		MDNSService:    "_airplay._tcp.local",
+
+		DNSIPv6Name:        fmt.Sprintf("aaaa-%s.coverage.shakerproxy.test", tag),
+		HTTPIPv6Path:       "/coverage/ipv6-" + tag,
+		TLSIPv6ServerName:  fmt.Sprintf("tls6-%s.coverage.shakerproxy.test", tag),
+		QUICIPv6ServerName: fmt.Sprintf("quic6-%s.coverage.shakerproxy.test", tag),
 	}
 }
 
@@ -142,7 +186,8 @@ type ProbeOutcome struct {
 	ID     string    `json:"id"`
 	SentAt time.Time `json:"sent_at"`
 	Sent   bool      `json:"sent"`
-	// Skipped probes could not run in this lab (for example, no IPv6).
+	// Skipped probes could not run in this lab (for example, IPv6 on an
+	// appliance with IPv6 turned off).
 	Skipped bool   `json:"skipped,omitempty"`
 	Detail  string `json:"detail,omitempty"`
 }
@@ -258,5 +303,6 @@ func Limitations() []string {
 		"Probes come from Linux network namespaces on the appliance, not from a phone or TV; they prove what ShakerProxy's pipeline records, not how a particular device behaves.",
 		"Probes use the virtual test lab's own bridge and capture; the lab interface's automatic recording pauses for the few seconds the probes run.",
 		"Virtual clients are not lab devices, so their traffic is not attributed to a device; attribution of real devices is covered by the Devices page.",
+		"IPv6 probes use a private unique-local prefix inside the appliance: they prove ShakerProxy records IPv6, not that the lab network routes IPv6 through ShakerProxy; the IPv6 routing finding covers that.",
 	}
 }
