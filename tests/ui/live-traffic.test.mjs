@@ -244,3 +244,28 @@ test("the wide Traffic view is a three-pane Live view", () => {
   assert.match(traffic, /<EventDetailDrawer\s+docked/)
   assert.match(webUIFile("workspaces/traffic/TrafficStream.tsx"), /onContextMenu=/)
 })
+
+test("the Live view draws the server summary when it has one", async () => {
+  const { summaryFacets, summaryTimeline } = await import("../../apps/web-ui/src/lib/liveTraffic.ts")
+  const summary = {
+    buckets: [
+      { start: "2026-10-02T14:00:00Z", counts: { dns: 3, tls: 2, quic: 0, http: 0, discovery: 5, alert: 0, other: 1, blocked: 1 } },
+      { start: "2026-10-02T14:01:00Z", counts: { dns: 0, tls: 0, quic: 0, http: 0, discovery: 0, alert: 0, other: 0, blocked: 0 } },
+    ],
+    totals: { events: 12 },
+    facets: [
+      { field: "device", exact: true, values: [{ value: PHONE, label: "Pixel", count: 6 }, { value: "ip:192.168.200.156", label: "192.168.200.156", count: 4 }] },
+      { field: "type", exact: true, values: [{ value: "discovery", count: 5 }] },
+      { field: "organization", exact: false, sampled_events: 20000, values: [{ value: "Google", count: 3 }] },
+      { field: "destination_port", exact: true, values: [{ value: "443", label: "443/tcp", count: 2 }] },
+    ],
+  }
+  const timeline = summaryTimeline(summary)
+  assert.deepEqual([timeline[0].total, timeline[0].counts.dns, timeline[1].total], [12, 4, 0])
+  const facets = summaryFacets(summary, [{ key: "github.com", label: "github.com", count: 2, filter: "github.com" }])
+  assert.deepEqual(facets.clients.map((value) => value.filter), [`device.id:${PHONE}`, "src.ip:192.168.200.156"])
+  assert.equal(facets.kinds[0].label, "Discovery")
+  assert.equal(facets.owners[0].filter, "owner:google")
+  assert.equal(facets.ports[0].filter, "dst.port:443")
+  assert.equal(facets.domains[0].label, "github.com")
+})

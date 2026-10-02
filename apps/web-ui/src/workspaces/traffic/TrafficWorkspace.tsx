@@ -11,6 +11,8 @@ import {
   eventsPerMinute,
   pageFacets,
   pageTimeline,
+  summaryFacets,
+  summaryTimeline,
   streamLine,
   validFieldFilter,
   MAX_FIELD_FILTERS,
@@ -41,6 +43,7 @@ import type {
   RecentEvent,
   RecentEventPage,
   SavedView,
+  EventSummary,
 } from "../../types"
 
 const SOURCES: [string, string][] = [
@@ -76,6 +79,8 @@ export function TrafficWorkspace() {
   const [filters, setFilters] = useState<LiveFilters>(() => liveFiltersFromURL(window.location.search))
   const [holding, setHolding] = useState(false)
   const [wide, setWide] = useState(() => new URLSearchParams(window.location.search).get("traffic_view") === "wide")
+  const wideRef = useRef(wide)
+  wideRef.current = wide
   const setWideView = (next: boolean) => {
     setWide(next)
     const url = new URL(window.location.href)
@@ -201,7 +206,9 @@ export function TrafficWorkspace() {
       let cursor = ""
       while (active && !cursor) {
         await waitUntilVisible()
-        const parameters = new URLSearchParams({ limit: "30" })
+        // The Live view's facets and timeline count what is loaded, so it starts
+        // with the most the event service returns at once.
+        const parameters = new URLSearchParams({ limit: wideRef.current ? "100" : "30" })
         if (source) parameters.set("source", source)
         if (query) parameters.set("q", query)
         try {
@@ -487,13 +494,49 @@ export function TrafficWorkspace() {
   const perMinute = page ? eventsPerMinute(page.events) : 0
   const [groupBy, setGroupBy] = useState<GroupBy>("none")
   const clientName = (event: RecentEvent) => splitDeviceTitle(eventDeviceTitle(event, directory))[0]
-  const facets = useMemo(() => pageFacets(page?.events ?? [], clientName), [page?.events, directory])
+  const [summary, setSummary] = useState<EventSummary | null>(null)
+  const pageCounts = useMemo(() => pageFacets(page?.events ?? [], clientName), [page?.events, directory])
+  const serverDomains = useMemo(
+    () => (page?.facets?.domains?.values ?? []).map((value) => ({ key: value.domain, label: value.domain, count: value.count, filter: value.domain })),
+    [page?.facets],
+  )
+  const facets = summary ? summaryFacets(summary, serverDomains.length ? serverDomains : pageCounts.domains) : pageCounts
   const timelineSpan = (() => {
     const spans: Record<string, [number, string]> = { last_5m: [5 * 60_000, "5 min"], last_1h: [3_600_000, "1 hour"], last_24h: [86_400_000, "24 hours"], last_7d: [7 * 86_400_000, "7 days"] }
     const [ms, label] = spans[filters.time] ?? [15 * 60_000, "15 min"]
     return { ms, label }
   })()
-  const timeline = pageTimeline(page?.events ?? [], 60, Date.now(), timelineSpan.ms)
+  const timeline = summary ? summaryTimeline(summary) : pageTimeline(page?.events ?? [], 60, Date.now(), timelineSpan.ms)
+  // The Live view's timeline and facets come from the server summary for
+  // the whole window, refreshed every 10 s while live.
+  useEffect(() => {
+    if (!wide) {
+      setSummary(null)
+      return
+    }
+    let active = true
+    const load = async () => {
+      if (document.hidden || manualPausedRef.current) return
+      const to = new Date()
+      const parameters = new URLSearchParams({ buckets: "60", from: new Date(to.getTime() - timelineSpan.ms).toISOString(), to: to.toISOString() })
+      if (query) parameters.set("q", query)
+      if (source) parameters.set("source", source)
+      try {
+        const result = await api<EventSummary>(`/api/v1/events/summary?${parameters}`)
+        if (active && Array.isArray(result.buckets) && Array.isArray(result.facets)) setSummary(result)
+      } catch {
+        // An older appliance has no summary: the page's own counts stay.
+        if (active) setSummary(null)
+      }
+    }
+    void load()
+    const timer = window.setInterval(() => void load(), 10_000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wide, query, source, timelineSpan.ms])
   // Right-click actions on a row: the Live view's "apply as filter".
   const rowAction = (action: RowAction, event: RecentEvent) => {
     const add = (list: "include" | "exclude", values: string[]) => {
@@ -673,7 +716,11 @@ export function TrafficWorkspace() {
             <LiveFacetsPane
               facets={facets}
               filters={filters}
-              sampled={`Counts from the newest ${page.events.length.toLocaleString()} events shown.`}
+              sampled={
+                summary
+                  ? `${summary.totals.events.toLocaleString()} events in the last ${timelineSpan.label}${summary.facets.some((facet) => !facet.exact) ? "; owners counted over the newest 20,000" : ""}.`
+                  : `Counts from the newest ${page.events.length.toLocaleString()} events shown.`
+              }
               onChange={(next) => applyFilters(next)}
             />
             <div className="live-center">

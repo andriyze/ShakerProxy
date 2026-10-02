@@ -42,6 +42,7 @@ type Backend interface {
 	TestSession(context.Context, string) (testsession.Session, error)
 	Protocols(context.Context, agentapi.ProtocolsRequest) (agentapi.ProtocolsPage, error)
 	TrafficSearch(context.Context, agentapi.TrafficSearchRequest) (agentapi.EventPage, error)
+	TrafficSummary(context.Context, agentapi.TrafficSummaryRequest) (ingest.TrafficSummary, error)
 	HTTPActivity(context.Context, agentapi.HTTPActivityRequest) (ingest.HTTPActivityPage, error)
 	EventMetadata(context.Context, string) (ingest.EventDetail, error)
 	DNSVisibility(context.Context) (agentapi.DNSVisibility, error)
@@ -74,6 +75,7 @@ const (
 	toolCompareRuns    = "compare_runs"
 	toolProtocols      = "protocols"
 	toolSearchTraffic  = "search_traffic"
+	toolTrafficSummary = "traffic_summary"
 	toolDNSLookups     = "dns_lookups"
 	toolTLSIssues      = "tls_issues"
 	toolHTTPRequests   = "http_requests"
@@ -110,6 +112,8 @@ func New(backend Backend) (*mcp.Server, error) {
 		`List the application protocols seen on the lab or one device, how much ShakerProxy can see inside each, and which are unusual. Example: {"device":"camera","window":"7d","exotic_only":true}.`), service.protocols)
 	mcp.AddTool(server, readOnlyTool(toolSearchTraffic, "Search traffic",
 		`Search traffic metadata with the ShakerProxy query language, or pass record_id for one event's metadata. Example: {"query":"time:last_1h AND device.name:\"Living room TV\" AND tls.state:FAILED"}.`+"\n"+QuerySyntax), service.searchTraffic)
+	mcp.AddTool(server, readOnlyTool(toolTrafficSummary, "Traffic summary",
+		`Count traffic by device, destination owner and category, type (DNS, TLS, QUIC, HTTP, discovery, alert, blocked, other), port and protocol over a time window, with bytes sent and received and a timeline, to see who is busiest or what changed. Example: {"window":"1h"} or {"device":"tv","window":"24h","query":"NOT service:dns"}.`), service.trafficSummary)
 	mcp.AddTool(server, readOnlyTool(toolDNSLookups, "DNS lookups",
 		`Show DNS lookups (plain DNS and detected DNS over HTTPS/TLS) for the lab or one device, optionally for one name and its subdomains. Example: {"device":"tv","name":"samsungacr.com","window":"24h"}.`), service.dnsLookups)
 	mcp.AddTool(server, readOnlyTool(toolTLSIssues, "TLS issues",

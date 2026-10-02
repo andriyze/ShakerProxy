@@ -97,6 +97,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/events", s.requireQueryToken(http.HandlerFunc(s.listRecentEvents)))
 	mux.Handle("GET /v1/events/{recordID}", s.requireQueryToken(http.HandlerFunc(s.getEventDetail)))
 	mux.Handle("GET /v1/events/live-batch", s.requireQueryToken(http.HandlerFunc(s.listLiveEvents)))
+	mux.Handle("GET /v1/events/summary", s.requireQueryToken(http.HandlerFunc(s.listTrafficSummary)))
 	mux.Handle("GET /v1/query-stats", s.requireQueryToken(http.HandlerFunc(s.queryStats)))
 	mux.Handle("GET /v1/protocol-summary", s.requireQueryToken(http.HandlerFunc(s.listProtocolSummary)))
 	mux.Handle("GET /v1/device-platform-hints", s.requireQueryToken(http.HandlerFunc(s.listDevicePlatformHints)))

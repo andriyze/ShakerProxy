@@ -276,6 +276,7 @@ var apiIndexResources = []apiIndexResource{
 	{"/api/v1/test-sessions", []string{"GET", "POST"}, "Named, time-bounded test runs against one device."},
 	{"/api/v1/events", []string{"GET"}, "Recent traffic events with plain-language summaries; supports the query language."},
 	{"/api/v1/events/live", []string{"GET"}, "Live traffic after a cursor, for streaming views."},
+	{"/api/v1/events/summary", []string{"GET"}, "Traffic over time by type, top devices and destinations, and byte totals for a query."},
 	{"/api/v1/protocols", []string{"GET"}, "Application protocols observed in a time window, including unusual ones."},
 	{"/api/v1/captures", []string{"GET", "POST"}, "Packet captures: start, stop, list and export."},
 	{"/api/v1/cases", []string{"GET", "POST"}, "Cases that group evidence (captures, exports, query snapshots) with an audit timeline."},
