@@ -48,6 +48,8 @@ type fakeBackend struct {
 	sessionsRequest agentapi.TestSessionsRequest
 	protocolRequest agentapi.ProtocolsRequest
 	searches        []agentapi.TrafficSearchRequest
+	summary         ingest.TrafficSummary
+	summaries       []agentapi.TrafficSummaryRequest
 	httpRequest     agentapi.HTTPActivityRequest
 	deviceRequest   agentapi.DeviceListRequest
 }
@@ -160,6 +162,13 @@ func (f *fakeBackend) EventMetadata(_ context.Context, recordID string) (ingest.
 		return ingest.EventDetail{}, errors.New("not found")
 	}
 	return f.detail, nil
+}
+
+func (f *fakeBackend) TrafficSummary(_ context.Context, request agentapi.TrafficSummaryRequest) (ingest.TrafficSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.summaries = append(f.summaries, request)
+	return f.summary, nil
 }
 
 func (f *fakeBackend) lastSearch() agentapi.TrafficSearchRequest {

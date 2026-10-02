@@ -979,6 +979,41 @@ export type RecentEventPage = {
   device_labels_available: boolean
 }
 
+// The summary's stream types; docs/traffic-stream-types.md has the rules.
+export type EventStreamType = "dns" | "tls" | "quic" | "http" | "discovery" | "alert" | "other" | "blocked"
+
+export type EventStreamCounts = Record<EventStreamType, number>
+
+export type EventSummaryFacetField = "device" | "type" | "organization" | "category" | "destination_port" | "app_protocol"
+
+export type EventSummaryFacet = {
+  field: EventSummaryFacetField
+  // A device value is a device ID, or "ip:<address>" for traffic not
+  // attributed to a device; label is the friendly name or the address.
+  values: { value: string; label?: string; count: number }[]
+  // Events not in values, including those without one (for a sampled facet,
+  // of the sampled events).
+  other_count: number
+  // false when counted over only the newest sampled_events matching events.
+  exact: boolean
+  sampled_events?: number
+}
+
+// GET /api/v1/events/summary: the Live view's timeline, facet sidebar and
+// totals for the same filter as /events.
+export type EventSummary = {
+  schema: number
+  generated_at: string
+  from: string
+  to: string
+  bucket_seconds: number
+  buckets: { start: string; counts: EventStreamCounts }[]
+  totals: { events: number; bytes_sent: number; bytes_received: number; types: EventStreamCounts }
+  // In order: device, type, organization, category, destination_port, app_protocol.
+  facets: EventSummaryFacet[]
+  canonical_query?: string
+}
+
 export type LiveEventBatch = {
   schema: number
   generated_at: string

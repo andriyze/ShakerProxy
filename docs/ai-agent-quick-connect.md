@@ -83,7 +83,7 @@ Where practical, restrict the SSH key to `/usr/bin/shakerproxy-mcp`.
 
 ## What the AI receives
 
-Twelve read-only tools: `list_devices`, `find_device`, `device_report`, `device_activity`, `compare_runs`, `protocols`, `search_traffic`, `dns_lookups`, `tls_issues`, `http_requests`, `test_sessions`, and `system_status`. Devices can be named by friendly name, IP address, MAC address, or device ID, and every result includes plain-language summary lines.
+Fifteen read-only tools: `list_devices`, `find_device`, `device_report`, `device_activity`, `compare_runs`, `protocols`, `search_traffic`, `traffic_summary`, `dns_lookups`, `tls_issues`, `http_requests`, `test_sessions`, `system_status`, `dns_visibility`, and `visibility_coverage`. Devices can be named by friendly name, IP address, MAC address, or device ID, and every result includes plain-language summary lines.
 
 Try asking:
 
