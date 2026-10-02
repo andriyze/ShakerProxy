@@ -49,8 +49,17 @@ func TestInlineBridgeRenderContext(t *testing.T) {
 		if err != nil || !ok {
 			t.Fatalf("%s: %v %v", mode, ok, err)
 		}
-		if context.LabInterface != networkplan.InlineBridgeName || context.LabBridgePort != "eth1" || context.LabBridgeIPv6 != (mode == networkplan.WANIPv6SLAAC) {
+		if context.LabInterface != networkplan.InlineBridgeName || context.LabBridgePort != "eth1" || context.LabBridgeIPv6 != (mode == networkplan.WANIPv6SLAAC) || context.LabBridgeAPPort != "" {
 			t.Fatalf("%s: render context %+v", mode, context)
 		}
+	}
+	// With the Wi-Fi access point in the bridge, it is a second device port.
+	plan.Interfaces = append(plan.Interfaces, networkplan.Interface{StableID: "ap", CurrentName: "wlan0", Role: networkplan.RoleWiFiAP})
+	plan.WiFi = &networkplan.WiFiConfiguration{Enabled: true, BridgeWithLab: true}
+	store := &StateStore{state: persistedState{OperatingMode: gatewayprotocol.ModeRouted,
+		StagedNetworkPlan: &networkplan.StagedPlan{Plan: plan, Transaction: &networktransaction.Record{Phase: networktransaction.PhaseConfirmed}}}}
+	context, ok, err := (&TrafficPolicyManager{NetworkState: store}).activeRenderContext(t.Context(), trafficpolicy.DefaultPolicy())
+	if err != nil || !ok || context.LabBridgePort != "eth1" || context.LabBridgeAPPort != "wlan0" {
+		t.Fatalf("render context with the access point: %+v %v %v", context, ok, err)
 	}
 }

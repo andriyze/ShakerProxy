@@ -505,6 +505,11 @@ func (m *TrafficPolicyManager) activeRenderContext(ctx context.Context, policy t
 	if _, device, bridged := networkplan.BridgePorts(plan); bridged {
 		context.LabBridgePort = device.CurrentName
 		context.LabBridgeIPv6 = networkplan.InlineBridgeIPv6Address(plan)
+		// Wi-Fi devices join the bridge through the access point and get
+		// the same rules as the wired device port.
+		if ap, ok := networkplan.BridgeAccessPoint(plan); ok {
+			context.LabBridgeAPPort = ap.CurrentName
+		}
 	}
 	context.IPv6Listeners = m.ipv6ListenersReady(ctx, policy)
 	return context, true, nil

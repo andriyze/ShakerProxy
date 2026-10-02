@@ -79,7 +79,7 @@ func NewServerWithHostServices(store *StateStore, logger *slog.Logger, activatio
 		server.configLock = activation.ConfigLock
 	}
 	if captures != nil {
-		server.recorder = &LabRecorder{Store: store, Captures: captures, Source: server.captureSource, NewCaptureAllowed: server.newCaptureAllowed, ConfigLock: server.configLock, Logger: logger}
+		server.recorder = &LabRecorder{Store: store, Captures: captures, Source: server.captureSource, LabRevision: labRecordingRevision, NewCaptureAllowed: server.newCaptureAllowed, ConfigLock: server.configLock, Logger: logger}
 	}
 	return server
 }
@@ -1100,10 +1100,54 @@ func (s *Server) captureSource(ctx context.Context) (capture.Source, string, err
 			if plan := active.Plan; plan.Topology == networkplan.TopologySingleArm {
 				source.SingleArmGateway, source.SingleArmLabCIDR = labGatewayIPv4(plan), maskedIPv4CIDR(plan.IPv4.LabCIDR)
 			}
-			return source, active.PlanHash, nil
+			if name, stableID, ok := bridgeAccessPointSource(active.Plan); ok {
+				source.AccessPointName, source.AccessPointStableID = name, stableID
+			}
+			return source, labRecordingRevisionFor(*active, source.AccessPointName != ""), nil
 		}
 	}
 	return capture.Source{}, "", errors.New("confirmed lab ingress interface identity is no longer present")
+}
+
+// bridgeAccessPointSource returns the inline bridge's Wi-Fi access point for
+// the lab recording when it is up and is the adapter the plan names. It
+// reads only that interface from sysfs, so the lab recorder can ask on every
+// check.
+var bridgeAccessPointSource = func(plan networkplan.Plan) (name, stableID string, ok bool) {
+	ap, ok := networkplan.BridgeAccessPoint(plan)
+	if !ok {
+		return "", "", false
+	}
+	iface, err := net.InterfaceByName(ap.CurrentName)
+	if err != nil {
+		return "", "", false
+	}
+	details := interfaceDetails(iface.Name, iface.HardwareAddr.String())
+	if details.StableID != ap.StableID || details.OperState != "up" || details.Carrier != "1" {
+		return "", "", false
+	}
+	return iface.Name, details.StableID, true
+}
+
+// accessPointRevisionSuffix marks a lab recording that includes the inline
+// bridge's access point.
+const accessPointRevisionSuffix = "+wifi"
+
+// labRecordingRevision names what the lab recording should record: the
+// plan, and whether the inline bridge's access point is up to be recorded
+// beside the device port. When the access point comes up after the
+// recording started (hostapd starts after the bridge) or goes away, the
+// revision changes and the lab recorder restarts the recording to match.
+func labRecordingRevision(plan networkplan.StagedPlan) string {
+	_, _, recorded := bridgeAccessPointSource(plan.Plan)
+	return labRecordingRevisionFor(plan, recorded)
+}
+
+func labRecordingRevisionFor(plan networkplan.StagedPlan, accessPoint bool) string {
+	if accessPoint {
+		return plan.PlanHash + accessPointRevisionSuffix
+	}
+	return plan.PlanHash
 }
 
 // labCaptureInterface is the interface the lab recording records. An inline
