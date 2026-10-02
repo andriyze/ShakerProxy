@@ -825,3 +825,30 @@ func writeJSONFixture(t *testing.T, path string, value any) {
 		t.Fatal(err)
 	}
 }
+
+// Suricata failed on a segment, and the lab recording's ring buffer then
+// removed it; every later scan failed with "no such file or directory" and
+// the capture was never analyzed again.
+func TestRunnerSkipsAnActiveSegmentTheRingAlreadyRemoved(t *testing.T) {
+	root, state, work, _ := writeCaptureFixture(t)
+	if err := os.Remove(filepath.Join(root, testSessionID, "runtime", "manifest.json")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(root, testSessionID, "artifacts", "capture_00001.pcapng"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedAt := time.Date(2026, 9, 1, 11, 58, 0, 0, time.UTC)
+	feed := capture.ActiveSegmentFeed{Schema: capture.SchemaVersion, SessionID: testSessionID, Revision: 2, PublishedAt: closedAt, Segments: []capture.ClosedCaptureSegment{
+		{Sequence: 1, Name: "capture_00000.pcapng", SizeBytes: 320, Modified: closedAt.Add(-time.Minute), ClosedAt: closedAt.Add(-time.Minute)},
+		{Sequence: 2, Name: info.Name(), SizeBytes: info.Size(), Modified: info.ModTime().UTC(), ClosedAt: closedAt},
+	}}
+	writeJSONFixture(t, filepath.Join(root, testSessionID, "runtime", "active-segments.json"), feed)
+	sender := &recordingSender{}
+	runner := testRunner(t, root, state, work, EngineSuricata, fixtureProcessor{engine: EngineSuricata}, sender)
+	result := runner.RunOnce(context.Background())
+	progress, exists, err := runner.State.ReadActiveProgress(EngineSuricata, testSessionID)
+	if len(result.Errors) != 0 || result.Segments != 1 || len(sender.events) != 1 || err != nil || !exists || progress.MissedSegments != 1 || progress.LastCompletedSequence != 2 {
+		t.Fatalf("a removed segment blocked analysis: result=%#v progress=%#v exists=%v err=%v", result, progress, exists, err)
+	}
+}

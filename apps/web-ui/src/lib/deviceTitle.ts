@@ -103,3 +103,12 @@ export function deviceDirectory(devices: readonly Device[], hints: Record<string
   for (const device of devices) directory.set(device.id, { device, hint: hints[device.id] })
   return directory
 }
+
+// splitDeviceTitle separates "name · IP" so a narrow column can show the name
+// and the IP on separate lines.
+export function splitDeviceTitle(title: string): [string, string] {
+  const at = title.lastIndexOf(" · ")
+  if (at < 0) return [title, ""]
+  const ip = title.slice(at + 3)
+  return isIPv4(ip) ? [title.slice(0, at), ip] : [title, ""]
+}
