@@ -346,10 +346,24 @@ func (r *Runner) processActiveJob(ctx context.Context, job activeCaptureJob) (in
 			progress.LastCompletedSequence += gap
 		}
 		artifact, snapshotErr := snapshotClosedArtifact(r.Config.CaptureRoot, job.Feed.SessionID, segment)
-		if snapshotErr != nil {
-			return newEvents, processed, snapshotErr
+		var delivered int
+		var outputBytes int64
+		processErr := snapshotErr
+		if processErr == nil {
+			delivered, outputBytes, processErr = r.processArtifact(analysisContext, job.Feed.SessionID, artifact, r.Config.MaxOutputBytes-progress.OutputBytes, MaxEventsPerCapture-progress.EventsDelivered)
 		}
-		delivered, outputBytes, processErr := r.processArtifact(analysisContext, job.Feed.SessionID, artifact, r.Config.MaxOutputBytes-progress.OutputBytes, MaxEventsPerCapture-progress.EventsDelivered)
+		if errors.Is(processErr, os.ErrNotExist) {
+			// The capture's ring buffer removed the segment before it was
+			// analyzed. Waiting for it would stop analysis of this capture
+			// for good, so it is counted as missed and analysis moves on.
+			progress.MissedSegments++
+			progress.LastCompletedSequence = segment.Sequence
+			progress.UpdatedAt = r.Now().UTC()
+			if err := r.State.WriteActiveProgress(progress); err != nil {
+				return newEvents, processed, err
+			}
+			continue
+		}
 		if processErr != nil {
 			return newEvents, processed, processErr
 		}

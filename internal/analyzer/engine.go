@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -76,6 +77,12 @@ type CommandProcessor struct {
 func (p CommandProcessor) Analyze(ctx context.Context, captureFile *os.File, outputDirectory string) ([]EventFile, error) {
 	if captureFile == nil {
 		return nil, errors.New("open capture file is required")
+	}
+	// A ring-buffer segment from a quiet period holds no packets. Suricata
+	// refuses such a file ("failed to get first packet timestamp"), and there
+	// is nothing to analyze in it anyway.
+	if !captureHasPackets(captureFile) {
+		return []EventFile{}, nil
 	}
 	if _, err := captureFile.Seek(0, io.SeekStart); err != nil {
 		return nil, err
@@ -238,4 +245,51 @@ func (b *boundedBuffer) String() string {
 		value += " [output truncated]"
 	}
 	return value
+}
+
+// captureHasPackets reports whether a PCAPNG file holds a packet block. It
+// reports true for anything it cannot read as PCAPNG, so the engine decides.
+func captureHasPackets(file *os.File) bool {
+	const (
+		sectionHeader  = 0x0A0D0D0A
+		byteOrderMagic = 0x1A2B3C4D
+	)
+	reader := bufio.NewReader(io.NewSectionReader(file, 0, 1<<62))
+	var order binary.ByteOrder = binary.LittleEndian
+	header := make([]byte, 12)
+	first := true
+	for {
+		if _, err := io.ReadFull(reader, header[:8]); err != nil {
+			return !errors.Is(err, io.EOF)
+		}
+		consumed := 8
+		if binary.LittleEndian.Uint32(header[:4]) == sectionHeader {
+			if _, err := io.ReadFull(reader, header[8:12]); err != nil {
+				return true
+			}
+			consumed = 12
+			switch {
+			case binary.LittleEndian.Uint32(header[8:12]) == byteOrderMagic:
+				order = binary.LittleEndian
+			case binary.BigEndian.Uint32(header[8:12]) == byteOrderMagic:
+				order = binary.BigEndian
+			default:
+				return true
+			}
+		} else if first {
+			return true
+		}
+		first = false
+		switch order.Uint32(header[:4]) {
+		case 2, 3, 6: // packet, simple packet and enhanced packet blocks
+			return true
+		}
+		length := order.Uint32(header[4:8])
+		if length < uint32(consumed) || length%4 != 0 {
+			return true
+		}
+		if _, err := reader.Discard(int(length) - consumed); err != nil {
+			return true
+		}
+	}
 }

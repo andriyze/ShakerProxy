@@ -196,3 +196,11 @@ test("devices can be added and named by IP address", () => {
   assert.match(webUIFile("workspaces/devices/DeviceDetailDrawer.tsx"), /<PinnedAddressControls/)
   assert.match(webUIFile("workspaces/devices/DeviceRow.tsx"), /named by IP \$\{device\.pinned_address\}/)
 })
+
+test("the Traffic device column shows the name and the IP on separate lines", async () => {
+  const { splitDeviceTitle } = await import("../../apps/web-ui/src/lib/deviceTitle.ts")
+  assert.deepEqual(splitDeviceTitle("GrapheneOS phone · 192.168.10.201"), ["GrapheneOS phone", "192.168.10.201"])
+  assert.deepEqual(splitDeviceTitle("Pixel · 9 · 10.77.0.5"), ["Pixel · 9", "10.77.0.5"])
+  assert.deepEqual(splitDeviceTitle("Kitchen · TV"), ["Kitchen · TV", ""])
+  assert.deepEqual(splitDeviceTitle("device-abc"), ["device-abc", ""])
+})

@@ -5,7 +5,7 @@ import { MAX_VISIBLE_LIVE_ROWS, virtualRowWindow } from "../../lib/liveRows"
 import { tlsOutcomeExplanation } from "../../lib/tlsTrust"
 import { eventSummary, eventTone, eventTypeLabel, foldSplitConnections, forwardedLookups, isAnalyzerDuplicate } from "../../lib/eventSummary"
 import { EventDetailDrawer } from "./EventDetailDrawer"
-import { eventDeviceTitle } from "../../lib/deviceTitle"
+import { eventDeviceTitle, splitDeviceTitle } from "../../lib/deviceTitle"
 import { useDeviceDirectory } from "../../shell/useDeviceDirectory"
 import { api, describeError } from "../../api"
 import type { Device, DeviceMutationResult, RecentEvent } from "../../types"
@@ -150,9 +150,13 @@ export function WindowedTrafficTable({
                       {eventTypeLabel(item)}
                     </small>
                   </span>
-                  <span role="cell">
-                    <strong>{device}</strong>
-                    <small>{item.device_id ? `${item.confidence}% sure` : item.source_ip || ""}</small>
+                  <span role="cell" title={device}>
+                    <strong>{splitDeviceTitle(device)[0]}</strong>
+                    <small>
+                      {[splitDeviceTitle(device)[1] || (item.device_id ? "" : item.source_ip || ""), item.device_id ? `${item.confidence}% sure` : ""]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </small>
                   </span>
                   <span role="cell" className="traffic-summary-cell">
                     <strong title={summary}>{summary}</strong>
