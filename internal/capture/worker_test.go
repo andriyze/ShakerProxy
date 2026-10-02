@@ -40,6 +40,43 @@ func TestOutputTrackerReportsPacketsAndDrops(t *testing.T) {
 	}
 }
 
+// An inline bridge with ShakerProxy's access point records both device-side
+// ports into one ring; each interface gets the same snapshot length and
+// buffer, and dumpcap's per-interface drop lines are summed.
+func TestBridgeRecordingAddsTheAccessPoint(t *testing.T) {
+	root := t.TempDir()
+	session := validSession(t, root)
+	session.Source.AccessPointName, session.Source.AccessPointStableID = "wlan0", "usb-wlan0"
+	directory := filepath.Join(root, session.ID, "artifacts")
+	arguments, err := BuildDumpcapArguments(session, directory, session.StartedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := []string{"-i", "lab0", "-s", "256", "-B", "8", "-i", "wlan0", "-s", "256", "-B", "8", "-n", "--temp-dir", directory, "-w", filepath.Join(directory, "capture.pcapng"), "-b", "filesize:8192", "-b", "duration:30", "-b", "files:64", "-a", "duration:3600"}
+	if !reflect.DeepEqual(arguments, expected) {
+		t.Fatalf("unexpected arguments:\nwant %#v\n got %#v", expected, arguments)
+	}
+	for name, source := range map[string]Source{
+		"same interface":    {InterfaceName: "lab0", InterfaceStableID: "pci-lab0", AccessPointName: "lab0", AccessPointStableID: "usb-wlan0"},
+		"same identity":     {InterfaceName: "lab0", InterfaceStableID: "pci-lab0", AccessPointName: "wlan0", AccessPointStableID: "pci-lab0"},
+		"name only":         {InterfaceName: "lab0", InterfaceStableID: "pci-lab0", AccessPointName: "wlan0"},
+		"unsafe name":       {InterfaceName: "lab0", InterfaceStableID: "pci-lab0", AccessPointName: "wlan0 -w /etc", AccessPointStableID: "usb-wlan0"},
+		"single-arm filter": {InterfaceName: "lab0", InterfaceStableID: "pci-lab0", SingleArmGateway: "192.0.2.1", SingleArmLabCIDR: "192.0.2.0/24", AccessPointName: "wlan0", AccessPointStableID: "usb-wlan0"},
+	} {
+		if err := source.Validate(); err == nil {
+			t.Fatalf("%s: accepted %+v", name, source)
+		}
+	}
+
+	tracker := &captureOutputTracker{status: WorkerStatus{Schema: SchemaVersion}}
+	tracker.observe("Packets received/dropped on interface 'lab0': 44/5 (pcap:2/dumpcap:1/flushed:1/ps_ifdrop:3) (89.8%)")
+	tracker.observe("Packets received/dropped on interface 'wlan0': 10/2 (pcap:1/dumpcap:1/flushed:0/ps_ifdrop:0) (83.3%)")
+	tracker.observe("Packets received/dropped on interface 'lab0': 50/5 (pcap:2/dumpcap:1/flushed:1/ps_ifdrop:3) (90.9%)")
+	if status := tracker.snapshot(); status.PacketsReceived != 60 || status.KernelDrops != 6 || status.DumpcapDrops != 3 {
+		t.Fatalf("per-interface counters were not summed: %#v", status)
+	}
+}
+
 func TestOutputTrackerPublishesOnlyPreviousDumpcapFile(t *testing.T) {
 	tracker := &captureOutputTracker{status: WorkerStatus{Schema: SchemaVersion}}
 	tracker.observe("File: /var/lib/shakerproxy/pcap/capture_00001_20260901120000.pcapng")

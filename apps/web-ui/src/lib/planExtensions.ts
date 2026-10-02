@@ -7,10 +7,26 @@ export type InterfaceIdentity = { name: string; stable_id: string; hardware_addr
 
 // Topologies whose lab side the shell builds from its own fields, so
 // extensions (Wi-Fi AP, IPv6 strategy) do not apply to them.
-export const TOPOLOGIES_WITHOUT_EXTENSIONS = new Set(["PASSIVE_SENSOR", "SINGLE_ARM", "TRANSPARENT_BRIDGE"])
+export const TOPOLOGIES_WITHOUT_EXTENSIONS = new Set(["PASSIVE_SENSOR", "SINGLE_ARM"])
 
+// Topologies that take only some extensions. The inline bridge builds its
+// own addressing and IPv6 (recorded, from the router), but ShakerProxy's
+// Wi-Fi access point can join it.
+const EXTENSIONS_BY_TOPOLOGY: Record<string, ReadonlySet<string>> = {
+  TRANSPARENT_BRIDGE: new Set(["wifi"]),
+}
+
+// extensionsApply reports whether any extension can apply to a topology.
 export function extensionsApply(topology: string): boolean {
   return !TOPOLOGIES_WITHOUT_EXTENSIONS.has(topology)
+}
+
+// extensionApplies reports whether the extension that owns planKey applies
+// to a topology.
+export function extensionApplies(topology: string, planKey: string): boolean {
+  const only = EXTENSIONS_BY_TOPOLOGY[topology]
+  if (only) return only.has(planKey)
+  return extensionsApply(topology)
 }
 
 // mergePlanExtensions writes each extension's value under its planKey.

@@ -156,11 +156,11 @@ test("Wi-Fi plan validation mirrors the plan contract", () => {
 })
 
 test("Wi-Fi topology support mirrors the plan validator", () => {
-  for (const topology of ["TWO_NIC", "THREE_INTERFACE", "EXISTING_ROUTED_VLAN", "ADVANCED_CUSTOM"]) assert.equal(wifiTopologySupport(topology, {}).supported, true, topology)
+  for (const topology of ["TWO_NIC", "THREE_INTERFACE", "EXISTING_ROUTED_VLAN", "ADVANCED_CUSTOM", "TRANSPARENT_BRIDGE"]) assert.equal(wifiTopologySupport(topology, {}).supported, true, topology)
   for (const topology of ["SINGLE_ARM", "VLAN_TRUNK", "PASSIVE_SENSOR"]) {
     const support = wifiTopologySupport(topology, {})
     assert.equal(support.supported, false, topology)
-    assert.match(support.reason, /choose a Two-NIC, Three-interface, Existing routed VLAN or Advanced plan/)
+    assert.match(support.reason, /choose a Two-NIC, Three-interface, Existing routed VLAN, Inline bridge or Advanced plan/)
   }
   assert.equal(wifiTopologySupport(undefined, { a: "WAN_LAB" }).supported, false, "single-arm inferred from roles")
   assert.equal(wifiTopologySupport(undefined, { a: "MIRROR" }).supported, false, "passive sensor inferred from roles")

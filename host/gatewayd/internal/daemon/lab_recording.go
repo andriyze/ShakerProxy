@@ -35,6 +35,11 @@ type LabRecorder struct {
 	// Source returns the capture interface of the active lab plan and the
 	// plan hash, as for a manual capture.
 	Source func(context.Context) (capture.Source, string, error)
+	// LabRevision names what the lab recording should record for a plan,
+	// as Source's revision does; nil uses the plan hash. A recording whose
+	// revision differs (the inline bridge's access point came up or went
+	// away) is restarted.
+	LabRevision func(networkplan.StagedPlan) string
 	// NewCaptureAllowed reports whether CPU, memory and disk allow a new
 	// capture; nil allows it.
 	NewCaptureAllowed func() bool
@@ -218,7 +223,11 @@ func (r *LabRecorder) target(state persistedState) (*recordingTarget, string) {
 		if plan == nil {
 			return nil, notRouting
 		}
-		return &recordingTarget{revision: plan.PlanHash, request: capture.LabRecordingRequest}, ""
+		revision := plan.PlanHash
+		if r.LabRevision != nil {
+			revision = r.LabRevision(*plan)
+		}
+		return &recordingTarget{revision: revision, request: capture.LabRecordingRequest}, ""
 	}
 	if state.EmergencyBypass {
 		return nil, "Emergency bypass is on, so VPN traffic is not recorded."

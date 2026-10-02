@@ -79,10 +79,7 @@ func (a Applier) startAccessPoint(ctx context.Context, staged networkplan.Staged
 	if !ok {
 		return nil
 	}
-	target := AccessPointTarget{Interface: ap.CurrentName}
-	if networkplan.WiFiBridged(staged.Plan) {
-		target.Bridge = networkplan.LabBridgeName
-	}
+	target := AccessPointTarget{Interface: ap.CurrentName, Bridge: networkplan.AccessPointBridgeName(staged.Plan)}
 	if err := a.AccessPoint.StartAccessPoint(ctx, target); err != nil {
 		return fmt.Errorf("start ShakerProxy Wi-Fi access point: %w", err)
 	}
@@ -143,7 +140,7 @@ type OSAccessPointService struct {
 }
 
 func (s OSAccessPointService) StartAccessPoint(ctx context.Context, target AccessPointTarget) error {
-	if !safeSysctlInterfaceName(target.Interface) || strings.Contains(target.Interface, ":") || target.Bridge != "" && target.Bridge != networkplan.LabBridgeName {
+	if !safeSysctlInterfaceName(target.Interface) || strings.Contains(target.Interface, ":") || target.Bridge != "" && target.Bridge != networkplan.LabBridgeName && target.Bridge != networkplan.InlineBridgeName {
 		return errors.New("Wi-Fi access point target is invalid")
 	}
 	if result, err := s.command(ctx, []string{"restart", networkplan.HostapdUnit}); err != nil || result.exitCode != 0 {

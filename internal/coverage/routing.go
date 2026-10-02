@@ -70,7 +70,7 @@ func InspectRouting(in RoutingInput) []Finding {
 		}}
 	}
 	if in.Topology == "TRANSPARENT_BRIDGE" {
-		findings := inlineBridgeFindings()
+		findings := inlineBridgeFindings(in)
 		findings = append(findings, encryptedDNSFindings(in)...)
 		if in.VPN {
 			findings = append(findings, vpnFinding(in))
@@ -90,15 +90,23 @@ func InspectRouting(in RoutingInput) []Finding {
 // inlineBridgeFindings judges an inline bridge: devices keep the network's
 // own router, DHCP and IPv6, but every frame between the device port and the
 // rest of the network crosses ShakerProxy, so none of them is a way around.
-func inlineBridgeFindings() []Finding {
+// ShakerProxy's Wi-Fi access point, when it joins the bridge, is a second
+// device-side port: Wi-Fi devices cross the bridge the same way.
+func inlineBridgeFindings(in RoutingInput) []Finding {
+	dhcp := "Inline bridge: the network's router hands out addresses through ShakerProxy, so devices need no setup and have no other way to their gateway than across the bridge."
+	peer := Finding{ID: FindingPeerToPeer, Title: "Device-to-device traffic (AirPlay, casting, local SSH)", Status: FindingOK,
+		Detail: "Traffic between a device on the device port and anything on the router's side crosses the bridge and is recorded. Two devices behind the same switch on the device port still talk directly.",
+		Fix:    "Connect one test device to the device port, or add ShakerProxy's Wi-Fi access point to the bridge for several."}
+	if in.WirelessAccessPoint {
+		dhcp = "Inline bridge: the network's router hands out addresses through ShakerProxy, to wired devices on the device port and to Wi-Fi devices on ShakerProxy's access point, so they need no setup and have no other way to their gateway than across the bridge."
+		peer.Detail = "Wi-Fi devices on ShakerProxy's access point reach the wired device and the rest of the network across the bridge, so that traffic is recorded, as is traffic between the device port and the router's side. Traffic sent directly between two Wi-Fi devices is forwarded inside the access point, and two devices behind the same switch on the device port still talk directly."
+		peer.Fix = "To see two devices talk to each other, put one on Wi-Fi and the other on the device port."
+	}
 	return []Finding{
 		{ID: FindingIPv6, Title: "IPv6", Status: FindingOK,
-			Detail: "The network's router advertises IPv6 through the bridge, so a device's IPv6 crosses ShakerProxy and is recorded. DNS forcing and device blocks apply to IPv4; IPv6 is recorded but not redirected."},
-		{ID: FindingDHCP, Title: "Address assignment (DHCP)", Status: FindingOK,
-			Detail: "Inline bridge: the network's router hands out addresses through ShakerProxy, so devices need no setup and have no other way to their gateway than across the bridge."},
-		{ID: FindingPeerToPeer, Title: "Device-to-device traffic (AirPlay, casting, local SSH)", Status: FindingOK,
-			Detail: "Traffic between a device on the device port and anything on the router's side crosses the bridge and is recorded. Two devices behind the same switch on the device port still talk directly.",
-			Fix:    "Connect one test device to the device port, or use ShakerProxy's Wi-Fi access point for several."},
+			Detail: "The network's router advertises IPv6 through the bridge, so a device's IPv6 crosses ShakerProxy and is recorded. DNS forcing and device blocks apply to IPv4, and to IPv6 when ShakerProxy takes its own IPv6 address from the router (SLAAC)."},
+		{ID: FindingDHCP, Title: "Address assignment (DHCP)", Status: FindingOK, Detail: dhcp},
+		peer,
 		{ID: FindingLocalDiscovery, Title: "Local discovery (mDNS/Bonjour, SSDP)", Status: FindingOK,
 			Detail: "Every multicast and broadcast frame crossing the bridge is recorded, including the discovery AirPlay, Chromecast and smart-home apps use."},
 	}

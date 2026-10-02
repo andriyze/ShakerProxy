@@ -31,6 +31,16 @@ talk to each other directly:
   console ┘
 ```
 
+ShakerProxy's Wi-Fi access point can join the bridge as a second device
+port, so phones and other Wi-Fi devices get their address from your router
+through ShakerProxy too (see [Wi-Fi on the bridge](#wi-fi-on-the-bridge)):
+
+```text
+  test device ──(device port)──┐
+                               ShakerProxy ──(router port)── your router ── internet
+  phone ~~(ShakerProxy Wi-Fi)~~┘   bridge spbr0
+```
+
 ShakerProxy's own address moves from the router port to the bridge, so plug
 your management connection into the router side (or use a third, management
 port).
@@ -116,6 +126,36 @@ The recording is taken on the device port rather than on `spbr0` because the
 bridge device sees a redirected DNS query after the firewall has already
 rewritten its destination to ShakerProxy's own address.
 
+## Wi-Fi on the bridge
+
+Add ShakerProxy's Wi-Fi access point to the plan (an interface with role
+`WIFI_AP` and a `wifi` section with `"bridge_with_lab": true`; on the Network
+page, turn on the Wi-Fi access point under the inline bridge). `hostapd`
+adds the adapter to `spbr0` when it starts the access point, so Wi-Fi devices
+join your network through ShakerProxy:
+
+- They get their address, gateway and DNS from your router, through the
+  bridge, like the wired device.
+- The same DNS forcing, encrypted-DNS blocks and device rules apply: every
+  client rule is rendered once for the device port and once for the access
+  point (`-m physdev --physdev-in <port>`), back to back, so both see them in
+  the same order. Nothing matches the router port.
+- The automatic recording records the access point beside the device port,
+  in the same files (both carry Ethernet frames, so Zeek, Suricata, live
+  analysis and the HTTP view read them unchanged). Because `hostapd` starts
+  the access point after the bridge exists, the recording starts with the
+  device port and restarts with both ports within a check interval once the
+  access point is up; if the access point goes away, recording continues on
+  the device port alone.
+- Spanning tree treats the access point like a cabled port: Wi-Fi devices
+  get through about eight seconds after it starts (the plan warns
+  `BRIDGE_WIFI_STP`).
+
+Traffic between a wired device and a Wi-Fi device crosses both ports and is
+recorded twice (once per port). Traffic sent directly between two Wi-Fi
+devices is forwarded inside the access point and is not recorded, as in a
+Wi-Fi lab; put one of them on the device port to see it.
+
 ## DNS, device rules and HTTPS
 
 - **Plain DNS**: queries the device sends to any resolver, your router
@@ -152,8 +192,9 @@ rewritten its destination to ShakerProxy's own address.
 
 ## Limits
 
-- ShakerProxy's Wi-Fi access point cannot join an inline bridge yet; use a
-  two-port or Wi-Fi lab for it.
+- ShakerProxy's Wi-Fi access point joining the bridge is proven with
+  simulated radios (`tests/netlab/bridge-ap-hwsim.sh`, CI job `netlab-wifi`)
+  but not yet on physical adapters.
 - If another Netplan file gives the router port a static address, that
   address stays on the port; the health check then fails and the plan rolls
   back. Move it out of that file first.
@@ -161,9 +202,9 @@ rewritten its destination to ShakerProxy's own address.
   rule that answers DNS sent to ShakerProxy's own address follow the address
   ShakerProxy had when the plan was applied; DNS sent to any other resolver
   is answered whatever the router hands out.
-- Two devices behind the same switch on the device port talk directly; use one
-  device per port, or ShakerProxy's Wi-Fi access point, to see their traffic
-  to each other.
+- Two devices behind the same switch on the device port talk directly, as do
+  two devices on ShakerProxy's Wi-Fi; put one on the device port and the other
+  on Wi-Fi to see their traffic to each other.
 
 ## Proof
 

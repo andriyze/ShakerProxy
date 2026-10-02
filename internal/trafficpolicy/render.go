@@ -34,6 +34,10 @@ type RenderContext struct {
 	// that entered through that port, and plain DNS to any resolver, the
 	// network's router included, is answered by ShakerProxy.
 	LabBridgePort string
+	// LabBridgeAPPort is ShakerProxy's Wi-Fi access point when it joins the
+	// inline bridge: a second device-side port whose frames get the same
+	// rules as the wired device port's.
+	LabBridgeAPPort string
 	// LabBridgeIPv6 reports that ShakerProxy has its own IPv6 address on the
 	// inline bridge (from the router's advertisements). Only then is DNS that
 	// devices send over IPv6 redirected: the kernel redirects a query to an
@@ -62,6 +66,9 @@ type Segment struct {
 	GatewayIPv6 string
 	// BridgePort is the device-side port when Interface is an inline bridge.
 	BridgePort string
+	// BridgeAPPort is the inline bridge's Wi-Fi access point, a second
+	// device-side port.
+	BridgeAPPort string
 	// BridgeIPv6 reports ShakerProxy's own IPv6 address on that bridge.
 	BridgeIPv6 bool
 	// Devices maps device IDs to their addresses on this segment. VPN
@@ -96,16 +103,17 @@ type familyRenderer struct {
 	// noOnboarding leaves out the CA onboarding page; it is served on the
 	// lab gateway only.
 	noOnboarding bool
-	// physIn is the device-side port of an inline bridge: the lab is then
-	// "frames that entered through this port", whatever their address.
-	physIn string
+	// physIns are the device-side ports of an inline bridge (the wired
+	// device port, then the Wi-Fi access point when it joins): the lab is
+	// then "frames that entered through these ports", whatever their address.
+	physIns []string
 }
 
 // outbound restricts a client rule to traffic leaving the lab. When the lab
 // is a bridge (wired + Wi-Fi) with br_netfilter, lab-to-lab frames traverse
 // the same hooks and must not be redirected, blocked or proxied.
 func (f familyRenderer) outbound() string {
-	if f.source == "" || f.physIn != "" {
+	if f.source == "" || len(f.physIns) != 0 {
 		// On an inline bridge every destination is outside the device port,
 		// the network's router included.
 		return ""
@@ -117,7 +125,7 @@ func (f familyRenderer) outbound() string {
 // lab. It goes by destination: in a single-arm lab the internet is reached
 // through the lab interface itself, so "! -o <lab>" never matches there.
 func (f familyRenderer) leavingLab() string {
-	if f.physIn != "" && f.source == "" {
+	if len(f.physIns) != 0 && f.source == "" {
 		// A bridged IPv6 lab has no prefix of its own: everything but
 		// link-local leaves the device.
 		return "! -d fe80::/10"
@@ -128,14 +136,23 @@ func (f familyRenderer) leavingLab() string {
 	return "! -d " + f.source
 }
 
-func (f familyRenderer) scope() string {
-	if f.physIn != "" {
-		return "-i " + f.iface + " -m physdev --physdev-in " + f.physIn
+// scopes returns the match fragments for "a lab client's packet": one per
+// device-side port of an inline bridge (iptables cannot match either of
+// two physdev ports in one rule), otherwise one. Every caller emits a rule's
+// copies back to back, so each port sees the rules in the same order as a
+// lab with one port would.
+func (f familyRenderer) scopes() []string {
+	if len(f.physIns) != 0 {
+		scopes := make([]string, 0, len(f.physIns))
+		for _, port := range f.physIns {
+			scopes = append(scopes, "-i "+f.iface+" -m physdev --physdev-in "+port)
+		}
+		return scopes
 	}
 	if f.source == "" {
-		return "-i " + f.iface
+		return []string{"-i " + f.iface}
 	}
-	return "-i " + f.iface + " -s " + f.source
+	return []string{"-i " + f.iface + " -s " + f.source}
 }
 
 // selectors returns one match fragment per identity: MACs when known (they
@@ -187,7 +204,7 @@ func RenderFirewall(policy Policy, context RenderContext) (FirewallRules, error)
 	if context.LabInterface != "" || context.VPN == nil {
 		segments = append(segments, Segment{
 			Interface: context.LabInterface, IPv4CIDR: context.LabCIDR, GatewayIPv4: context.LabGatewayIPv4,
-			IPv6Prefix: context.LabIPv6Prefix, GatewayIPv6: context.LabGatewayIPv6, BridgePort: context.LabBridgePort, BridgeIPv6: context.LabBridgeIPv6, Devices: context.Devices,
+			IPv6Prefix: context.LabIPv6Prefix, GatewayIPv6: context.LabGatewayIPv6, BridgePort: context.LabBridgePort, BridgeAPPort: context.LabBridgeAPPort, BridgeIPv6: context.LabBridgeIPv6, Devices: context.Devices,
 		})
 	}
 	if context.VPN != nil {
@@ -255,11 +272,21 @@ func segmentRenderers(segment Segment, ipv6Listeners bool) (familyRenderer, fami
 		v4.gateway = gateway.String()
 	}
 	v6 := familyRenderer{ipv6: true, iface: segment.Interface, unreachable: "icmp6-port-unreachable", private: privateIPv6Destinations, redirects: ipv6Listeners, devices: segment.Devices}
+	if segment.BridgeAPPort != "" && segment.BridgePort == "" {
+		return familyRenderer{}, familyRenderer{}, fmt.Errorf("a bridge access point needs the bridge's device port")
+	}
 	if segment.BridgePort != "" {
 		if !enforcementInterfacePattern.MatchString(segment.BridgePort) || segment.BridgePort == segment.Interface {
 			return familyRenderer{}, familyRenderer{}, fmt.Errorf("traffic policy requires a safe bridge port name")
 		}
-		v4.physIn, v6.physIn = segment.BridgePort, segment.BridgePort
+		ports := []string{segment.BridgePort}
+		if segment.BridgeAPPort != "" {
+			if !enforcementInterfacePattern.MatchString(segment.BridgeAPPort) || segment.BridgeAPPort == segment.Interface || segment.BridgeAPPort == segment.BridgePort {
+				return familyRenderer{}, familyRenderer{}, fmt.Errorf("traffic policy requires a safe bridge access point name")
+			}
+			ports = append(ports, segment.BridgeAPPort)
+		}
+		v4.physIns, v6.physIns = ports, ports
 		// DNS over IPv6 is answered only when ShakerProxy has its own IPv6
 		// address on the bridge; otherwise it is recorded, not redirected.
 		v6.redirects = ipv6Listeners && segment.BridgeIPv6
@@ -355,20 +382,28 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 	// its REJECT rule, so this list is never sorted.
 	dns := policy.EncryptedDNS
 	if dns.BlockDoT {
-		forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s%s -p tcp --dport 853", f.scope(), f.outbound()), "SHAKERPROXY_EDNS_DOT ", "REJECT --reject-with tcp-reset")
+		for _, scope := range f.scopes() {
+			forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s%s -p tcp --dport 853", scope, f.outbound()), "SHAKERPROXY_EDNS_DOT ", "REJECT --reject-with tcp-reset")
+		}
 	}
 	if dns.BlockDoQ {
-		forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s%s -p udp --dport 853", f.scope(), f.outbound()), "SHAKERPROXY_EDNS_DOQ ", "REJECT --reject-with "+f.unreachable)
+		for _, scope := range f.scopes() {
+			forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s%s -p udp --dport 853", scope, f.outbound()), "SHAKERPROXY_EDNS_DOQ ", "REJECT --reject-with "+f.unreachable)
+		}
 	}
 	known := BlockSafeAddresses(policy, f.ipv6)
 	if dns.BlockKnownDoH {
 		for _, address := range known {
-			forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s -d %s -p tcp --dport 443", f.scope(), address), "SHAKERPROXY_EDNS_DOH_TCP ", "REJECT --reject-with tcp-reset")
+			for _, scope := range f.scopes() {
+				forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s -d %s -p tcp --dport 443", scope, address), "SHAKERPROXY_EDNS_DOH_TCP ", "REJECT --reject-with tcp-reset")
+			}
 		}
 	}
 	if dns.BlockKnownDoH3 {
 		for _, address := range known {
-			forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s -d %s -p udp --dport 443", f.scope(), address), "SHAKERPROXY_EDNS_DOH_UDP ", "REJECT --reject-with "+f.unreachable)
+			for _, scope := range f.scopes() {
+				forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s -d %s -p udp --dport 443", scope, address), "SHAKERPROXY_EDNS_DOH_UDP ", "REJECT --reject-with "+f.unreachable)
+			}
 		}
 	}
 
@@ -389,7 +424,7 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 	// fall back to TCP. This block is last in the chain because the private
 	// destination exemptions RETURN from it.
 	if tls.Enabled && !tls.AllowQUIC {
-		quicScope := []string{f.scope()}
+		quicScope := f.scopes()
 		if selective {
 			quicScope = []string{}
 			for _, deviceID := range tls.SelectedDeviceIDs {
@@ -419,8 +454,10 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 		if f.ipv6 {
 			target = "[" + f.gateway + "]"
 		}
-		nat = append(nat, fmt.Sprintf("-A SHAKERPROXY-PREROUTING %s -d %s -p tcp --dport 80 -j DNAT --to-destination %s:%d", f.scope(), f.gateway, target, ports.onboarding))
-		inputLab = append(inputLab, fmt.Sprintf("-A SHAKERPROXY-INPUT %s -d %s -p tcp --dport %d -m conntrack --ctstate DNAT -j ACCEPT", f.scope(), f.gateway, ports.onboarding))
+		for _, scope := range f.scopes() {
+			nat = append(nat, fmt.Sprintf("-A SHAKERPROXY-PREROUTING %s -d %s -p tcp --dport 80 -j DNAT --to-destination %s:%d", scope, f.gateway, target, ports.onboarding))
+			inputLab = append(inputLab, fmt.Sprintf("-A SHAKERPROXY-INPUT %s -d %s -p tcp --dport %d -m conntrack --ctstate DNAT -j ACCEPT", scope, f.gateway, ports.onboarding))
+		}
 	}
 
 	interceptPorts := []int{443}
@@ -433,13 +470,17 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 		// instead of being swallowed by the transparent TLS redirect.
 		if dns.BlockKnownDoH {
 			for _, address := range known {
-				returns = append(returns, fmt.Sprintf("-A SHAKERPROXY-PREROUTING %s -d %s -p tcp --dport 443 -j RETURN", f.scope(), address))
+				for _, scope := range f.scopes() {
+					returns = append(returns, fmt.Sprintf("-A SHAKERPROXY-PREROUTING %s -d %s -p tcp --dport 443 -j RETURN", scope, address))
+				}
 			}
 		}
 		for _, cidr := range tls.ExcludeCIDRs {
 			if parsed, err := netip.ParsePrefix(cidr); err == nil && parsed.Addr().Is6() == f.ipv6 {
 				for _, port := range interceptPorts {
-					returns = append(returns, fmt.Sprintf("-A SHAKERPROXY-PREROUTING %s -d %s -p tcp --dport %d -j RETURN", f.scope(), cidr, port))
+					for _, scope := range f.scopes() {
+						returns = append(returns, fmt.Sprintf("-A SHAKERPROXY-PREROUTING %s -d %s -p tcp --dport %d -j RETURN", scope, cidr, port))
+					}
 				}
 			}
 		}
@@ -472,13 +513,15 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 		type dnsRedirect struct{ scope, destination string }
 		redirects := []dnsRedirect{}
 		if f.gateway != "" {
-			redirects = append(redirects, dnsRedirect{f.scope(), " -d " + f.gateway})
+			for _, scope := range f.scopes() {
+				redirects = append(redirects, dnsRedirect{scope, " -d " + f.gateway})
+			}
 		}
 		// Enforcement also answers queries sent to resolvers outside the
 		// lab; DNS between two lab devices is left alone.
 		dnsScopes := []string{}
 		if dns.RedirectPlainDNS {
-			dnsScopes = append(dnsScopes, f.scope())
+			dnsScopes = append(dnsScopes, f.scopes()...)
 		} else {
 			for _, deviceID := range dnsDevices {
 				dnsScopes = append(dnsScopes, f.selectors(deviceID)...)
@@ -495,16 +538,18 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 		}
 		if len(redirects) != 0 {
 			needs.dns = true
-			inputLab = append(inputLab,
-				fmt.Sprintf("-A SHAKERPROXY-INPUT %s -p udp --dport %d -m conntrack --ctstate DNAT -j ACCEPT", f.scope(), ports.dns),
-				fmt.Sprintf("-A SHAKERPROXY-INPUT %s -p tcp --dport %d -m conntrack --ctstate DNAT -j ACCEPT", f.scope(), ports.dns),
-			)
+			for _, scope := range f.scopes() {
+				inputLab = append(inputLab,
+					fmt.Sprintf("-A SHAKERPROXY-INPUT %s -p udp --dport %d -m conntrack --ctstate DNAT -j ACCEPT", scope, ports.dns),
+					fmt.Sprintf("-A SHAKERPROXY-INPUT %s -p tcp --dport %d -m conntrack --ctstate DNAT -j ACCEPT", scope, ports.dns),
+				)
+			}
 		}
 	}
 
 	if tls.Enabled && f.redirects {
 		for _, port := range interceptPorts {
-			scopes := []string{f.scope()}
+			scopes := f.scopes()
 			if narrow || (selective && port != 443) {
 				scopes = []string{}
 				for _, deviceID := range tls.SelectedDeviceIDs {
@@ -515,7 +560,9 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 				nat = append(nat, fmt.Sprintf("-A SHAKERPROXY-PREROUTING %s%s -p tcp --dport %d -j REDIRECT --to-ports %d", scope, f.outbound(), port, ports.tls))
 			}
 		}
-		inputLab = append(inputLab, fmt.Sprintf("-A SHAKERPROXY-INPUT %s -p tcp --dport %d -m conntrack --ctstate DNAT -j ACCEPT", f.scope(), ports.tls))
+		for _, scope := range f.scopes() {
+			inputLab = append(inputLab, fmt.Sprintf("-A SHAKERPROXY-INPUT %s -p tcp --dport %d -m conntrack --ctstate DNAT -j ACCEPT", scope, ports.tls))
+		}
 	}
 
 	return forward, nat, inputLab, needs

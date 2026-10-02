@@ -74,9 +74,10 @@ jobs:
           done
 
   netlab-wifi:
-    # Wi-Fi visibility with four simulated radios. The runner's Azure kernel
-    # has no mac80211_hwsim, so the proof runs in a small VM booting
-    # Ubuntu's generic kernel (virtme-ng, KVM) over the runner's own files.
+    # Wi-Fi visibility with four simulated radios, and ShakerProxy's access
+    # point in an inline bridge with two. The runner's Azure kernel has no
+    # mac80211_hwsim, so the proofs run in a small VM booting Ubuntu's
+    # generic kernel (virtme-ng, KVM) over the runner's own files.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -88,12 +89,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/wifi-bin"
           CGO_ENABLED=0 go test -c -trimpath -buildvcs=false -o "$RUNNER_TEMP/wifi-bin/daemon.test" ./host/gatewayd/internal/daemon
           CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/wifi-bin/shakerproxy-wifi-worker" ./host/wifi-worker/cmd/shakerproxy-wifi-worker
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/wifi-bin/shakerproxy-dnsd" ./host/dnsd/cmd/shakerproxy-dnsd
       - name: Install the lab tools and a generic kernel
         run: |
           echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
           sudo DEBIAN_FRONTEND=noninteractive apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            iproute2 iw hostapd wpasupplicant wireshark-common python3 virtme-ng qemu-system-x86 linux-image-generic
+            iproute2 iw hostapd wpasupplicant wireshark-common python3 virtme-ng qemu-system-x86 linux-image-generic \
+            iptables tcpdump dnsmasq-base busybox-static wireless-regdb
           kernel="$(ls /boot/vmlinuz-*-generic | sort -V | tail -n 1)"
           version="${kernel#/boot/vmlinuz-}"
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "linux-modules-extra-$version"
@@ -108,6 +111,11 @@ jobs:
           vng --run "$KERNEL" --user root --memory 2G --rw -- \
             "cd '$GITHUB_WORKSPACE' && SHAKERPROXY_NETLAB_BIN='$RUNNER_TEMP/wifi-bin' SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/wifi-hwsim.sh" 2>&1 | tee "$RUNNER_TEMP/wifi.log"
           grep -q '^PASS: Wi-Fi visibility records the lab device and nothing nearby' "$RUNNER_TEMP/wifi.log"
+      - name: Wi-Fi access point in the inline bridge with simulated radios
+        run: |
+          vng --run "$KERNEL" --user root --memory 2G --rw -- \
+            "cd '$GITHUB_WORKSPACE' && SHAKERPROXY_NETLAB_BIN='$RUNNER_TEMP/wifi-bin' SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/bridge-ap-hwsim.sh" 2>&1 | tee "$RUNNER_TEMP/bridge-ap.log"
+          grep -q "^PASS: inline bridge Wi-Fi: a Wi-Fi device joined ShakerProxy's access point in the bridge" "$RUNNER_TEMP/bridge-ap.log"
 
   web:
     runs-on: ubuntu-24.04

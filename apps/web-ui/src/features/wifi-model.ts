@@ -177,7 +177,7 @@ export function normalizeWifiPlan(value: unknown, countryCode = "US"): WifiPlan 
 }
 
 // Topologies where the plan validator accepts a Wi-Fi access point.
-export const WIFI_TOPOLOGIES: readonly string[] = ["TWO_NIC", "THREE_INTERFACE", "EXISTING_ROUTED_VLAN", "ADVANCED_CUSTOM"]
+export const WIFI_TOPOLOGIES: readonly string[] = ["TWO_NIC", "THREE_INTERFACE", "EXISTING_ROUTED_VLAN", "ADVANCED_CUSTOM", "TRANSPARENT_BRIDGE"]
 
 const UNSUPPORTED_TOPOLOGY_REASONS: Record<string, string> = {
   SINGLE_ARM: "This plan uses one port for both the internet and the lab (single-arm), so there is no routed lab network to add Wi-Fi to.",
@@ -193,7 +193,7 @@ export function wifiTopologySupport(topology: string | undefined, roles: Record<
   const effective = topology || (roleValues.includes("WAN_LAB") ? "SINGLE_ARM" : roleValues.includes("MIRROR") ? "PASSIVE_SENSOR" : "")
   if (!effective || WIFI_TOPOLOGIES.includes(effective)) return { supported: true, reason: "" }
   const reason = UNSUPPORTED_TOPOLOGY_REASONS[effective] ?? "This network topology does not support a Wi-Fi access point."
-  return { supported: false, reason: `${reason} To add Wi-Fi, choose a Two-NIC, Three-interface, Existing routed VLAN or Advanced plan.` }
+  return { supported: false, reason: `${reason} To add Wi-Fi, choose a Two-NIC, Three-interface, Existing routed VLAN, Inline bridge or Advanced plan.` }
 }
 
 export type APSupport = "supported" | "unsupported" | "unknown" | "not-wireless"
