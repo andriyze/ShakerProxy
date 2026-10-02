@@ -2874,6 +2874,10 @@ components:
         alert_signature: {type: string, maxLength: 256}
         alert_severity: {type: integer, minimum: 1, maximum: 4, description: Suricata severity; 1 is highest.}
         alert_category: {type: string, maxLength: 128}
+        bytes_sent: {type: integer, minimum: 0, maximum: 1125899906842624, description: "Bytes the connection's source sent (Zeek conn orig_bytes, Suricata flow bytes_toserver); absent when the analyzer did not record it."}
+        bytes_received: {type: integer, minimum: 0, maximum: 1125899906842624, description: "Bytes the connection's destination sent back (Zeek conn resp_bytes, Suricata flow bytes_toclient)."}
+        destination_organization: {type: string, maxLength: 128, description: "Who operates the destination the event names (server name, web host, looked-up name), from ShakerProxy's curated domain table, e.g. Google or Amazon; absent when unknown."}
+        destination_category: {type: string, enum: [analytics, advertising, crash-reporting, telemetry, cloud-platform, cdn, push, os-services, streaming, iot-cloud], description: What the destination is used for; present only with destination_organization.}
         summary: {type: string, maxLength: 640, description: "One plain-language line of at most 160 characters, e.g. \"DNS lookup api.example.com (A) → 3 answers\" or \"HTTPS api.example.com — decrypted\". Never contains headers, bodies, credentials, or query strings."}
     ProtocolVisibility:
       type: string

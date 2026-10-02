@@ -149,6 +149,16 @@ The event search understands the same classification:
 | `192.168.10.20` | A whole IP address (or a CIDR such as `192.168.10.0/24`) finds traffic to or from it; a fragment such as `192.168.10.` is searched as a host-name part like any other word |
 | `device.name:"Bench camera" NOT proto:tls` | Everything the camera sent that is not TLS |
 | `time:2026-09-29 protocol.exotic:true` | Exotic traffic on one UTC day |
+| `owner:google` (also `dst.owner:google`) | Traffic to destinations the curated domain table attributes to an organization whose name contains the word |
+| `category:advertising` (also `dst.category:advertising`) | Traffic to advertising destinations; also `analytics`, `telemetry`, `crash-reporting`, `cloud-platform`, `cdn`, `push`, `os-services`, `streaming`, `iot-cloud` |
+
+Every event row also carries `destination_organization` and
+`destination_category` (who operates the destination the event names, from
+the same table, absent when unknown) and, for connections the analyzers
+counted, `bytes_sent` and `bytes_received` (Zeek `orig_bytes`/`resp_bytes`,
+Suricata `bytes_toserver`/`bytes_toclient`). The MCP traffic tools add the
+owner to each line's summary, e.g. `TLS to googleads.g.doubleclick.net — Google
+(advertising)`, with `from`, `to` and both byte counts.
 
 ## Plain-language events
 

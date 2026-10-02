@@ -93,6 +93,16 @@ type RecentEvent struct {
 	AlertSignature         string `json:"alert_signature,omitempty"`
 	AlertSeverity          int    `json:"alert_severity,omitempty"`
 	AlertCategory          string `json:"alert_category,omitempty"`
+	// BytesSent and BytesReceived are what the connection's source and its
+	// destination sent, where the analyzer records them (Zeek conn,
+	// Suricata flow).
+	BytesSent     *int64 `json:"bytes_sent,omitempty"`
+	BytesReceived *int64 `json:"bytes_received,omitempty"`
+	// DestinationOrganization and DestinationCategory say who operates the
+	// destination the event names (the curated domain table); both are empty
+	// when it is not known.
+	DestinationOrganization string `json:"destination_organization,omitempty"`
+	DestinationCategory     string `json:"destination_category,omitempty"`
 	// Summary is one plain-language line built by EventSummary.
 	Summary string `json:"summary,omitempty"`
 }

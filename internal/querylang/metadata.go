@@ -42,6 +42,8 @@ var metadataFields = []FieldMetadata{
 	{Name: "service", ValueType: "text", Operators: equalityOperators, Suggestions: []string{"service:dns", "service:http*"}, Wildcard: true},
 	{Name: "app.protocol", Aliases: []string{"proto", "app"}, ValueType: "protocol", Operators: equalityOperators, EnumValues: protocolIDs(), Suggestions: []string{"app.protocol:mqtt", "app.protocol:dns", "app.protocol:quic", "app.protocol:unknown-*"}, Wildcard: true},
 	{Name: "protocol.category", ValueType: "enum", Operators: equalityOperators, EnumValues: protocolCategories(), Suggestions: []string{"protocol.category:iot-messaging", "protocol.category:vpn-tunnel", "protocol.category:encrypted-dns"}},
+	{Name: DestinationOwnerField, Aliases: []string{"owner"}, ValueType: "text", Operators: equalityOperators, Suggestions: []string{"owner:google", "owner:amazon", "owner:samsung"}},
+	{Name: DestinationCategoryField, Aliases: []string{"category"}, ValueType: "enum", Operators: equalityOperators, EnumValues: destinationCategories(), Suggestions: []string{"category:advertising", "category:analytics", "category:telemetry"}},
 	{Name: "protocol.visibility", ValueType: "enum", Operators: equalityOperators, EnumValues: []string{"DECRYPTED", "CLEARTEXT", "ENCRYPTED_METADATA", "OPAQUE"}, Suggestions: []string{"protocol.visibility:OPAQUE", "protocol.visibility:CLEARTEXT", "protocol.visibility:DECRYPTED"}},
 	{Name: "protocol.exotic", ValueType: "boolean", Operators: equalityOperators, EnumValues: []string{"true", "false"}, Suggestions: []string{"protocol.exotic:true"}},
 	{Name: TextField, ValueType: "hostname", Operators: equalityOperators, Suggestions: []string{"netflix", "192.168.10.20", "text:*.example.com"}, Wildcard: true},
