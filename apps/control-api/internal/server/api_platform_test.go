@@ -115,18 +115,32 @@ func TestAPIIndexAndOpenAPIAreServed(t *testing.T) {
 var openAPIPendingRoutes = map[string]bool{}
 
 func TestOpenAPIDescribesEveryCoreRoute(t *testing.T) {
-	source, err := os.ReadFile("server.go")
+	// Routes are registered across the package (agent, self-test and policy
+	// handlers have their own muxes), so every source file is read.
+	sources, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	routePattern := regexp.MustCompile(`mux\.Handle(?:Func)?\("(GET|POST|PUT|PATCH|DELETE) /api/v1([^"]*)"`)
 	routes := map[string]bool{}
-	for _, match := range routePattern.FindAllStringSubmatch(string(source), -1) {
-		path := strings.TrimSuffix(match[2], "{$}")
-		if path == "" || path == "/" || path == "/openapi.yaml" {
+	for _, name := range sources {
+		if strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		routes[strings.ToLower(match[1])+" "+path] = true
+		source, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range routePattern.FindAllStringSubmatch(string(source), -1) {
+			path := strings.TrimSuffix(match[2], "{$}")
+			if path == "" || path == "/" || path == "/openapi.yaml" {
+				continue
+			}
+			routes[strings.ToLower(match[1])+" "+path] = true
+		}
+	}
+	if len(routes) < 140 {
+		t.Fatalf("found only %d routes; the route scan is broken", len(routes))
 	}
 	document, err := os.Open(filepath.Join("..", "..", "..", "..", "schemas", "api", "openapi.yaml"))
 	if err != nil {

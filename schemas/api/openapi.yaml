@@ -321,7 +321,7 @@ paths:
   /dns-visibility:
     get:
       operationId: getDNSVisibility
-      description: The two DNS visibility switches of the lab, both on by default. force_plain_dns answers every lab client's plain DNS (port 53, to any resolver) in ShakerProxy; block_encrypted_dns refuses DNS over TLS/QUIC (port 853) and the listed DNS-over-HTTPS resolvers by address, and answers their names and the encrypted-DNS canaries with NXDOMAIN, so devices fall back to plain DNS. Blocked attempts appear in Traffic as shakerproxy.blocked events.
+      description: The two DNS visibility switches of the lab; force_plain_dns is on and block_encrypted_dns off by default (encrypted DNS is identified as DoH, DoT or DoQ but not blocked). force_plain_dns answers every lab client's plain DNS (port 53, to any resolver) in ShakerProxy; block_encrypted_dns refuses DNS over TLS/QUIC (port 853) and the listed DNS-over-HTTPS resolvers by address, and answers their names and the encrypted-DNS canaries with NXDOMAIN, so devices fall back to plain DNS. Blocked attempts appear in Traffic as shakerproxy.blocked events.
       security: [{bearerAuth: []}]
       responses:
         "200": {description: Current switches, blocked resolvers and names, content: {application/json: {schema: {$ref: "#/components/schemas/DNSVisibility"}}}}
@@ -1700,14 +1700,18 @@ paths:
     get:
       operationId: getHTTPExchange
       description: >-
-        Administrator session only (API tokens are refused: headers and bodies are plaintext evidence).
+        An administrator session, or an API token with the sensitive traffic:content scope (traffic:read
+        tokens are refused: headers and bodies are plaintext evidence). Token callers get the exchanges with
+        credentials removed on the server (Authorization, Cookie, Set-Cookie and other credential header
+        values, credential-looking query parameters, form and JSON fields replaced by "[redacted]") and the
+        response header X-ShakerProxy-HTTP-Exchange: credentials-redacted; sessions see them as recorded.
         Returns the HTTP/1.x request/response exchanges of the event's connection, like "Follow HTTP stream":
         for cleartext HTTP read back from the packet recording's closed files around the event time (bounded
         to 12 files and 320 KiB per direction, bodies previewed up to 64 KiB after chunked and gzip/deflate
         decoding, binary bodies as a hex dump of the first 256 bytes); for decrypted HTTPS from the request
         and response events mitmproxy recorded, subject to content retention. State UNAVAILABLE carries a
         plain reason (encrypted, headers-only recording, files already replaced); RETRY means the part of the
-        recording is still being written. Each read is logged with the administrator name.
+        recording is still being written. Each read is logged with the administrator or token name.
       security: [{bearerAuth: []}]
       parameters:
         - {in: path, name: recordID, required: true, schema: {type: string, pattern: "^[a-f0-9]{64}$"}}
@@ -1877,6 +1881,135 @@ paths:
       responses:
         "200": {description: Newest-first immutable revision history, content: {application/json: {schema: {$ref: "#/components/schemas/SavedViewHistory"}}}}
         "404": {$ref: "#/components/responses/Error"}
+  /agent/devices:
+    get:
+      operationId: listAgentDevices
+      description: >-
+        Metadata-only device inventory for AI agents and scripts (an administrator session or devices:read).
+        Omits MAC and client identities, owners and notes; keeps device IDs, display and friendly names,
+        bounded address and hostname evidence, attribution, pinned_address (the IP address an administrator
+        named the device by) and former_ids (device records merged into this one, e.g. earlier private MACs).
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: query, name: q, schema: {type: string, maxLength: 128}}
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+        - {in: query, name: online_only, schema: {type: boolean}}
+      responses:
+        "200": {description: Bounded device page, content: {application/json: {schema: {type: object}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /agent/devices/{deviceID}:
+    get:
+      operationId: getAgentDevice
+      description: One device in the metadata-only agent projection (an administrator session or devices:read).
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: deviceID, required: true, schema: {type: string, pattern: "^device-[a-f0-9]{32}$"}}
+      responses:
+        "200": {description: The device, content: {application/json: {schema: {type: object}}}}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /agent/http-activity:
+    get:
+      operationId: listAgentHTTPActivity
+      description: >-
+        HTTP requests ShakerProxy saw (method, scheme, host, path, status, decrypted or not) for agents and
+        scripts (an administrator session or traffic:read); never headers, bodies or query strings. Windows
+        up to 24 hours.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: query, name: window, schema: {type: string, enum: [5m, 15m, 1h, 6h, 24h], default: 24h}}
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+        - {in: query, name: device_id, schema: {type: string, pattern: "^device-[a-f0-9]{32}$"}}
+        - {in: query, name: host, schema: {type: string, maxLength: 253}}
+        - {in: query, name: method, schema: {type: string, maxLength: 16}}
+        - {in: query, name: cursor, schema: {type: string, maxLength: 4096}}
+      responses:
+        "200": {description: Bounded HTTP activity page, content: {application/json: {schema: {type: object}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /agent/system-overview:
+    get:
+      operationId: getAgentSystemOverview
+      description: Whether ShakerProxy is ready to collect evidence (gateway mode, analyzers, ingestion, limitations) in one bounded document for agents (an administrator session or system:read).
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: System overview, content: {application/json: {schema: {type: object}}}}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /agent-connections/investigator:
+    post:
+      operationId: createAgentInvestigator
+      description: >-
+        Creates a display-once API token for an AI agent with the fixed investigator scopes (system:read,
+        devices:read, traffic:read; 24 hours). Administrator session and password only. HTTP content
+        (traffic:content) is never included; create a separate token for it.
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [password], properties: {name: {type: string, maxLength: 64}, password: {type: string}}}}}}
+      responses:
+        "201": {description: The token, shown once, content: {application/json: {schema: {type: object}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /http-content-policy:
+    get:
+      operationId: getHTTPContentPolicy
+      description: How much decrypted HTTP content (headers and body previews) ShakerProxy keeps for future decrypted requests. Administrator session only.
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Current policy and its bounds, content: {application/json: {schema: {type: object}}}}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+    put:
+      operationId: setHTTPContentPolicy
+      description: Changes the decrypted HTTP content retention for future requests without disabling HTTPS decryption. Administrator session and password only.
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        "200": {description: The applied policy, content: {application/json: {schema: {type: object}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /self-test/status:
+    get:
+      operationId: getSelfTestStatus
+      description: State of the virtual test lab (disposable network namespaces that act as test clients). Administrator session only.
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Test lab state, content: {application/json: {schema: {type: object}}}}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /self-test/run:
+    post:
+      operationId: runSelfTest
+      description: Creates the virtual test lab and runs its routing and protocol checks. Administrator session and password only.
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        "200": {description: The run, content: {application/json: {schema: {type: object}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /self-test/cleanup:
+    post:
+      operationId: cleanupSelfTest
+      description: Removes the virtual test lab's namespaces and rules. Administrator session and password only.
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        "200": {description: Cleanup result, content: {application/json: {schema: {type: object}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, description: Browser sessions authenticate every route. Expiring scoped API tokens authenticate only explicitly scoped read/automation routes and cannot manage credentials, forwarders, networking, deletion, exports, rules, or trust material.}
