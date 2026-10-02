@@ -13,7 +13,7 @@ import (
 // encoded and parsed exactly as the gateway and dnsd do.
 func defaultRuntime(t *testing.T) *Runtime {
 	t.Helper()
-	projected, err := trafficpolicy.ProjectStandaloneProxyRuntimeWithDevices(trafficpolicy.DefaultPolicy(), trafficpolicy.EmptyStandaloneDeviceRuntime())
+	projected, err := trafficpolicy.ProjectStandaloneProxyRuntimeWithDevices(trafficpolicy.BlockingPolicy(), trafficpolicy.EmptyStandaloneDeviceRuntime())
 	if err != nil {
 		t.Fatal(err)
 	}

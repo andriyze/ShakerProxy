@@ -18,7 +18,7 @@ func TestDNSVisibilitySwitchesReadAndChangeThePolicy(t *testing.T) {
 	current := trafficpolicy.Document{Schema: 1, Policy: trafficpolicy.DefaultPolicy(), Digest: "default", AppliedAt: time.Now().UTC()}
 	changed := current.Policy
 	changed.Revision = 2
-	changed.EncryptedDNS = changed.EncryptedDNS.WithSwitches(true, false)
+	changed.EncryptedDNS = changed.EncryptedDNS.WithSwitches(true, true)
 	applied := trafficpolicy.Document{Schema: 1, Policy: changed, Digest: "applied", AppliedAt: time.Now().UTC(), Previous: &current.Policy}
 	requests := startGatewaySequenceStub(t, socketPath, current, current, applied)
 	server, session := configuredAPIServer(t, socketPath)
@@ -29,7 +29,9 @@ func TestDNSVisibilitySwitchesReadAndChangeThePolicy(t *testing.T) {
 	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &view) != nil {
 		t.Fatalf("GET returned %d: %s", recorder.Code, recorder.Body.String())
 	}
-	if !view.ForcePlainDNS || !view.BlockEncryptedDNS || view.Mode != "ENFORCE_LOCAL" || len(view.BlockedResolvers) < 10 || view.BlockedAddresses < 40 {
+	// Encrypted DNS is identified by default; the catalog still lists what
+	// blocking would cover.
+	if !view.ForcePlainDNS || view.BlockEncryptedDNS || view.Mode != "ENFORCE_LOCAL" || len(view.BlockedResolvers) < 10 || view.BlockedAddresses < 40 {
 		t.Fatalf("default view = %+v", view)
 	}
 	names := " " + strings.Join(view.BlockedNames, " ") + " "
@@ -38,14 +40,17 @@ func TestDNSVisibilitySwitchesReadAndChangeThePolicy(t *testing.T) {
 			t.Fatalf("blocked names lack %q", want)
 		}
 	}
-	if !strings.Contains(strings.Join(view.Notes, " "), "Android Private DNS") {
-		t.Fatalf("notes lack the Android Private DNS warning: %v", view.Notes)
+	if strings.Contains(strings.Join(view.Notes, " "), "Android Private DNS") {
+		t.Fatalf("the Private DNS warning shows while nothing is blocked: %v", view.Notes)
 	}
 
 	recorder = httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, authenticatedJSONRequest(http.MethodPut, "/api/v1/dns-visibility", `{"block_encrypted_dns":false}`, session, ""))
-	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &view) != nil || view.BlockEncryptedDNS || !view.ForcePlainDNS || view.PolicyRevision != 2 {
+	server.Handler().ServeHTTP(recorder, authenticatedJSONRequest(http.MethodPut, "/api/v1/dns-visibility", `{"block_encrypted_dns":true}`, session, ""))
+	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &view) != nil || !view.BlockEncryptedDNS || !view.ForcePlainDNS || view.PolicyRevision != 2 {
 		t.Fatalf("PUT returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(strings.Join(view.Notes, " "), "Android Private DNS") {
+		t.Fatalf("notes lack the Android Private DNS warning once blocking is on: %v", view.Notes)
 	}
 	for _, want := range []string{"GetTrafficPolicy", "GetTrafficPolicy", "ApplyTrafficPolicy"} {
 		rpc := <-requests
@@ -54,7 +59,7 @@ func TestDNSVisibilitySwitchesReadAndChangeThePolicy(t *testing.T) {
 		}
 		if want == "ApplyTrafficPolicy" {
 			var params gatewayprotocol.ApplyTrafficPolicyParams
-			if err := json.Unmarshal(rpc.Params, &params); err != nil || params.ExpectedRevision != 1 || params.Policy.Revision != 2 || params.Policy.EncryptedDNS.BlockEncryptedDNS() || !params.Policy.EncryptedDNS.ForcePlainDNS() {
+			if err := json.Unmarshal(rpc.Params, &params); err != nil || params.ExpectedRevision != 1 || params.Policy.Revision != 2 || !params.Policy.EncryptedDNS.BlockEncryptedDNS() || !params.Policy.EncryptedDNS.ForcePlainDNS() {
 				t.Fatalf("applied %s err=%v", rpc.Params, err)
 			}
 		}
