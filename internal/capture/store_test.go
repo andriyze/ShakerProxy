@@ -71,6 +71,47 @@ func TestStoreGrantsAnalyzersReadOnDumpcapFiles(t *testing.T) {
 	}
 }
 
+// Live analysis reads the segment dumpcap is still writing. dumpcap creates
+// it 0600; the capture group (the analyzer containers) may read it, nobody
+// else gains anything, and a closed segment's wider mode is left alone.
+func TestStoreSharesTheActiveSegmentWithTheCaptureGroupOnly(t *testing.T) {
+	store := Store{Root: filepath.Join(t.TempDir(), "pcap")}
+	session := validSession(t, store.Root)
+	if err := store.Create(session); err != nil {
+		t.Fatal(err)
+	}
+	directory, _ := store.ArtifactDirectory(session.ID)
+	name := "capture_00002_20260901120010.pcapng"
+	path := filepath.Join(directory, name)
+	if err := os.WriteFile(path, []byte("pcapng fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ShareActiveSegment(session.ID, name); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("active segment mode = %v, %v; want 0640", info.Mode().Perm(), err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ShareActiveSegment(session.ID, name); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o644 {
+		t.Fatalf("sharing changed a published segment to %v", info.Mode().Perm())
+	}
+	link := "capture_00003_20260901120020.pcapng"
+	if err := os.Symlink(filepath.Join(store.Root, session.ID, "session.json"), filepath.Join(directory, link)); err != nil {
+		t.Fatal(err)
+	}
+	for _, unsafe := range []string{link, "../session.json", "session.json"} {
+		if err := store.ShareActiveSegment(session.ID, unsafe); err == nil {
+			t.Fatalf("shared %q", unsafe)
+		}
+	}
+}
+
 func TestStorePublishesBoundedClosedSegmentFeed(t *testing.T) {
 	store := Store{Root: filepath.Join(t.TempDir(), "pcap")}
 	session := validSession(t, store.Root)

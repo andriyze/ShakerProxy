@@ -563,6 +563,35 @@ func captureFileName(name string) bool {
 	return strings.HasPrefix(name, "capture_") && strings.HasSuffix(name, ".pcapng") || name == "capture.pcapng"
 }
 
+// ShareActiveSegment lets the capture group, and so the Zeek analyzer
+// container, read the segment dumpcap has just started, so live analysis can
+// follow it while it is written. dumpcap creates it 0600; it becomes 0640,
+// narrower than the 0644 a closed segment gets, and the analyzer only pipes
+// its packets to the isolated parser. Like grantAnalyzerRead, it changes the
+// open file, never a path.
+func (s Store) ShareActiveSegment(id, name string) error {
+	if !ValidSessionID(id) || !captureFileName(name) || name != filepath.Base(name) {
+		return errors.New("active capture segment identity is invalid")
+	}
+	artifactDirectory, err := s.ArtifactDirectory(id)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(filepath.Join(artifactDirectory, name), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return errors.New("active capture segment is not a regular file")
+	}
+	if info.Mode().Perm()&0o040 != 0 {
+		return nil
+	}
+	return file.Chmod(info.Mode().Perm() | 0o040)
+}
+
 // grantAnalyzerRead makes a sealed segment readable by the analyzers. dumpcap
 // always creates its files 0600. The analyzer hands its isolated parser
 // (uid 65533, no groups) only an open descriptor, but Zeek and Suricata reopen

@@ -129,4 +129,4 @@ body.traffic-wide .live-domains{display:none}
 body.traffic-wide .live-filters{padding:6px 10px;gap:4px}
 body.traffic-wide .live-chip{min-height:24px;padding:2px 9px;font-size:12px}
 body.traffic-wide .live-search input{min-height:26px}
-
+.live-chatter{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border:1px solid #5a3b55;border-radius:8px;background:#1f1220;color:#f1d6ec;font-size:13px}

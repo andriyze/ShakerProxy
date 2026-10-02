@@ -13,6 +13,7 @@ import {
   pageTimeline,
   summaryFacets,
   summaryTimeline,
+  chatterShare,
   streamLine,
   validFieldFilter,
   MAX_FIELD_FILTERS,
@@ -724,6 +725,21 @@ export function TrafficWorkspace() {
               onChange={(next) => applyFilters(next)}
             />
             <div className="live-center">
+              {summary && filters.kinds.includes("discovery") && chatterShare(summary.totals) > 0.8 && (
+                <div className="live-chatter" role="status">
+                  <span>
+                    {(summary.totals.types.discovery ?? 0).toLocaleString()} of {summary.totals.events.toLocaleString()} events in the
+                    last {timelineSpan.label} are network discovery chatter (UniFi, mDNS, SSDP, broadcasts).
+                  </span>
+                  <button
+                    type="button"
+                    className="quiet"
+                    onClick={() => applyFilters({ ...filters, kinds: filters.kinds.filter((kind) => kind !== "discovery") })}
+                  >
+                    Hide chatter
+                  </button>
+                </div>
+              )}
               <LiveTimeline buckets={timeline} spanLabel={timelineSpan.label} />
               <div className="live-toolbar">
                 <label>
