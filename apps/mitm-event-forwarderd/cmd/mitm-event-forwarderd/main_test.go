@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"shakerproxy.dev/shakerproxy/internal/dnsproxy"
+	"shakerproxy.dev/shakerproxy/internal/hostevents"
 	"shakerproxy.dev/shakerproxy/internal/ingest"
+	"shakerproxy.dev/shakerproxy/internal/nflog"
 )
 
 func validEvent() string {
@@ -76,7 +78,7 @@ func TestValidateEnvelopeRejectsSecretsAndUnknownFieldsBySchemaBoundary(t *testi
 // The DNS spool carries what shakerproxy-dnsd writes and nothing else: an
 // event from a dnsd lookup reaches ingest unchanged and is a valid ingest
 // envelope, while interception events and HOST detections are quarantined.
-func TestHostSpoolDeliversOnlyDNSLookups(t *testing.T) {
+func TestHostSpoolDeliversOnlyDNSLookupsAndBlockedAttempts(t *testing.T) {
 	root := t.TempDir()
 	tokenPath := filepath.Join(root, "token")
 	if err := os.WriteFile(tokenPath, []byte(strings.Repeat("t", 32)), 0o600); err != nil {
@@ -98,11 +100,19 @@ func TestHostSpoolDeliversOnlyDNSLookups(t *testing.T) {
 	if _, err := ingest.DecodeEnvelope(lookupEvent); err != nil {
 		t.Fatalf("dnsd's event is not a valid ingest envelope: %v", err)
 	}
+	blockedEvent, err := hostevents.BlockedEvent("evt_00000000000000000004_00000002_abcdefabcdef", time.Now(), nflog.Flow{Source: netip.MustParseAddr("192.168.10.201"), Destination: netip.MustParseAddr("8.8.8.8"), Protocol: "tcp", SourcePort: 40123, DestinationPort: 443}, "doh-ip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ingest.DecodeEnvelope(blockedEvent); err != nil {
+		t.Fatalf("the gateway's blocked-attempt event is not a valid ingest envelope: %v", err)
+	}
 	detection := strings.Replace(strings.Replace(validEvent(), `"source":"MITMPROXY"`, `"source":"HOST"`, 1), `"kind":"http_request"`, `"kind":"shakerproxy.detection.beaconing"`, 1)
 	files := map[string]string{
 		"evt_00000000000000000001_00000001_abcdefabcdef.json": string(lookupEvent),
 		"evt_00000000000000000002_interception.json":          validEvent(),
 		"evt_00000000000000000003_detection.json":             detection,
+		"evt_00000000000000000004_00000002_abcdefabcdef.json": string(blockedEvent),
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(spool, name), []byte(content), 0o600); err != nil {
@@ -127,8 +137,8 @@ func TestHostSpoolDeliversOnlyDNSLookups(t *testing.T) {
 	if err := instance.drain(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if len(delivered) != 1 || delivered[0] != "shakerproxy.dns" {
-		t.Fatalf("delivered %v, want only the DNS lookup", delivered)
+	if len(delivered) != 2 || delivered[0] != "shakerproxy.dns" || delivered[1] != "shakerproxy.blocked" {
+		t.Fatalf("delivered %v, want the DNS lookup and the blocked attempt", delivered)
 	}
 	quarantined, _ := os.ReadDir(filepath.Join(root, "quarantine"))
 	if remaining, _ := os.ReadDir(spool); len(remaining) != 0 || len(quarantined) != 2 {

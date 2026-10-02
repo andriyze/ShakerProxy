@@ -41,7 +41,8 @@ type configuration struct {
 	Timeout         time.Duration
 	// Source is the only event source this spool may deliver: MITMPROXY
 	// (the interception addon, the default) or HOST (shakerproxy-dnsd's
-	// lookups, kind hostDNSKind only).
+	// lookups and the gateway's blocked encrypted-DNS attempts, the
+	// hostSpoolKinds only).
 	Source string
 }
 
@@ -49,7 +50,12 @@ const (
 	sourceMitmproxy = "MITMPROXY"
 	sourceHost      = "HOST"
 	hostDNSKind     = "shakerproxy.dns"
+	hostBlockedKind = "shakerproxy.blocked"
 )
+
+// hostSpoolKinds are the only HOST events the host spool may carry; in
+// particular never detections.
+var hostSpoolKinds = map[string]bool{hostDNSKind: true, hostBlockedKind: true}
 
 func (c configuration) source() string {
 	if c.Source == "" {
@@ -346,8 +352,8 @@ func decodeSpooledEnvelope(data []byte, source string) (eventEnvelope, error) {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return eventEnvelope{}, errors.New("event contains trailing data")
 	}
-	if source == sourceHost && envelope.Kind != hostDNSKind {
-		return eventEnvelope{}, errors.New("the DNS event spool accepts only lookup events")
+	if source == sourceHost && !hostSpoolKinds[envelope.Kind] {
+		return eventEnvelope{}, errors.New("the host event spool accepts only DNS lookups and blocked encrypted-DNS attempts")
 	}
 	if envelope.Schema != 1 || !strings.HasPrefix(envelope.EventID, "evt_") || envelope.Source != source || envelope.Kind == "" || envelope.OccurredAt.IsZero() || envelope.SourceVersion == "" || envelope.ParserVersion == "" || envelope.Confidence < 0 || envelope.Confidence > 100 || envelope.Payload == nil {
 		return eventEnvelope{}, errors.New("event envelope fields are invalid")

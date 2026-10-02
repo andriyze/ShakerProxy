@@ -268,7 +268,7 @@ func TestTrafficPolicyManagerAppliesOnlyFixedFirewallCommands(t *testing.T) {
 	if err := manager.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Encrypted DNS and TLS"
 	policy.EncryptedDNS.Mode = trafficpolicy.EncryptedDNSEnforceLocal
@@ -325,7 +325,7 @@ func dnsRedirectPolicyManager(t *testing.T) (*TrafficPolicyManager, *fakeTraffic
 	if err := manager.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.EncryptedDNS.Mode = trafficpolicy.EncryptedDNSEnforceLocal
 	policy.EncryptedDNS.RedirectPlainDNS = true
@@ -428,12 +428,20 @@ func TestTrafficPolicyManagerRejectsActivePolicyWithoutConfirmedRoute(t *testing
 	if err := manager.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	// DNS switches are lab-wide defaults: accepted without a lab, applied
+	// once one is confirmed.
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Block DoT"
 	policy.EncryptedDNS.BlockDoT = true
-	if _, err := manager.Apply(t.Context(), policy, 1); err == nil {
-		t.Fatal("active traffic policy was accepted without a confirmed routed plan")
+	if _, err := manager.Apply(t.Context(), policy, 1); err != nil {
+		t.Fatalf("a DNS policy was refused without a lab: %v", err)
+	}
+	policy.Revision = 3
+	policy.Name = "Decrypt"
+	policy.TLS.Enabled = true
+	if _, err := manager.Apply(t.Context(), policy, 2); err == nil {
+		t.Fatal("TLS interception was accepted without a confirmed routed plan")
 	}
 }
 
@@ -451,7 +459,7 @@ func TestTrafficPolicyManagerFailedChangeRemovesPreviouslyActiveInterception(t *
 	if err := manager.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Active local DNS"
 	policy.EncryptedDNS.Mode = trafficpolicy.EncryptedDNSEnforceLocal
@@ -503,7 +511,7 @@ func TestTrafficPolicyManagerEmergencyBypassImmediatelyDetachesInterception(t *t
 	if err := manager.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Active local DNS"
 	policy.EncryptedDNS.Mode = trafficpolicy.EncryptedDNSEnforceLocal
@@ -542,7 +550,7 @@ func TestTrafficPolicyManagerYieldsRuntimeAndFirewallToFleet(t *testing.T) {
 	if err := manager.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Local DNS before Fleet"
 	policy.EncryptedDNS.Mode = trafficpolicy.EncryptedDNSEnforceLocal
@@ -616,7 +624,7 @@ func TestTrafficPolicyManagerFailsOpenForUnsafeFleetStatus(t *testing.T) {
 	if err := manager.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Local DNS before unsafe status"
 	policy.EncryptedDNS.Mode = trafficpolicy.EncryptedDNSEnforceLocal
@@ -678,7 +686,7 @@ func TestGatewayEmergencyBypassRPCDetachesAndRestoresTrafficPolicy(t *testing.T)
 	if err := manager.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Active local DNS"
 	policy.EncryptedDNS.Mode = trafficpolicy.EncryptedDNSEnforceLocal
@@ -748,10 +756,11 @@ func TestTrafficPolicyRollbackRestoresPreviousBehaviorAtNewRevision(t *testing.T
 	if err := manager.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	// The installation starts with the visibility default; turn encrypted
+	// DNS blocking off, then roll back to it.
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
-	policy.Name = "Block DoT"
-	policy.EncryptedDNS.BlockDoT = true
+	policy.Name = "Allow encrypted DNS"
 	if _, err := manager.Apply(t.Context(), policy, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -759,7 +768,7 @@ func TestTrafficPolicyRollbackRestoresPreviousBehaviorAtNewRevision(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.Policy.Revision != 3 || document.Policy.EncryptedDNS.BlockDoT {
+	if document.Policy.Revision != 3 || !document.Policy.EncryptedDNS.BlockDoT || !document.Policy.EncryptedDNS.BlockEncryptedDNS() {
 		t.Fatalf("unexpected rollback: %#v", document)
 	}
 }
@@ -826,7 +835,9 @@ func TestGatewayRPCExposesTrafficPolicyLifecycle(t *testing.T) {
 		t.Fatal(rpcErr)
 	}
 	document, ok = result.(trafficpolicy.Document)
-	if !ok || document.Policy.Revision != 3 || document.Policy.EncryptedDNS.Mode != trafficpolicy.EncryptedDNSObserve {
+	// Rolling back restores the visibility default (host resolvers, no
+	// policy upstreams).
+	if !ok || document.Policy.Revision != 3 || document.Policy.Name != trafficpolicy.DefaultPolicyName || len(document.Policy.EncryptedDNS.UpstreamServers) != 0 {
 		t.Fatalf("unexpected rollback document: %#v", result)
 	}
 
