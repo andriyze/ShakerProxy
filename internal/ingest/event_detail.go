@@ -23,6 +23,19 @@ type EventDetailReader interface {
 	GetEventDetail(context.Context, string) (EventDetail, error)
 }
 
+// wireEventPayload returns a stored payload exactly as encoding/json writes
+// it inside a response: compacted, with <, > and & escaped. PostgreSQL
+// renders jsonb with spaces after ':' and ',', so PayloadBytes measured on
+// that text never matched the payload the services send, and every consumer
+// rejected every event detail as invalid.
+func wireEventPayload(stored []byte) (json.RawMessage, error) {
+	encoded, err := json.Marshal(json.RawMessage(stored))
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
 func (detail EventDetail) Validate() error {
 	if detail.Schema != EventDetailSchemaVersion || !validRecordID(detail.Event.RecordID) {
 		return errors.New("event detail identity is invalid")
@@ -65,13 +78,27 @@ func (s PostgresSink) GetEventDetail(ctx context.Context, recordID string) (Even
 		}
 		return EventDetail{}, fmt.Errorf("read normalized event payload: %w", err)
 	}
-	if len(payload) == 0 || len(payload) > MaxPayloadBytes || !json.Valid(payload) {
-		return EventDetail{}, errors.New("stored normalized event payload is invalid")
+	detail, err := newEventDetail(events[0], payload)
+	if err != nil {
+		return EventDetail{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return EventDetail{}, fmt.Errorf("commit normalized event detail query: %w", err)
 	}
-	detail := EventDetail{Schema: EventDetailSchemaVersion, Event: events[0], Payload: append(json.RawMessage(nil), payload...), PayloadBytes: len(payload)}
+	return detail, nil
+}
+
+// newEventDetail builds the detail from a stored payload as PostgreSQL
+// renders it (payload::text).
+func newEventDetail(event RecentEvent, stored []byte) (EventDetail, error) {
+	if len(stored) == 0 || !json.Valid(stored) {
+		return EventDetail{}, errors.New("stored normalized event payload is invalid")
+	}
+	wire, err := wireEventPayload(stored)
+	if err != nil || len(wire) > MaxPayloadBytes {
+		return EventDetail{}, errors.New("stored normalized event payload is invalid")
+	}
+	detail := EventDetail{Schema: EventDetailSchemaVersion, Event: event, Payload: wire, PayloadBytes: len(wire)}
 	if err := detail.Validate(); err != nil {
 		return EventDetail{}, err
 	}
