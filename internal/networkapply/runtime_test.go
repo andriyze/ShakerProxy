@@ -84,6 +84,14 @@ func (m *fakeRuntimeMachine) SetIPv4Forwarding(_ context.Context, value int) err
 	return nil
 }
 
+func (m *fakeRuntimeMachine) SetBridgeNFCallIPTables(_ context.Context, value int) error {
+	if err := m.record(fmt.Sprintf("bridge-nf:%d", value)); err != nil {
+		return err
+	}
+	m.writeSysctl("proc/sys/net/bridge/bridge-nf-call-iptables", fmt.Sprint(value))
+	return nil
+}
+
 func (m *fakeRuntimeMachine) SetIPv4SendRedirects(_ context.Context, name string, value int) error {
 	if err := m.record(fmt.Sprintf("redirects:%s:%d", name, value)); err != nil {
 		return err

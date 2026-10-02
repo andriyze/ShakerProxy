@@ -96,6 +96,24 @@ func (s Snapshotter) Capture(staged networkplan.StagedPlan) (networktransaction.
 			return networktransaction.RollbackSpec{}, errors.New("IPv4 redirect state is not zero or one")
 		}
 	}
+	if networkplan.InlineBridge(staged.Plan) {
+		bridgeRaw, readErr := os.ReadFile(rootedPath(s.HostRoot, bridgeNFCallIPTablesPath))
+		if errors.Is(readErr, os.ErrNotExist) {
+			return networktransaction.RollbackSpec{}, errors.New("an inline bridge needs the br_netfilter kernel module, which Docker normally loads; run sudo modprobe br_netfilter and try again")
+		}
+		if readErr != nil {
+			return networktransaction.RollbackSpec{}, fmt.Errorf("read bridge netfilter state: %w", readErr)
+		}
+		spec.BridgeNetfilter = true
+		switch strings.TrimSpace(string(bridgeRaw)) {
+		case "0":
+			spec.BridgeNFCallIPTables = 0
+		case "1":
+			spec.BridgeNFCallIPTables = 1
+		default:
+			return networktransaction.RollbackSpec{}, errors.New("bridge netfilter state is not zero or one")
+		}
+	}
 	if spec.IPv6, err = captureIPv6State(s.HostRoot, staged, directory); err != nil {
 		return networktransaction.RollbackSpec{}, err
 	}

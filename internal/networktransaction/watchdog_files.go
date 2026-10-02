@@ -43,6 +43,11 @@ type RollbackSpec struct {
 	HostapdConfigSHA256        string `json:"hostapd_config_sha256,omitempty"`
 	HostapdConfigMode          uint32 `json:"hostapd_config_mode,omitempty"`
 
+	// BridgeNetfilter records net.bridge.bridge-nf-call-iptables before an
+	// inline bridge turned it on, so rollback can put it back.
+	BridgeNetfilter      bool `json:"bridge_netfilter,omitempty"`
+	BridgeNFCallIPTables int  `json:"bridge_nf_call_iptables,omitempty"`
+
 	// IPv6 records the prior IPv6 state; it is zero for IPv4-only applies.
 	IPv6 IPv6RollbackSpec `json:"ipv6,omitzero"`
 }
@@ -134,6 +139,9 @@ func (r RollbackSpec) Validate() error {
 	}
 	if r.IptablesPath != "/usr/sbin/iptables" && r.IptablesPath != "/usr/bin/iptables" {
 		return errors.New("iptables rollback path is not approved")
+	}
+	if r.BridgeNFCallIPTables != 0 && (!r.BridgeNetfilter || r.BridgeNFCallIPTables != 1) {
+		return errors.New("bridge netfilter snapshot is invalid")
 	}
 	if err := r.IPv6.Validate(); err != nil {
 		return err

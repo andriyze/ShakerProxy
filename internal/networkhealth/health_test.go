@@ -363,3 +363,33 @@ func TestHealthChecksEndBeforeTheWatchdogDeadline(t *testing.T) {
 		}
 	}
 }
+
+func TestOSProbeInlineBridgeChecksTheBridgeRouteAndBridgeNetfilter(t *testing.T) {
+	staged := healthStaged(t, time.Unix(10000, 0))
+	staged.Plan.Topology = networkplan.TopologyTransparentBridge
+	staged.Plan.Interfaces = []networkplan.Interface{{CurrentName: "eth0", Role: networkplan.RoleWAN}, {CurrentName: "eth1", Role: networkplan.RoleLab}}
+	files := map[string][]byte{
+		"/proc/sys/net/ipv4/ip_forward":                []byte("1\n"),
+		"/proc/sys/net/bridge/bridge-nf-call-iptables": []byte("1\n"),
+		"/sys/class/net/spbr0/carrier":                 []byte("1\n"),
+		"/sys/class/net/spbr0/operstate":               []byte("up\n"),
+		"/proc/net/route":                              []byte("Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\nspbr0\t00000000\t0102000A\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"),
+	}
+	probe := OSProbe{Firewall: &fakeFirewallRunner{}, ReadFile: func(path string) ([]byte, error) {
+		value, ok := files[path]
+		if !ok {
+			return nil, os.ErrNotExist
+		}
+		return value, nil
+	}}
+	if err := probe.WAN(context.Background(), staged); err != nil {
+		t.Fatalf("the bridge's default route was not accepted as the uplink: %v", err)
+	}
+	if err := probe.IPv4Forwarding(context.Background(), staged); err != nil {
+		t.Fatal(err)
+	}
+	files["/proc/sys/net/bridge/bridge-nf-call-iptables"] = []byte("0\n")
+	if err := probe.IPv4Forwarding(context.Background(), staged); err == nil || !strings.Contains(err.Error(), "bridge-nf-call-iptables") {
+		t.Fatalf("bridged traffic bypassing the firewall was accepted: %v", err)
+	}
+}
