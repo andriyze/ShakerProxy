@@ -1,22 +1,26 @@
-import React, { FormEvent, useEffect, useRef, useState } from "react"
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { formatBytes } from "../../lib/format"
 import { completeTypedQuery, formatTypedQueryValue, typedQueryValueContext } from "../../lib/trafficQuery"
 import { ErrorBox, FeatureViews } from "../../shell/common"
 import { usePolling } from "../../shell/hooks"
 import { LabRecordingBanner } from "../../shell/LabRecordingBanner"
+import { TRAFFIC_PRESETS } from "../../lib/trafficPresets"
 import {
-  TRAFFIC_PRESETS,
-  TIME_WINDOWS,
-  activeTimeWindow,
-  deviceQuery,
-  withDomain,
-  withTimeWindow,
-} from "../../lib/trafficPresets"
+  DEFAULT_LIVE_FILTERS,
+  composeLiveQuery,
+  eventsPerMinute,
+  liveFiltersFromURL,
+  writeLiveFiltersToURL,
+  type LiveFilters,
+} from "../../lib/liveTraffic"
+import { useDeviceDirectory } from "../../shell/useDeviceDirectory"
+import { LiveFilterBar } from "./LiveFilterBar"
+import { TrafficStream } from "./TrafficStream"
+import { EventDetailDrawer } from "./EventDetailDrawer"
 import { TrafficOverview } from "./TrafficOverview"
 import { HTTPActivity } from "./HTTPActivity"
 import { TrafficExport } from "./TrafficExport"
 import { EventQuerySnapshotControl, SavedViewsPanel } from "./SavedViews"
-import { WindowedTrafficTable } from "./TrafficTable"
 import { consumeLiveEventStream } from "./liveStream"
 import { MAX_PENDING_LIVE_ROWS, MAX_VISIBLE_LIVE_ROWS, promoteLiveRows, queueLiveRows } from "../../lib/liveRows"
 import { api, describeError } from "../../api"
@@ -59,8 +63,18 @@ export function TrafficWorkspace() {
   const [status, setStatus] = useState<IngestStats | null>(null)
   const [streamState, setStreamState] = useState<"CONNECTING" | "LIVE" | "RECONNECTING" | "PAUSED">("CONNECTING")
   const [source, setSource] = useState(() => new URLSearchParams(window.location.search).get("traffic_source") || "")
-  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("traffic_q") || "")
-  const [draftQuery, setDraftQuery] = useState(query)
+  const [advanced, setAdvanced] = useState(() => new URLSearchParams(window.location.search).get("traffic_q") || "")
+  const [draftQuery, setDraftQuery] = useState(advanced)
+  const [filters, setFilters] = useState<LiveFilters>(() => liveFiltersFromURL(window.location.search))
+  const [holding, setHolding] = useState(false)
+  const directory = useDeviceDirectory()
+  const formerIDs = (id: string) => directory?.get(id)?.device.former_ids ?? []
+  const query = useMemo(
+    () => composeLiveQuery(filters, advanced, formerIDs),
+    // directory only adds former IDs of selected clients
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filters, advanced, filters.clients.length ? directory : null],
+  )
   const [density, setDensity] = useState<"comfortable" | "compact">(() =>
     new URLSearchParams(window.location.search).get("traffic_density") === "compact" ? "compact" : "comfortable",
   )
@@ -281,15 +295,16 @@ export function TrafficWorkspace() {
   const [showSyntax, setShowSyntax] = useState(false)
   const [copied, setCopied] = useState(false)
   const queryInput = useRef<HTMLInputElement>(null)
-  const setAppliedQuery = (next: string) => {
-    setDraftQuery(next)
-    setQuery(next)
-    updateTrafficURL(next, source, density)
-  }
-  const filterDevice = (deviceID: string) => {
+  const applyFilters = (next: LiveFilters, nextAdvanced = advanced) => {
     setSelectedRecordID("")
-    setAppliedQuery(deviceQuery(deviceID, activeTimeWindow(query)))
+    setFilters(next)
+    setAdvanced(nextAdvanced)
+    setDraftQuery(nextAdvanced)
+    updateTrafficURL(nextAdvanced, source, density, next)
   }
+  // Advanced filters and presets select by field, so they see every event.
+  const setAppliedQuery = (next: string) => applyFilters({ ...filters, kinds: next ? [] : DEFAULT_LIVE_FILTERS.kinds }, next)
+  const filterDevice = (deviceID: string) => applyFilters({ ...filters, clients: [deviceID] })
   // "/" focuses the filter box (a typed character, so event.key is correct).
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -349,9 +364,7 @@ export function TrafficWorkspace() {
   }
   const applyQuery = (event: React.FormEvent) => {
     event.preventDefault()
-    const next = draftQuery.trim()
-    setQuery(next)
-    updateTrafficURL(next, source, density)
+    setAppliedQuery(draftQuery.trim())
   }
   const toggleLivePause = () => {
     const next = !manualPausedRef.current
@@ -368,7 +381,7 @@ export function TrafficWorkspace() {
   }
   const selectSource = (next: string) => {
     setSource(next)
-    updateTrafficURL(query, next, density)
+    updateTrafficURL(advanced, next, density, filters)
   }
   const applyAlias = (device: Device) => {
     const rename = (item: RecentEvent) =>
@@ -386,22 +399,21 @@ export function TrafficWorkspace() {
       pending: current.pending.map(rename),
     }))
   }
-  const applyDomain = (domain: string) => {
-    setSelectedRecordID("")
-    setAppliedQuery(withDomain(query, domain))
-  }
+  const applyDomain = (domain: string) => applyFilters({ ...filters, search: domain })
   const applyFacet = (field: string, value: string) => {
     const predicate = value ? `${field}:${value}` : `${field}!=*`
-    const next = query ? `${query} AND ${predicate}` : predicate
-    setAppliedQuery(next)
+    setAppliedQuery(advanced ? `${advanced} AND ${predicate}` : predicate)
   }
   const applySavedView = (view: SavedView) => {
     const next = view.canonical_query ?? ""
-    setDraftQuery(next)
-    setQuery(next)
     setSource("")
     setDensity(view.density)
-    updateTrafficURL(next, "", view.density)
+    setSelectedRecordID("")
+    const cleared = { ...DEFAULT_LIVE_FILTERS, kinds: next ? [] : DEFAULT_LIVE_FILTERS.kinds }
+    setFilters(cleared)
+    setAdvanced(next)
+    setDraftQuery(next)
+    updateTrafficURL(next, "", view.density, cleared)
   }
   const baseQuerySuggestions =
     queryMetadata?.fields
@@ -432,8 +444,18 @@ export function TrafficWorkspace() {
       }
     })
   }
-  const activeWindow = activeTimeWindow(query)
   const selectedEvent = page?.events.find((event) => event.record_id === selectedRecordID)
+  // New events fly in on top unless the list is paused or the pointer is on it.
+  useEffect(() => {
+    if (!holding && !manualPaused && traffic.pending.length > 0) showPendingEvents()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [traffic.pending.length, holding, manualPaused])
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((tick) => tick + 1), 5_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const perMinute = page ? eventsPerMinute(page.events) : 0
   const ingestDegraded =
     status !== null &&
     (!status.database_connected ||
@@ -442,18 +464,13 @@ export function TrafficWorkspace() {
       status.ingest_lag_seconds > 60)
   return (
     <>
-      <section className={`event-feed ${density}`}>
-        <div className="event-feed-head">
+      <section className="live-traffic">
+        <header className="live-head">
           <div>
-            <p className="eyebrow">Live</p>
-            <h2>Traffic events</h2>
-            <p>
-              New events appear as ShakerProxy analyses the lab network. Pausing, or switching to another tab, stops the
-              live view; it picks up where it left off when you come back.
-            </p>
+            <h2>Live traffic</h2>
             <LabRecordingBanner />
           </div>
-          <div>
+          <div className="live-head-state">
             <span className={`event-feed-state ${streamState.toLowerCase()}`}>
               {streamState === "LIVE"
                 ? "LIVE"
@@ -463,11 +480,150 @@ export function TrafficWorkspace() {
                     ? "RECONNECTING…"
                     : "CONNECTING…"}
             </span>
+            <span className="live-rate" title="Events in the last minute on this page">
+              {perMinute.toLocaleString()} / min
+            </span>
             <button type="button" className="quiet event-stream-toggle" onClick={toggleLivePause}>
               {manualPaused ? "Resume live" : "Pause live"}
             </button>
-            <label>
-              Source
+          </div>
+        </header>
+        <LiveFilterBar filters={filters} directory={directory} onChange={(next) => applyFilters(next)} />
+        {page?.facets?.domains?.values.length ? (
+          <div className="live-domains" aria-label="Top domains in this view">
+            <span className="live-filter-label">Top domains</span>
+            {page.facets.domains.values.slice(0, 10).map((value) => (
+              <button
+                type="button"
+                key={value.domain}
+                className={`live-chip${filters.search === value.domain ? " on" : ""}`}
+                onClick={() => (filters.search === value.domain ? applyFilters({ ...filters, search: "" }) : applyDomain(value.domain))}
+                title={`Show traffic to ${value.domain}: ${value.hosts.join(", ")}`}
+              >
+                {value.domain} <strong>{value.count.toLocaleString()}</strong>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {status && ingestDegraded && (
+          <div
+            className={`event-health ${status.storage_pressure || !status.database_connected ? "degraded" : "healthy"}`}
+          >
+            <div>
+              <span>Event database</span>
+              <strong>
+                {status.database_connected
+                  ? "CONNECTED"
+                  : status.database_configured
+                    ? "UNAVAILABLE"
+                    : "NOT CONFIGURED"}
+              </strong>
+            </div>
+            <div>
+              <span>Durable queue</span>
+              <strong>
+                {status.pending_records.toLocaleString()} events · {formatBytes(status.pending_bytes)}
+              </strong>
+            </div>
+            <div>
+              <span>Oldest lag</span>
+              <strong>{status.pending_records ? `${status.ingest_lag_seconds.toFixed(1)} seconds` : "CURRENT"}</strong>
+            </div>
+            <div>
+              <span>Quarantine</span>
+              <strong>
+                {status.quarantined_records.toLocaleString()} events · {formatBytes(status.quarantined_bytes)}
+              </strong>
+            </div>
+          </div>
+        )}
+        {statusError && <div className="event-health-error">Ingestion health unavailable · {statusError}</div>}
+        {page && !page.device_labels_available && (
+          <div className="event-health-error">
+            Device names are temporarily unavailable. Immutable device IDs and event evidence remain visible.
+          </div>
+        )}
+        {error && <ErrorBox message={error} />}
+        {!error && page?.events.length === 0 && (
+          <div className="event-empty">
+            {query !== composeLiveQuery(DEFAULT_LIVE_FILTERS) || source
+              ? "Nothing matches these filters yet. Pick a longer time, another client or type, or clear the search."
+              : "No traffic yet. Connect a device to the lab network and use it; events appear here within a minute."}
+          </div>
+        )}
+        {(holding || manualPaused) && traffic.pending.length > 0 && (
+          <div className="event-new-rows" role="status">
+            <button type="button" onClick={showPendingEvents}>
+              Show {traffic.pending.length.toLocaleString()} new event{traffic.pending.length === 1 ? "" : "s"}
+            </button>
+            <span>{manualPaused ? "Live updates are paused." : "Held while your pointer is on the list."}</span>
+          </div>
+        )}
+        {traffic.dropped > 0 && (
+          <div className="event-browser-drop" role="status">
+            {traffic.dropped.toLocaleString()} older event{traffic.dropped === 1 ? " was" : "s were"} removed from this
+            page to keep it fast. They are still stored; use Load older events or Export to get them.
+          </div>
+        )}
+        {page && page.events.length > 0 && (
+          <TrafficStream
+            events={page.events}
+            directory={directory}
+            selectedRecordID={selectedRecordID}
+            onSelect={setSelectedRecordID}
+            onHoldChange={setHolding}
+          />
+        )}
+        {page && selectedEvent && (
+          <EventDetailDrawer
+            event={selectedEvent}
+            labelsAvailable={page.device_labels_available}
+            onClose={() => setSelectedRecordID("")}
+            onRenamed={applyAlias}
+            onFilterDevice={filterDevice}
+          />
+        )}
+        {page && page.next_cursor && (
+          <div className="event-older">
+            <button
+              type="button"
+              className="quiet"
+              disabled={olderBusy || page.events.length >= MAX_VISIBLE_LIVE_ROWS}
+              onClick={() => void loadOlder()}
+            >
+              {olderBusy ? "Loading…" : "Load older events"}
+            </button>
+            {page.events.length >= MAX_VISIBLE_LIVE_ROWS && (
+              <small>
+                This page holds {MAX_VISIBLE_LIVE_ROWS.toLocaleString()} events at most. Narrow the filter or use
+                Export.
+              </small>
+            )}
+            {olderError && <small className="event-health-error">{olderError}</small>}
+          </div>
+        )}
+        <details className="live-advanced" open={Boolean(advanced) || source !== "" || undefined}>
+          <summary>Advanced: field filters, sources, quick views and field counts</summary>
+          <div className="traffic-workspace-controls">
+            <section className="traffic-workspace-group">
+              <strong>Quick views</strong>
+              <div className="traffic-workspace-chips">
+                {TRAFFIC_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`traffic-workspace-chip ${preset.tone ?? ""}${preset.query === advanced ? " active" : ""}`}
+                    title={preset.description}
+                    aria-pressed={preset.query === advanced}
+                    onClick={() => setAppliedQuery(preset.query)}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="traffic-workspace-group">
+              <strong>Source</strong>
               <select value={source} onChange={(event) => selectSource(event.target.value)}>
                 {SOURCES.map(([value, label]) => (
                   <option key={value} value={value}>
@@ -475,82 +631,31 @@ export function TrafficWorkspace() {
                   </option>
                 ))}
               </select>
-            </label>
+            </section>
+            <section className="traffic-workspace-group traffic-workspace-actions">
+              <strong>Share</strong>
+              <div className="traffic-workspace-chips">
+                <button
+                  type="button"
+                  className="traffic-workspace-chip subtle"
+                  disabled={!query}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(query)
+                      setCopied(true)
+                      window.setTimeout(() => setCopied(false), 1000)
+                    } catch {
+                      setCopied(false)
+                    }
+                  }}
+                >
+                  {copied ? "Copied" : "Copy filter"}
+                </button>
+              </div>
+            </section>
           </div>
-        </div>
-        <div className="traffic-workspace-controls">
-          <section className="traffic-workspace-group">
-            <strong>Quick views</strong>
-            <div className="traffic-workspace-chips">
-              {TRAFFIC_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={`traffic-workspace-chip ${preset.tone ?? ""}${preset.query === query ? " active" : ""}`}
-                  title={preset.description}
-                  aria-pressed={preset.query === query}
-                  onClick={() => setAppliedQuery(preset.query)}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </section>
-          <section className="traffic-workspace-group traffic-workspace-time">
-            <strong>Time</strong>
-            <div className="traffic-workspace-chips">
-              {TIME_WINDOWS.map(([label, value]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`traffic-workspace-chip subtle${activeWindow === value ? " active" : ""}`}
-                  aria-pressed={activeWindow === value}
-                  onClick={() => setAppliedQuery(withTimeWindow(query, value))}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </section>
-          <section className="traffic-workspace-group traffic-workspace-actions">
-            <strong>Focus</strong>
-            <div className="traffic-workspace-chips">
-              <button
-                type="button"
-                className="traffic-workspace-chip selected-device"
-                disabled={!selectedEvent?.device_id}
-                title={
-                  selectedEvent?.device_id
-                    ? `Show only ${selectedEvent.device_friendly_name || selectedEvent.device_id}`
-                    : "Click a row first"
-                }
-                onClick={() => selectedEvent?.device_id && filterDevice(selectedEvent.device_id)}
-              >
-                {selectedEvent?.device_id
-                  ? `Only ${selectedEvent.device_friendly_name || "this device"}`
-                  : "Only the selected device"}
-              </button>
-              <button
-                type="button"
-                className="traffic-workspace-chip subtle"
-                disabled={!query}
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(query)
-                    setCopied(true)
-                    window.setTimeout(() => setCopied(false), 1000)
-                  } catch {
-                    setCopied(false)
-                  }
-                }}
-              >
-                {copied ? "Copied" : "Copy filter"}
-              </button>
-            </div>
-          </section>
-        </div>
         <form className="event-query" onSubmit={applyQuery}>
-          <label htmlFor="traffic-query">Filter</label>
+          <label htmlFor="traffic-query">Advanced filter (added to the chips)</label>
           <div>
             <input
               id="traffic-query"
@@ -558,7 +663,7 @@ export function TrafficWorkspace() {
               list="traffic-query-suggestions"
               value={draftQuery}
               onChange={(event) => setDraftQuery(event.target.value)}
-              placeholder="Search: netflix.com, 192.168.10.20, proto:mqtt, device.name:tv"
+              placeholder="Field filter: proto:mqtt, dst.port:8883, bytes>1MB, kind:suricata.flow"
               spellCheck={false}
               aria-describedby="traffic-query-help"
             />
@@ -608,41 +713,16 @@ export function TrafficWorkspace() {
             </small>
           )}
         </form>
-        {page?.facets && (
-          <section className="event-facets" aria-label="Server-computed event facets">
-            <header>
-              <strong>Filter this result</strong>
-              <span>
-                {page.facets.matched_count.toLocaleString()}
-                {page.facets.count_relation === "gte" ? "+" : ""} matches ·{" "}
-                {page.facets.exact ? "exact counts" : "newest 10,000 sampled"}
-              </span>
-            </header>
-            <fieldset className="event-domains">
-              <legend>Domains</legend>
-              {page.facets.domains?.values.length ? (
-                <div>
-                  {page.facets.domains.values.map((value) => (
-                    <button
-                      type="button"
-                      key={value.domain}
-                      onClick={() => applyDomain(value.domain)}
-                      title={`Show traffic to ${value.domain}: ${value.hosts.join(", ")}`}
-                    >
-                      <span>{value.domain}</span>
-                      <strong>{value.count.toLocaleString()}</strong>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <small>No domain names yet. DNS lookups, HTTPS server names and web hosts appear here.</small>
-              )}
-              {(page.facets.domains?.other_count ?? 0) > 0 && (
-                <small>
-                  {page.facets.domains?.other_count.toLocaleString()} connections and lookups to other domains
-                </small>
-              )}
-            </fieldset>
+          {page?.facets && (
+            <section className="event-facets" aria-label="Field counts">
+              <header>
+                <strong>Field counts</strong>
+                <span>
+                  {page.facets.matched_count.toLocaleString()}
+                  {page.facets.count_relation === "gte" ? "+" : ""} matches ·{" "}
+                  {page.facets.exact ? "exact counts" : "newest 10,000 sampled"}
+                </span>
+              </header>
             <div>
               {page.facets.fields.map((facet) => (
                 <fieldset key={facet.field}>
@@ -662,98 +742,9 @@ export function TrafficWorkspace() {
                 </fieldset>
               ))}
             </div>
-          </section>
-        )}
-        {status && ingestDegraded && (
-          <div
-            className={`event-health ${status.storage_pressure || !status.database_connected ? "degraded" : "healthy"}`}
-          >
-            <div>
-              <span>Event database</span>
-              <strong>
-                {status.database_connected
-                  ? "CONNECTED"
-                  : status.database_configured
-                    ? "UNAVAILABLE"
-                    : "NOT CONFIGURED"}
-              </strong>
-            </div>
-            <div>
-              <span>Durable queue</span>
-              <strong>
-                {status.pending_records.toLocaleString()} events · {formatBytes(status.pending_bytes)}
-              </strong>
-            </div>
-            <div>
-              <span>Oldest lag</span>
-              <strong>{status.pending_records ? `${status.ingest_lag_seconds.toFixed(1)} seconds` : "CURRENT"}</strong>
-            </div>
-            <div>
-              <span>Quarantine</span>
-              <strong>
-                {status.quarantined_records.toLocaleString()} events · {formatBytes(status.quarantined_bytes)}
-              </strong>
-            </div>
-          </div>
-        )}
-        {statusError && <div className="event-health-error">Ingestion health unavailable · {statusError}</div>}
-        {page && !page.device_labels_available && (
-          <div className="event-health-error">
-            Device names are temporarily unavailable. Immutable device IDs and event evidence remain visible.
-          </div>
-        )}
-        {error && <ErrorBox message={error} />}
-        {!error && page?.events.length === 0 && (
-          <div className="event-empty">
-            {query || source
-              ? "No events match this filter. Try a longer time window or press Clear."
-              : "No traffic yet. Connect a device to the lab network and use it; events appear here within a minute."}
-          </div>
-        )}
-        {traffic.pending.length > 0 && (
-          <div className="event-new-rows" role="status">
-            <button type="button" onClick={showPendingEvents}>
-              Show {traffic.pending.length.toLocaleString()} new event{traffic.pending.length === 1 ? "" : "s"}
-            </button>
-            <span>Current rows stay fixed until you choose to update the view.</span>
-          </div>
-        )}
-        {traffic.dropped > 0 && (
-          <div className="event-browser-drop" role="status">
-            {traffic.dropped.toLocaleString()} older event{traffic.dropped === 1 ? " was" : "s were"} removed from this
-            page to keep it fast. They are still stored; use Load older events or Export to get them.
-          </div>
-        )}
-        {page && page.events.length > 0 && (
-          <WindowedTrafficTable
-            events={page.events}
-            density={density}
-            labelsAvailable={page.device_labels_available}
-            selectedRecordID={selectedRecordID}
-            onSelect={setSelectedRecordID}
-            onRenamed={applyAlias}
-            onFilterDevice={filterDevice}
-          />
-        )}
-        {page && page.next_cursor && (
-          <div className="event-older">
-            <button
-              type="button"
-              className="quiet"
-              disabled={olderBusy || page.events.length >= MAX_VISIBLE_LIVE_ROWS}
-              onClick={() => void loadOlder()}
-            >
-              {olderBusy ? "Loading…" : "Load older events"}
-            </button>
-            {page.events.length >= MAX_VISIBLE_LIVE_ROWS && (
-              <small>
-                This page holds {MAX_VISIBLE_LIVE_ROWS.toLocaleString()} events at most. Narrow the filter or use
-                Export.
-              </small>
-            )}
-            {olderError && <small className="event-health-error">{olderError}</small>}
-          </div>
-        )}
+            </section>
+          )}
+        </details>
         {page && <p className="event-generated">Updated {new Date(page.generated_at).toLocaleString()}</p>}
         <TrafficExport query={query} source={source} />
         <details className="traffic-save">
@@ -765,7 +756,7 @@ export function TrafficWorkspace() {
             onApply={applySavedView}
             onDensity={(next) => {
               setDensity(next)
-              updateTrafficURL(query, source, next)
+              updateTrafficURL(advanced, source, next, filters)
             }}
           />
           <EventQuerySnapshotControl query={page?.canonical_query ?? query} source={source} />
@@ -778,8 +769,14 @@ export function TrafficWorkspace() {
   )
 }
 
-export function updateTrafficURL(query: string, source: string, density: "comfortable" | "compact" = "comfortable") {
+export function updateTrafficURL(
+  query: string,
+  source: string,
+  density: "comfortable" | "compact" = "comfortable",
+  filters?: LiveFilters,
+) {
   const next = new URL(window.location.href)
+  if (filters) writeLiveFiltersToURL(next, filters)
   if (query) next.searchParams.set("traffic_q", query)
   else next.searchParams.delete("traffic_q")
   if (source) next.searchParams.set("traffic_source", source)

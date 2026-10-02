@@ -63,7 +63,7 @@ test("clicking a domain narrows the current filter to it", () => {
 
 test("the Traffic page lists domains and the Devices page de-duplicates addresses", () => {
   const traffic = webUIFile("workspaces/traffic/TrafficWorkspace.tsx")
-  assert.match(traffic, /<legend>Domains<\/legend>/)
+  assert.match(traffic, /aria-label="Top domains in this view"/)
   assert.match(traffic, /applyDomain\(value\.domain\)/)
   assert.match(traffic, /FACET_REFRESH_MS/)
   for (const file of ["workspaces/devices/DeviceRow.tsx", "workspaces/devices/DeviceDetailDrawer.tsx"]) {
