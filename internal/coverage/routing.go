@@ -153,8 +153,8 @@ func encryptedDNSFindings(in RoutingInput) []Finding {
 		encrypted.Detail = "Encrypted DNS to known resolvers is blocked, so devices fall back to DNS that ShakerProxy records."
 	} else {
 		encrypted.Status = FindingGap
-		encrypted.Detail = fmt.Sprintf("%s is allowed. ShakerProxy sees which resolver a device uses, but not the names it looks up.", joinWords(missing))
-		encrypted.Fix = "On DNS & HTTPS, block encrypted DNS so devices fall back to plain DNS."
+		encrypted.Detail = fmt.Sprintf("%s is allowed and shown in Traffic as DoH, DoT or DoQ: ShakerProxy sees which resolver a device uses, but not the names it looks up.", joinWords(missing))
+		encrypted.Fix = "To see those names, turn on Block encrypted DNS on DNS & HTTPS; devices then fall back to plain DNS."
 	}
 	plain := Finding{ID: FindingPlainDNS, Title: "DNS sent to other resolvers"}
 	if in.RedirectPlainDNS {

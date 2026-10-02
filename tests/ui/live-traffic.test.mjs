@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   ALL_STREAM_KINDS,
+  STREAM_KINDS,
   DEFAULT_LIVE_FILTERS,
   composeLiveQuery,
   eventsPerMinute,
@@ -37,11 +38,12 @@ test("each kind of traffic reads as one line", () => {
 })
 
 test("chips compose one filter, including a client's merged records", () => {
-  assert.match(composeLiveQuery(DEFAULT_LIVE_FILTERS), /^\(\(kind:shakerproxy\.dns OR kind:zeek\.dns OR kind:shakerproxy\.blocked OR app\.protocol:doh\) OR /)
+  const chip = (id) => STREAM_KINDS.find((kind) => kind.id === id).query
+  assert.ok(composeLiveQuery(DEFAULT_LIVE_FILTERS).startsWith(`(${chip("dns")} OR `))
   const query = composeLiveQuery({ kinds: ["dns", "http"], clients: [PHONE], time: "last_1h", search: "github" }, "", (id) => (id === PHONE ? [FORMER] : []))
   assert.equal(
     query,
-    `time:last_1h AND ((kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked OR app.protocol:doh) OR ((http.host:* AND NOT source:SURICATA) OR (kind:shakerproxy.conn AND protocol:tcp AND dst.port:80))) AND (device.id:${PHONE} OR device.id:${FORMER}) AND github`,
+    `time:last_1h AND (${chip("dns")} OR ${chip("http")}) AND (device.id:${PHONE} OR device.id:${FORMER}) AND github`,
   )
   assert.equal(composeLiveQuery({ kinds: [], clients: [], time: "", search: "a b" }, "proto:mqtt"), `"a b" AND (proto:mqtt)`)
   // The server accepts 128 query terms: at most 12 device IDs go into one
@@ -135,4 +137,13 @@ test("type chips include the connections the gateway reports", async () => {
   assert.match(query.http, /kind:shakerproxy\.conn AND protocol:tcp AND dst\.port:80/)
   assert.match(query.other, /kind:shakerproxy\.conn AND NOT dst\.port:443 AND NOT dst\.port:80 AND NOT dst\.port:53/)
   assert.match(webUIFile("workspaces/traffic/TrafficStream.tsx"), /mergeInstantConnections\(foldSplitConnections\(/)
+})
+
+test("encrypted DNS is identified by kind", () => {
+  const line = (app_protocol, extra = {}) => streamLine({ ...base, kind: "zeek.conn", app_protocol, ...extra })
+  assert.equal(line("dot", { protocol: "tcp", destination_ip: "1.1.1.1", destination_port: 853 }).badge, "DoT")
+  assert.equal(line("doq", { protocol: "udp", destination_ip: "94.140.14.14", destination_port: 853 }).badge, "DoQ")
+  assert.equal(line("doh", { protocol: "tcp", tls_server_name: "dns.google", destination_port: 443 }).badge, "DoH")
+  for (const kind of ["dot", "doq", "doh"]) assert.equal(line(kind).kind, "dns")
+  assert.match(composeLiveQuery({ ...DEFAULT_LIVE_FILTERS, kinds: ["dns"] }), /app\.protocol:dot OR app\.protocol:doq/)
 })

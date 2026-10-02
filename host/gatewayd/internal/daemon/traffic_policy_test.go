@@ -757,10 +757,10 @@ func TestTrafficPolicyRollbackRestoresPreviousBehaviorAtNewRevision(t *testing.T
 		t.Fatal(err)
 	}
 	// The installation starts with the visibility default; turn encrypted
-	// DNS blocking off, then roll back to it.
-	policy := trafficpolicy.LegacyDefaultPolicy()
+	// DNS blocking on, then roll back to the default.
+	policy := trafficpolicy.BlockingPolicy()
 	policy.Revision = 2
-	policy.Name = "Allow encrypted DNS"
+	policy.Name = "Block encrypted DNS"
 	if _, err := manager.Apply(t.Context(), policy, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -768,7 +768,7 @@ func TestTrafficPolicyRollbackRestoresPreviousBehaviorAtNewRevision(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.Policy.Revision != 3 || !document.Policy.EncryptedDNS.BlockDoT || !document.Policy.EncryptedDNS.BlockEncryptedDNS() {
+	if document.Policy.Revision != 3 || document.Policy.EncryptedDNS.BlockDoT || document.Policy.EncryptedDNS.BlockEncryptedDNS() || !document.Policy.EncryptedDNS.ForcePlainDNS() {
 		t.Fatalf("unexpected rollback: %#v", document)
 	}
 }

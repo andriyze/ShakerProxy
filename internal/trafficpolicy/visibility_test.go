@@ -2,6 +2,7 @@ package trafficpolicy
 
 import (
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,9 +12,10 @@ func singleArmLab() RenderContext {
 	return RenderContext{LabInterface: "ens18", LabCIDR: "192.168.10.0/24", LabGatewayIPv4: "192.168.10.177", IPv6Listeners: true}
 }
 
-func TestTheDefaultForcesPlainDNSAndBlocksEncryptedDNS(t *testing.T) {
+func TestTheDefaultForcesPlainDNSAndOnlyIdentifiesEncryptedDNS(t *testing.T) {
 	policy := DefaultPolicy()
-	if !policy.EncryptedDNS.ForcePlainDNS() || !policy.EncryptedDNS.BlockEncryptedDNS() || policy.EncryptedDNS.EffectiveMode() != EncryptedDNSEnforceLocal {
+	// Encrypted DNS is identified, not blocked, unless the tester asks.
+	if !policy.EncryptedDNS.ForcePlainDNS() || policy.EncryptedDNS.BlockEncryptedDNS() || policy.EncryptedDNS.EffectiveMode() != EncryptedDNSEnforceLocal {
 		t.Fatalf("default DNS policy = %+v", policy.EncryptedDNS)
 	}
 	// Without upstream servers the forwarder uses the host's resolvers.
@@ -31,7 +33,7 @@ func TestTheDefaultForcesPlainDNSAndBlocksEncryptedDNS(t *testing.T) {
 }
 
 func TestBlockingEncryptedDNSRejectsDoTDoQAndKnownDoHButAnswersPlainDNS(t *testing.T) {
-	rules := mustRender(t, DefaultPolicy(), singleArmLab())
+	rules := mustRender(t, BlockingPolicy(), singleArmLab())
 	filter := strings.Join(rules.FilterRules, "\n")
 	for _, want := range []string{
 		"-A SHAKERPROXY-FORWARD -i ens18 -s 192.168.10.0/24 ! -d 192.168.10.0/24 -p tcp --dport 853 -j REJECT --reject-with tcp-reset",
@@ -101,7 +103,7 @@ func TestAnUntouchedObserveDefaultMigratesAndAnAdministratorChoiceStays(t *testi
 	digest, _ := Digest(legacy)
 	untouched := Document{Schema: SchemaVersion, Policy: legacy, Digest: digest, AppliedAt: time.Now()}
 	migrated, ok := MigrateUntouchedDefault(untouched)
-	if !ok || migrated.Revision != 2 || migrated.Name != DefaultPolicyName || !migrated.EncryptedDNS.ForcePlainDNS() || !migrated.EncryptedDNS.BlockEncryptedDNS() {
+	if !ok || migrated.Revision != 2 || migrated.Name != DefaultPolicyName || !migrated.EncryptedDNS.ForcePlainDNS() || migrated.EncryptedDNS.BlockEncryptedDNS() {
 		t.Fatalf("untouched default migrated to %+v ok=%v", migrated, ok)
 	}
 	// An administrator who applied anything, even observe-only again, has a
@@ -123,7 +125,7 @@ func TestAnUntouchedObserveDefaultMigratesAndAnAdministratorChoiceStays(t *testi
 }
 
 func TestTheForwarderGetsTheResolverNamesToRefuse(t *testing.T) {
-	runtime, err := ProjectStandaloneProxyRuntimeWithDevices(DefaultPolicy(), EmptyStandaloneDeviceRuntime())
+	runtime, err := ProjectStandaloneProxyRuntimeWithDevices(BlockingPolicy(), EmptyStandaloneDeviceRuntime())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,5 +184,42 @@ func TestTheResolverCatalogIsWellFormed(t *testing.T) {
 	}
 	if !IsEncryptedDNSCanary("Mask.iCloud.com.") || IsEncryptedDNSCanary("icloud.com") {
 		t.Fatal("canary matching is wrong")
+	}
+}
+
+// beta.11 wrote a default that also blocked encrypted DNS. An installation
+// that got it automatically moves to identifying encrypted DNS instead; a
+// policy an administrator applied stays as it is.
+func TestTheBeta11BlockingDefaultMovesToIdentifyOnly(t *testing.T) {
+	store := &Store{Path: filepath.Join(t.TempDir(), "policy.json")}
+	if _, err := store.Apply(LegacyDefaultPolicy(), 0); err != nil {
+		t.Fatal(err)
+	}
+	beta11 := blockingDefaultPolicy()
+	beta11.Revision = 2
+	document, err := store.Apply(beta11, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, ok := MigrateUntouchedDefault(document)
+	if !ok || migrated.Revision != 3 || !migrated.EncryptedDNS.ForcePlainDNS() || migrated.EncryptedDNS.BlockEncryptedDNS() {
+		t.Fatalf("beta.11 default migrated to %+v ok=%v", migrated.EncryptedDNS, ok)
+	}
+	fresh := &Store{Path: filepath.Join(t.TempDir(), "policy.json")}
+	freshDocument, err := fresh.Apply(blockingDefaultPolicy(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := MigrateUntouchedDefault(freshDocument); !ok {
+		t.Fatal("a fresh beta.11 install was not migrated")
+	}
+	chosen := BlockingPolicy()
+	chosen.Name = "Block encrypted DNS"
+	chosen.Revision = 4
+	adminDocument, err := store.Apply(chosen, 3)
+	if err == nil {
+		if _, ok := MigrateUntouchedDefault(adminDocument); ok {
+			t.Fatal("an administrator's blocking choice was migrated")
+		}
 	}
 }

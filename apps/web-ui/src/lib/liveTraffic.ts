@@ -17,7 +17,7 @@ export const STREAM_KINDS: { id: StreamKind; label: string; description: string;
     id: "dns",
     label: "DNS",
     description: "Name lookups and their answers",
-    query: "(kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked OR app.protocol:doh)",
+    query: "(kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked OR app.protocol:doh OR app.protocol:dot OR app.protocol:doq)",
   },
   {
     id: "tls",
@@ -176,7 +176,7 @@ const INSTANT_BADGES: Record<StreamKind, string> = { dns: "DNS", tls: "TLS", qui
 // streamLine is what one row says, e.g. DNS · maps.google.com · A → 142.250.1.1
 export function streamLine(event: RecentEvent): StreamLine {
   if (event.blocked) return blockedStreamLine(event)
-  if (event.app_protocol === "doh") return dohStreamLine(event)
+  if (event.app_protocol === "doh" || event.app_protocol === "dot" || event.app_protocol === "doq") return dohStreamLine(event)
   const kind = streamKind(event)
   const peer = endpoint(event.destination_ip, event.destination_port)
   const bytes = event.network_bytes ? compactBytes(event.network_bytes) : ""
@@ -301,12 +301,14 @@ export function blockReasonLabel(reason?: string): string {
 
 // dohStreamLine is an encrypted DNS connection (DNS over HTTPS): its lookups
 // are hidden from ShakerProxy unless encrypted DNS is blocked or decrypted.
+// dohStreamLine is encrypted DNS ShakerProxy identified but cannot read:
+// DNS over HTTPS, over TLS (TCP 853) or over QUIC (UDP 853).
 function dohStreamLine(event: RecentEvent): StreamLine {
   const peer = endpoint(event.destination_ip, event.destination_port)
   const bytes = event.network_bytes ? compactBytes(event.network_bytes) : ""
   return {
     kind: "dns",
-    badge: "DoH",
+    badge: event.app_protocol === "dot" ? "DoT" : event.app_protocol === "doq" ? "DoQ" : "DoH",
     name: event.tls_server_name || event.dns_name || peer || event.kind,
     detail: ["encrypted DNS, lookups hidden", bytes].filter(Boolean).join(" · "),
     peer,
