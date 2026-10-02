@@ -97,6 +97,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/events/live-batch", s.requireQueryToken(http.HandlerFunc(s.listLiveEvents)))
 	mux.Handle("GET /v1/query-stats", s.requireQueryToken(http.HandlerFunc(s.queryStats)))
 	mux.Handle("GET /v1/protocol-summary", s.requireQueryToken(http.HandlerFunc(s.listProtocolSummary)))
+	mux.Handle("GET /v1/device-platform-hints", s.requireQueryToken(http.HandlerFunc(s.listDevicePlatformHints)))
 	if s.eventSnapshots != nil {
 		mux.Handle("POST /v1/event-query-snapshots", s.requireQueryToken(http.HandlerFunc(s.createEventQuerySnapshot)))
 		mux.Handle("GET /v1/event-query-snapshots/{snapshotID}", s.requireQueryToken(http.HandlerFunc(s.getEventQuerySnapshot)))

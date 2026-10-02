@@ -3272,6 +3272,18 @@ components:
         evidence_as_of: {type: string, format: date-time}
         devices: {type: array, maxItems: 50000, items: {$ref: "#/components/schemas/Device"}}
         address_aliases: {type: array, maxItems: 4096, items: {$ref: "#/components/schemas/AddressAlias"}}
+        platform_hints:
+          type: object
+          description: What each listed device most likely is, keyed by device ID, from the operating-system connectivity checks it made in the last 7 days (for example GrapheneOS phone from connectivitycheck.grapheneos.network). Derived on each request and never stored; best effort, so it is absent when the event store is slow or unavailable, and for API tokens without traffic:read.
+          maxProperties: 50000
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            required: [platform, domain, last_seen]
+            properties:
+              platform: {type: string, maxLength: 64}
+              domain: {type: string, maxLength: 253}
+              last_seen: {type: string, format: date-time}
     AddressAlias:
       type: object
       additionalProperties: false

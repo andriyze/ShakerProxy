@@ -163,7 +163,9 @@ test("after saving, the page says the plan still has to be applied", async () =>
 
 test("a device without hostnames (seen only in the ARP table) does not break the Devices page", () => {
   const row = webUIFile("workspaces/devices/DeviceRow.tsx")
-  assert.match(row, /device\.hostnames\?\.at\(-1\)\?\.hostname/)
+  // The row's title comes from the shared helper, which guards hostnames.
+  assert.match(row, /deviceTitle\(device, "", platformHint\)/)
+  assert.match(webUIFile("lib/deviceTitle.ts"), /device\.hostnames \?\? \[\]/)
   assert.doesNotMatch(row, /device\.hostnames\.at\(/)
   assert.match(webUIFile("workspaces/devices/DeviceDetailDrawer.tsx"), /device\.hostnames\?\.length/)
 })
