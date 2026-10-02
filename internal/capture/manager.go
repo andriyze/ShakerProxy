@@ -42,15 +42,27 @@ func (m *Manager) Start(ctx context.Context, request StartRequest, source Source
 	if err != nil {
 		return View{}, err
 	}
-	for _, view := range views {
+	var active *View
+	for index, view := range views {
 		if view.Session.Request.IdempotencyKey == request.IdempotencyKey {
 			if view.Session.Request == request && view.Session.Source == source {
 				return view, nil
 			}
 			return View{}, errors.New("capture idempotency key conflicts with an existing request")
 		}
-		if view.Active {
+		if view.Active && active == nil {
+			active = &views[index]
+		}
+	}
+	if active != nil {
+		// One capture runs at a time, so disk use stays one ring. A manual
+		// capture takes over from the automatic lab recording, which gatewayd
+		// resumes when the manual capture ends.
+		if !active.Session.Request.Automatic || request.Automatic {
 			return View{}, errors.New("another capture session is active")
+		}
+		if err := m.Controller.Stop(ctx, active.Session.ID); err != nil {
+			return View{}, fmt.Errorf("stop the automatic lab recording: %w", err)
 		}
 	}
 	available, err := m.Store.AvailableBytes()

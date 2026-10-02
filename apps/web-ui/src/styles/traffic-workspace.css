@@ -2,5 +2,10 @@
 /* The sticky filter sits directly under the 60px top bar; below 900px the
    side navigation becomes a second sticky bar, so it moves further down. */
 @media(max-width:900px){.event-query{top:116px}}
-.traffic-not-recording{margin:10px 0 0;padding:9px 12px;border-left:3px solid #e2b04a;background:#2a2412;color:#f3e3b8}
+/* Lab recording banner, shown on Traffic and Devices. */
+.lab-recording{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:10px 0;padding:9px 12px;border-left:3px solid #e2b04a;background:#2a2412;color:#f3e3b8}
+.lab-recording.recording{border-left-color:#3fbf86;background:#0f2a20;color:#c9f2de}
+.lab-recording-dot{width:9px;height:9px;border-radius:50%;background:#ff5c5c;box-shadow:0 0 0 3px #ff5c5c33}
+.lab-recording-switch{padding:3px 10px;font-size:12px}
+.lab-recording-error{flex-basis:100%;color:#ffb4a8}
 .traffic-duplicates-toggle{margin-left:12px;padding:3px 9px;font-size:12px}

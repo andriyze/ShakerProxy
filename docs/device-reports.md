@@ -70,7 +70,11 @@ curl -X POST -H "Authorization: Bearer $SESSION" \
   capture path (default ring and a one-hour stop deadline) and links it
   (`capture_session_id`). It keeps packet headers only unless
   `full_capture: true`; the web UI and CLI ask for whole packets by default, so
-  domains and TLS server names are visible. If capture is not available the
+  domains and TLS server names are visible. Lab traffic is recorded
+  automatically anyway (see
+  [automatic lab recording](capture-and-storage.md#automatic-lab-recording));
+  a session's capture replaces that recording while it runs and links the
+  packets to the session. If capture is not available the
   session still starts and `warnings` explains why. Stopping the session stops
   its capture.
 - `GET /api/v1/test-sessions?device=<ref>&state=RUNNING|STOPPED&limit=50`,

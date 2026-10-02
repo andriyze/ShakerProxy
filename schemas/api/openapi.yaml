@@ -666,6 +666,38 @@ paths:
         "400": {$ref: "#/components/responses/Error"}
         "401": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
+  /captures/lab-recording:
+    put:
+      operationId: setLabRecording
+      description: Turns automatic lab recording on or off. While it is on, the gateway records lab traffic (a 24-hour full-packet ring, restarted automatically; the last two finished recordings are kept) whenever a confirmed lab plan routes. A manual capture replaces it until the manual capture ends. GET /system/status reports the current state as lab_recording.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: {type: boolean}
+      responses:
+        "200":
+          description: Lab recording state after the change
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: {type: boolean}
+                  recording: {type: boolean}
+                  session_id: {type: string}
+                  manual: {type: boolean, description: A manual capture runs in place of the automatic recording}
+                  reason: {type: string, description: Why the lab is not being recorded, in plain language}
+                  checked_at: {type: string, format: date-time}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /captures/{sessionID}:
     get:
       operationId: getCaptureStats

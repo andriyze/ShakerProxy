@@ -213,6 +213,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/traffic-policy/rollback", s.requireAuth(http.HandlerFunc(s.rollbackTrafficPolicy)))
 	mux.Handle("GET /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesRead, http.HandlerFunc(s.listCaptures)))
 	mux.Handle("POST /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.startCapture)))
+	mux.Handle("PUT /api/v1/captures/lab-recording", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.setLabRecording)))
 	mux.Handle("GET /api/v1/captures/{sessionID}", s.requireAuthOrScope(apitoken.ScopeCapturesRead, http.HandlerFunc(s.captureStats)))
 	mux.Handle("POST /api/v1/captures/{sessionID}/stop", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.stopCapture)))
 	mux.Handle("POST /api/v1/captures/{sessionID}/deletion-preview", s.requireAuth(http.HandlerFunc(s.previewCaptureDeletion)))
@@ -855,6 +856,29 @@ func (s *Server) startCapture(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("capture start accepted", "username", sessionUsername(r.Context()), "capture_id", result.Session.ID)
 	writeJSON(w, http.StatusCreated, result)
+}
+
+// setLabRecording turns automatic lab recording on or off. While it is on,
+// the gateway records lab traffic whenever a confirmed lab plan routes.
+func (s *Server) setLabRecording(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeDecodeError(w, err, "lab recording")
+		return
+	}
+	if request.Enabled == nil {
+		writeError(w, http.StatusBadRequest, "enabled_required", "Send {\"enabled\": true} or {\"enabled\": false}.")
+		return
+	}
+	var result gatewayprotocol.LabRecordingStatus
+	if err := s.gateway.Call(r.Context(), "SetLabRecording", gatewayprotocol.SetLabRecordingParams{Enabled: *request.Enabled}, &result); err != nil {
+		writeCaptureGatewayError(w, err)
+		return
+	}
+	s.logger.Info("lab recording setting changed", "username", sessionUsername(r.Context()), "enabled", *request.Enabled)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) stopCapture(w http.ResponseWriter, r *http.Request) {
