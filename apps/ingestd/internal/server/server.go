@@ -101,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/query-stats", s.requireQueryToken(http.HandlerFunc(s.queryStats)))
 	mux.Handle("GET /v1/protocol-summary", s.requireQueryToken(http.HandlerFunc(s.listProtocolSummary)))
 	mux.Handle("GET /v1/device-platform-hints", s.requireQueryToken(http.HandlerFunc(s.listDevicePlatformHints)))
+	mux.Handle("GET /v1/observed-dhcp", s.requireQueryToken(http.HandlerFunc(s.listObservedDHCP)))
 	if s.eventSnapshots != nil {
 		mux.Handle("POST /v1/event-query-snapshots", s.requireQueryToken(http.HandlerFunc(s.createEventQuerySnapshot)))
 		mux.Handle("GET /v1/event-query-snapshots/{snapshotID}", s.requireQueryToken(http.HandlerFunc(s.getEventQuerySnapshot)))

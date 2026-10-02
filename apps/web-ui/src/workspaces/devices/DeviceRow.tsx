@@ -1,6 +1,6 @@
 import React, { FormEvent, useRef, useState } from "react"
 import { uniqueAddresses } from "../../lib/deviceAddresses"
-import { deviceMAC, deviceTitle, locallyAdministered } from "../../lib/deviceTitle"
+import { deviceMAC, deviceTitle, dhcpIdentityParts, locallyAdministered, platformEvidence } from "../../lib/deviceTitle"
 import { withPassword } from "../../shell/passwordPrompt"
 import { timeAgo, idempotencyKey } from "../../lib/format"
 import { DeviceTrafficDeletionPreviewControl } from "./DeviceTrafficDeletion"
@@ -167,8 +167,20 @@ export function DeviceRow({
             </small>
           )}
           {platformHint && !device.friendly_name && (
-            <small className="device-platform" title="Only this kind of device contacts this server: a connectivity check, time, location or update service of its operating system.">
-              Identified from its system traffic to {platformHint.domain}
+            <small
+              className="device-platform"
+              title={
+                platformHint.source === "dhcp"
+                  ? "Only this kind of device's DHCP client asks for an address this way."
+                  : "Only this kind of device contacts this server: a connectivity check, time, location or update service of its operating system."
+              }
+            >
+              {platformEvidence(platformHint)}
+            </small>
+          )}
+          {device.observed_dhcp && (
+            <small className="device-dhcp" title="From the DHCP exchanges the lab recording saw, when the network's router, not ShakerProxy, gave the device its address.">
+              DHCP · {dhcpIdentityParts(device).join(" · ")} · {timeAgo(device.observed_dhcp.last_seen)}
             </small>
           )}
           <code>{device.id}</code>

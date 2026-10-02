@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"shakerproxy.dev/shakerproxy/internal/apitoken"
+	"shakerproxy.dev/shakerproxy/internal/ingest"
 	deviceinventory "shakerproxy.dev/shakerproxy/internal/inventory"
 )
 
@@ -37,6 +38,11 @@ type deviceMatch struct {
 	HardwareAddresses []string `json:"hardware_addresses"`
 	Online            bool     `json:"online"`
 	Match             string   `json:"match"`
+	// DHCPHostName, DHCPVendorClass and DHCPPlatform are what the device's
+	// DHCP request on the lab said, when another server answered it.
+	DHCPHostName    string `json:"dhcp_host_name,omitempty"`
+	DHCPVendorClass string `json:"dhcp_vendor_class,omitempty"`
+	DHCPPlatform    string `json:"dhcp_platform,omitempty"`
 }
 
 type deviceResolution struct {
@@ -357,7 +363,7 @@ func newDeviceMatch(device deviceinventory.Device, kind string) deviceMatch {
 	if device.Vendor != nil {
 		vendor = device.Vendor.Name
 	}
-	return deviceMatch{
+	match := deviceMatch{
 		DeviceID:          device.ID,
 		FriendlyName:      deviceDisplayName(device),
 		Vendor:            vendor,
@@ -366,6 +372,13 @@ func newDeviceMatch(device deviceinventory.Device, kind string) deviceMatch {
 		Online:            device.Online,
 		Match:             kind,
 	}
+	if observed := device.ObservedDHCP; observed != nil {
+		match.DHCPHostName, match.DHCPVendorClass = observed.HostName, observed.VendorClass
+		if platform, _, _, ok := ingest.DHCPPlatform(observed.VendorClass, observed.ParameterList); ok {
+			match.DHCPPlatform = platform
+		}
+	}
+	return match
 }
 
 // deviceCurrentAddresses returns active addresses, or the most recently

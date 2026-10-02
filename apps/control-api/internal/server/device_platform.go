@@ -28,8 +28,13 @@ type devicePlatformCache struct {
 
 type devicePlatformHint struct {
 	Platform string    `json:"platform"`
-	Domain   string    `json:"domain"`
+	Domain   string    `json:"domain,omitempty"`
 	LastSeen time.Time `json:"last_seen"`
+	// Source is "dhcp" when the device's DHCP request identified it; Detail
+	// is then the vendor class or option order that matched. Hints from a
+	// connectivity check name their Domain instead.
+	Source string `json:"source,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // deviceListResponse is the inventory snapshot plus platform hints keyed by
@@ -70,9 +75,11 @@ func (s *Server) devicePlatformHints(ctx context.Context) []ingest.DevicePlatfor
 }
 
 // platformHintsFor picks each listed device's best hint, including hints
-// recorded under device records merged into it.
+// recorded under device records merged into it. A DHCP fingerprint names a
+// device the connectivity checks do not, or name less specifically; a check
+// wins a tie.
 func platformHintsFor(devices []deviceinventory.Device, hints []ingest.DevicePlatformHint) map[string]devicePlatformHint {
-	if len(hints) == 0 || len(devices) == 0 {
+	if len(devices) == 0 {
 		return nil
 	}
 	byID := make(map[string]ingest.DevicePlatformHint, len(hints))
@@ -86,6 +93,12 @@ func platformHintsFor(devices []deviceinventory.Device, hints []ingest.DevicePla
 		for _, id := range append([]string{device.ID}, device.FormerIDs...) {
 			if hint, ok := byID[id]; ok && (!found || ingest.PreferDevicePlatformHint(hint, best)) {
 				best, found = hint, true
+			}
+		}
+		if observed := device.ObservedDHCP; observed != nil {
+			if platform, evidence, rank, ok := ingest.DHCPPlatform(observed.VendorClass, observed.ParameterList); ok && (!found || rank > ingest.DevicePlatformRank(best)) {
+				result[device.ID] = devicePlatformHint{Platform: platform, LastSeen: observed.LastSeen, Source: "dhcp", Detail: evidence}
+				continue
 			}
 		}
 		if found {

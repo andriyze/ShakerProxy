@@ -39,6 +39,9 @@ type DeviceMatch struct {
 	HardwareAddresses []string `json:"hardware_addresses"`
 	Online            bool     `json:"online"`
 	Match             string   `json:"match"`
+	DHCPHostName      string   `json:"dhcp_host_name,omitempty"`
+	DHCPVendorClass   string   `json:"dhcp_vendor_class,omitempty"`
+	DHCPPlatform      string   `json:"dhcp_platform,omitempty"`
 }
 
 type DeviceResolution struct {
@@ -74,7 +77,8 @@ func (c *Client) ResolveDevice(ctx context.Context, reference string) (DeviceRes
 }
 
 func validateDeviceMatch(match DeviceMatch) error {
-	if !agentDeviceIDPattern.MatchString(match.DeviceID) || !boundedAgentText(match.FriendlyName, 0, 256) || !boundedAgentText(match.Vendor, 0, 256) || len(match.Addresses) > 256 || len(match.HardwareAddresses) > 32 {
+	if !agentDeviceIDPattern.MatchString(match.DeviceID) || !boundedAgentText(match.FriendlyName, 0, 256) || !boundedAgentText(match.Vendor, 0, 256) || len(match.Addresses) > 256 || len(match.HardwareAddresses) > 32 ||
+		!boundedAgentText(match.DHCPHostName, 0, 253) || !boundedAgentText(match.DHCPVendorClass, 0, 255) || !boundedAgentText(match.DHCPPlatform, 0, 64) {
 		return errors.New("device match is invalid")
 	}
 	switch match.Match {
