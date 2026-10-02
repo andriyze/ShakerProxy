@@ -63,8 +63,8 @@ type runtimeWork struct {
 	// for an inline bridge on a host with IPv6.
 	bridgeNetfilterIPv6 bool
 	ipv6                networktransaction.IPv6RollbackSpec
-	ipv6Restore        string
-	ipv6Hooks          []FirewallHook
+	ipv6Restore         string
+	ipv6Hooks           []FirewallHook
 }
 
 // bind proves that the persisted preview still belongs to the confirmed plan
