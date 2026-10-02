@@ -585,3 +585,40 @@ export function pageTimeline(events: readonly RecentEvent[], buckets: number, no
   return out
 }
 
+
+// The server summary (GET /api/v1/events/summary) counts the whole window
+// exactly; the page's own counts are the fallback while it loads or when an
+// older appliance has no summary.
+type SummaryFacet = { field: string; values: { value: string; label?: string; count: number }[]; exact: boolean; sampled_events?: number }
+type SummaryShape = { buckets: { start: string; counts: Record<string, number> }[]; facets: SummaryFacet[]; totals: { events: number } }
+
+export function summaryTimeline(summary: SummaryShape): TimelineBucket[] {
+  return summary.buckets.map((bucket) => {
+    const counts: Partial<Record<StreamKind, number>> = {}
+    let total = 0
+    for (const [kind, count] of Object.entries(bucket.counts)) {
+      if (!count) continue
+      // Blocked attempts are drawn as DNS: they are refused lookups or
+      // encrypted-DNS connections.
+      const key = (kind === "blocked" ? "dns" : kind) as StreamKind
+      counts[key] = (counts[key] ?? 0) + count
+      total += count
+    }
+    return { start: Date.parse(bucket.start), counts, total }
+  })
+}
+
+export function summaryFacets(summary: SummaryShape, domains: FacetValue[]): LiveFacets {
+  const facet = (field: string) => summary.facets.find((item) => item.field === field)?.values ?? []
+  return {
+    clients: facet("device").map((value) =>
+      value.value.startsWith("ip:")
+        ? { key: value.value, label: value.label || value.value.slice(3), count: value.count, filter: `src.ip:${value.value.slice(3)}` }
+        : { key: value.value, label: value.label || value.value, count: value.count, filter: `device.id:${value.value}` },
+    ),
+    kinds: facet("type").map((value) => ({ key: value.value, label: STREAM_KINDS.find((kind) => kind.id === value.value)?.label ?? value.value, count: value.count, filter: "" })),
+    owners: facet("organization").map((value) => ({ key: value.value, label: value.label || value.value, count: value.count, filter: `owner:${value.value.toLowerCase().replace(/[^a-z0-9.-]/g, "")}` })),
+    domains,
+    ports: facet("destination_port").map((value) => ({ key: value.value, label: value.label || value.value, count: value.count, filter: `dst.port:${value.value}` })),
+  }
+}
