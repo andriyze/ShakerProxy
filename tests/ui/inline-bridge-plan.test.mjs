@@ -10,7 +10,7 @@ test("the inline bridge keeps ShakerProxy's address and makes the network the la
     ipv4_mode: "STATIC",
     ipv4_address: "192.168.10.177/24",
     ipv4_gateway: "192.168.10.1",
-    ipv6_mode: "NONE",
+    ipv6_mode: "SLAAC",
     dns_mode: "USE_DHCP",
     upstream_nat: false,
     clamp_mss: false,

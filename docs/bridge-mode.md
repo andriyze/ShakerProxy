@@ -62,7 +62,7 @@ port role `LAB`; ShakerProxy's address is the static `wan.ipv4_address`, and
   "management": {"preserve_active_ssh": true},
   "wan": {
     "ipv4_mode": "STATIC", "ipv4_address": "192.168.1.20/24", "ipv4_gateway": "192.168.1.1",
-    "ipv6_mode": "NONE", "dns_mode": "USE_DHCP",
+    "ipv6_mode": "SLAAC", "dns_mode": "USE_DHCP",
     "upstream_nat": false, "clamp_mss": false,
     "allow_working_wan_change": true, "allow_cloud_init_override": false
   },
@@ -84,6 +84,9 @@ port role `LAB`; ShakerProxy's address is the static `wan.ipv4_address`, and
   through the host firewall. That is what lets ShakerProxy answer plain DNS
   and report connections as they open. Docker normally loads the
   `br_netfilter` module; a host without it is refused with how to load it.
+- On a host with IPv6, `net.bridge.bridge-nf-call-ip6tables` is turned on as
+  well, and ShakerProxy loads an IPv6 rule that lets bridged IPv6 pass even
+  where Docker sets the IPv6 FORWARD policy to DROP.
 - ShakerProxy runs no DHCP and no NAT; frames are forwarded unchanged.
 
 As with every plan, an independent rollback deadline is armed first. If you
@@ -111,10 +114,17 @@ rewritten its destination to ShakerProxy's own address.
   the device port (`-m physdev --physdev-in`), so other hosts on your network
   are never redirected.
 - **Encrypted DNS** blocking and **per-device rules** (block internet, block
-  domains) apply to IPv4, as in other labs. "Block internet" keeps the local
-  network reachable.
-- **IPv6** crosses the bridge untouched: it is recorded, but not redirected
-  or blocked.
+  domains) apply to IPv4 and IPv6, as in other labs. "Block internet" keeps
+  the local network reachable.
+- **IPv6** comes from your router: its advertisements cross the bridge, and
+  devices configure their addresses from them. With `wan.ipv6_mode` set to
+  `SLAAC`, ShakerProxy configures an address on the bridge from the same
+  advertisements, and plain DNS that devices send over IPv6 is answered by
+  ShakerProxy too, from the address the device asked. With `NONE`,
+  ShakerProxy has no IPv6 address to answer from, so DNS over IPv6 is
+  recorded but not redirected (the plan warns `BRIDGE_IPV6_DNS_NOT_FORCED`):
+  the kernel can only redirect a query to an address of the bridge with the
+  query's own scope.
 - **HTTPS decryption** uses the same kind of redirect as DNS forcing. The
   network lab proves the DNS redirect on a bridge; HTTPS decryption on a
   bridge has not been tested on real hardware yet.
@@ -145,7 +155,9 @@ rewritten its destination to ShakerProxy's own address.
 ## Proof
 
 `tests/netlab/bridge-mode.sh` (part of `make netlab` and CI) builds a router
-that runs DHCP only, a device behind ShakerProxy's device port and another
-device on the router's side, and proves the lease, the DNS redirect,
-conntrack reporting, the device-port recording and rollback against the real
-kernel.
+that runs DHCP and IPv6 router advertisements (two prefixes) but no DNS, a
+device behind ShakerProxy's device port and another device on the router's
+side. Against the real kernel, with Docker-style DROP policies for IPv4 and
+IPv6, it proves the lease, the IPv6 addresses, the DNS redirect over IPv4
+and IPv6 (UDP and TCP), conntrack reporting, the device-port recording and
+rollback.

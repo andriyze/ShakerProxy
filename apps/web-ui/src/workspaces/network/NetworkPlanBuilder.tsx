@@ -570,9 +570,10 @@ export function NetworkPlanBuilder({
                     </label>
                   )}
                   <p className="danger-note">
-                    Not available on a bridge yet: ShakerProxy&apos;s Wi-Fi access point, and redirecting or blocking IPv6
-                    (IPv6 is recorded). DNS forcing and device rules apply to IPv4. While ShakerProxy is off the device has
-                    no network; emergency bypass keeps it online without inspection.
+                    Not available on a bridge yet: ShakerProxy&apos;s Wi-Fi access point. DNS forcing and device rules
+                    apply to IPv4 and IPv6; ShakerProxy takes its IPv6 address from your router to answer DNS over IPv6.
+                    While ShakerProxy is off the device has no network; emergency bypass keeps it online without
+                    inspection.
                   </p>
                 </fieldset>
               ) : (
