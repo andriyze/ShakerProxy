@@ -67,14 +67,9 @@ func (s *Server) inspectDiagnostics(ctx context.Context) gatewayprotocol.Diagnos
 			interfaceNotes = append(interfaceNotes, fmt.Sprintf("%d idle virtual interface(s), such as unused Docker bridges, are not counted", idleVirtual))
 		}
 		add(diagnosticCheck("interfaces", status, fmt.Sprintf("%d non-loopback interface(s) up; %d down", up, down), interfaceNotes...))
-		firewallStatus := gatewayprotocol.DiagnosticPass
-		if inspection.Firewall.SelectedBackend == "" || !inspection.Firewall.ApplyReady {
-			firewallStatus = gatewayprotocol.DiagnosticWarning
-			if state.OperatingMode == gatewayprotocol.ModeRouted {
-				firewallStatus = gatewayprotocol.DiagnosticFail
-			}
-		}
-		add(diagnosticCheck("firewall", firewallStatus, "Firewall backend and coexistence evidence inspected", "selected backend: "+diagnosticValue(inspection.Firewall.SelectedBackend, "unavailable"), fmt.Sprintf("blocking issues: %d", blockingFirewallIssues(inspection.Firewall.Issues))))
+		routedWithPlan := state.OperatingMode == gatewayprotocol.ModeRouted && state.activeNetworkPlan() != nil
+		firewallStatus, firewallNotes := firewallDiagnostic(inspection.Firewall, state.OperatingMode == gatewayprotocol.ModeRouted, routedWithPlan)
+		add(diagnosticCheck("firewall", firewallStatus, "Firewall backend and coexistence evidence inspected", firewallNotes...))
 	}
 
 	ipv4Default, ipv6Default, routeErr := diagnosticDefaultRoutes()
@@ -132,7 +127,7 @@ func (s *Server) inspectDiagnostics(ctx context.Context) gatewayprotocol.Diagnos
 	add(diagnosticCheck("forwarding", forwardingStatus, forwardingSummary, "IPv4: "+diagnosticValue(ipv4Forwarding, "unknown"), "IPv6: "+diagnosticValue(ipv6Forwarding, "unknown")))
 
 	active := state.activeNetworkPlan()
-	dhcpRequired := state.OperatingMode == gatewayprotocol.ModeRouted && active != nil && active.Plan.IPv4.Enabled
+	dhcpRequired := managedDHCPRequired(state.OperatingMode, active)
 	dhcpActive, dhcpKnown := diagnosticServiceActive(ctx, "shakerproxy-dhcp4.service")
 	if keaDirectoryBlocked() {
 		// Network plans back up and write the DHCPv4 file in /etc/kea.
@@ -496,14 +491,41 @@ func containsDiagnosticValue(values []string, expected string) bool {
 	return false
 }
 
-func blockingFirewallIssues(issues []firewall.Issue) int {
-	count := 0
-	for _, issue := range issues {
-		if issue.Blocking {
-			count++
+// firewallDiagnostic judges the firewall for health. While a confirmed plan
+// routes the lab, ShakerProxy's own chains exist: that blocks applying a
+// different plan (the Network page says so) but is not a fault. The
+// remaining blocking issues are named, not just counted.
+func firewallDiagnostic(inspection firewall.Inspection, routed, routedWithPlan bool) (gatewayprotocol.DiagnosticStatus, []string) {
+	var blocking []string
+	for _, issue := range inspection.Issues {
+		if !issue.Blocking || routedWithPlan && issue.Code == "SHAKERPROXY_CHAIN_CONFLICT" {
+			continue
 		}
+		blocking = append(blocking, issue.Code)
 	}
-	return count
+	notes := []string{"selected backend: " + diagnosticValue(inspection.SelectedBackend, "unavailable")}
+	if len(blocking) == 0 {
+		notes = append(notes, "blocking issues: none")
+	} else {
+		if len(blocking) > 4 {
+			blocking = append(blocking[:4], fmt.Sprintf("%d more", len(blocking)-4))
+		}
+		notes = append(notes, "blocking issues: "+strings.Join(blocking, ", "))
+	}
+	if inspection.SelectedBackend != "" && len(blocking) == 0 {
+		return gatewayprotocol.DiagnosticPass, notes
+	}
+	if routed {
+		return gatewayprotocol.DiagnosticFail, notes
+	}
+	return gatewayprotocol.DiagnosticWarning, notes
+}
+
+// managedDHCPRequired reports whether the active plan runs ShakerProxy's
+// DHCPv4 server; single-arm, passive and inline bridge plans leave DHCP to
+// the existing router.
+func managedDHCPRequired(mode string, active *networkplan.StagedPlan) bool {
+	return mode == gatewayprotocol.ModeRouted && active != nil && active.Plan.IPv4.Enabled && networkplan.UsesManagedDHCP4(active.Plan)
 }
 
 func diagnosticValue(value, fallback string) string {
