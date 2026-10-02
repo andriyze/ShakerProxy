@@ -151,6 +151,13 @@ func init() {
 			details:  "Checks interfaces, routes, DNS, firewall, Docker, disk, time, capture and service ports.",
 			examples: []string{"sudo shakerproxy doctor", "shakerproxy doctor --json"},
 			run:      (*cli).doctorCommand},
+		{name: "coverage", group: groupSystem, summary: "What traffic ShakerProxy is proven to see, and every way around it",
+			usage: []string{"coverage", "coverage run --password-file FILE"},
+			details: "Shows the last visibility coverage check (DNS, DoH, DoT, DoQ, HTTP, HTTPS, QUIC, TCP, UDP, ICMP, SSH, NTP, mDNS, SSDP, IPv6:\n" +
+				"seen or not, as what, and how fast) and how devices could bypass ShakerProxy in this lab. `coverage run` sends one of\n" +
+				"each from the virtual test lab through the real capture and analyzers; it needs the administrator password.",
+			examples: []string{"shakerproxy coverage", "shakerproxy coverage run --password-file pw", "shakerproxy coverage --json"},
+			run:      (*cli).coverageCommand},
 		{name: "login", group: groupSystem, summary: "Sign in and store an API token for the device commands",
 			usage:    []string{"login [--user admin] [--password-file FILE | --password-stdin]"},
 			details:  "Creates a 90-day API token and stores it privately: in your own config directory (~/.config/shakerproxy), or for root in /etc/shakerproxy/secrets when run with sudo. Run once per user.",

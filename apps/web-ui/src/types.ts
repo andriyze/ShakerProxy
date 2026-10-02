@@ -1337,6 +1337,58 @@ export type TestLabResult = {
   evidence_ref?: string
 }
 
+// Visibility coverage check (internal/coverage): which traffic types
+// ShakerProxy is proven to record, and every way around it in this lab.
+export type CoverageStatus = "PASS" | "FAIL" | "SKIP"
+export type CoverageFindingStatus = "GAP" | "OK" | "UNKNOWN"
+
+export type CoverageResult = {
+  id: string
+  name: string
+  category: string
+  status: CoverageStatus
+  summary: string
+  event_kinds: string[]
+  latency_ms?: number
+  attributed: boolean
+  missing?: string
+  app_protocol?: string
+}
+
+export type CoverageFinding = {
+  id: string
+  title: string
+  status: CoverageFindingStatus
+  detail: string
+  fix?: string
+}
+
+export type CoverageReport = {
+  schema: number
+  run_id: string
+  state: "RUNNING" | "COMPLETED" | "FAILED"
+  phase?: string
+  started_at: string
+  finished_at?: string
+  capture_session_id?: string
+  results: CoverageResult[]
+  routing: CoverageFinding[]
+  pass_count: number
+  fail_count: number
+  skip_count: number
+  gap_count: number
+  error?: string
+  limitations: string[]
+}
+
+export type CoverageOverview = {
+  schema: number
+  last_run: CoverageReport | null
+  routing: CoverageFinding[]
+  gap_count: number
+  checked_at: string
+}
+
 export type TestLabRun = {
   schema: number
   run_id: string

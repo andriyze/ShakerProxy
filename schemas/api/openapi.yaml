@@ -177,6 +177,38 @@ paths:
       responses:
         "200": {description: Managed host state}
         "401": {$ref: "#/components/responses/Error"}
+  /coverage:
+    get:
+      operationId: getVisibilityCoverage
+      description: The last visibility coverage check and a fresh inspection of every way devices could bypass ShakerProxy in the current lab (IPv6 from another router, another DHCP server, device-to-device traffic, encrypted DNS, plain DNS to other resolvers, local discovery). Each check result says whether the traffic type was recorded, as which event kinds, how long it took to appear, and what is missing. API tokens need system:read.
+      security: [{bearerAuth: []}]
+      responses:
+        "200":
+          description: Coverage overview
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schema, last_run, routing, gap_count, checked_at]
+                properties:
+                  schema: {const: 1}
+                  last_run: {oneOf: [{type: "null"}, {$ref: "#/components/schemas/CoverageReport"}]}
+                  routing: {type: array, maxItems: 32, items: {$ref: "#/components/schemas/CoverageFinding"}}
+                  gap_count: {type: integer, minimum: 0}
+                  checked_at: {type: string, format: date-time}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+  /coverage/runs:
+    post:
+      operationId: startVisibilityCoverageRun
+      description: Recent confirmation (administrator session only). Starts the visibility coverage check in the background. The virtual test lab sends one of each traffic type (DNS via ShakerProxy and to another resolver, DoT, DoH, DoQ, HTTP, HTTPS, QUIC, TCP and UDP on unusual ports, ICMP, SSH, NTP, mDNS, SSDP) while gatewayd records the test-lab bridge with a normal capture; the real analyzers and DNS forwarder store the events, which the check reads back. Lab recording pauses for a few seconds. Poll GET /coverage for progress; one run at a time.
+      security: [{bearerAuth: []}]
+      requestBody: {required: false, content: {application/json: {schema: {type: object, additionalProperties: false, properties: {password: {type: string, maxLength: 1024}}}}}}
+      responses:
+        "202": {description: Run started, content: {application/json: {schema: {$ref: "#/components/schemas/CoverageReport"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
   /system/diagnostics:
     get:
       operationId: getSystemDiagnostics
@@ -1769,6 +1801,48 @@ components:
       description: true keeps only exotic protocols, false only mainstream ones.
       schema: {type: boolean}
   schemas:
+    CoverageFinding:
+      type: object
+      required: [id, title, status, detail]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        status: {type: string, enum: [GAP, OK, UNKNOWN]}
+        detail: {type: string}
+        fix: {type: string}
+    CoverageResult:
+      type: object
+      required: [id, name, category, status, summary, event_kinds, attributed]
+      properties:
+        id: {type: string, description: "dns-gateway, dns-direct, dot, doh, doq, http, https, quic, tcp-unusual-port, udp-unusual-port, icmp, ssh, ntp, mdns, ssdp or ipv6"}
+        name: {type: string}
+        category: {type: string}
+        status: {type: string, enum: [PASS, FAIL, SKIP]}
+        summary: {type: string}
+        event_kinds: {type: array, items: {type: string}}
+        latency_ms: {type: integer, minimum: 0, description: Time from sending the probe to the first stored event.}
+        attributed: {type: boolean}
+        missing: {type: string}
+        app_protocol: {type: string}
+    CoverageReport:
+      type: object
+      required: [schema, run_id, state, started_at, results, routing, pass_count, fail_count, skip_count, gap_count, limitations]
+      properties:
+        schema: {const: 1}
+        run_id: {type: string, pattern: "^coverage-[a-f0-9]{24}$"}
+        state: {type: string, enum: [RUNNING, COMPLETED, FAILED]}
+        phase: {type: string}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time}
+        capture_session_id: {type: string}
+        results: {type: array, maxItems: 64, items: {$ref: "#/components/schemas/CoverageResult"}}
+        routing: {type: array, maxItems: 32, items: {$ref: "#/components/schemas/CoverageFinding"}}
+        pass_count: {type: integer, minimum: 0}
+        fail_count: {type: integer, minimum: 0}
+        skip_count: {type: integer, minimum: 0}
+        gap_count: {type: integer, minimum: 0}
+        error: {type: string}
+        limitations: {type: array, items: {type: string}}
     APITokenScope:
       type: string
       enum: ["system:read", "devices:read", "traffic:read", "captures:read", "captures:write", "cases:read", "cases:write", "metrics:read", "lab:write"]

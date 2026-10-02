@@ -18,6 +18,7 @@ import {
   RecoveryObjectivePanel,
 } from "./SystemPanels"
 import { TestLabPanel } from "./TestLabPanel"
+import { VisibilityCoveragePanel } from "./VisibilityCoveragePanel"
 import type {
   AnalyzerStatusReport,
   CapabilityBundle,
@@ -128,6 +129,7 @@ export function SystemWorkspace() {
       <StatusCards />
       <DiagnosticPanel report={diagnostics.report} error={diagnostics.error} />
       <AnalyzerHealthPanel report={analyzers.data} error={analyzers.error} />
+      <VisibilityCoveragePanel />
       <TestLabPanel />
       <FeatureViews workspace="system" />
       <FeatureViews workspace="testlab" />

@@ -72,6 +72,10 @@ type StartRequest struct {
 	// routes (see lab_recording.go). Only gatewayd sets it; a manual capture
 	// replaces an automatic one.
 	Automatic bool `json:"automatic,omitempty"`
+	// CoverageLab records the virtual test lab's client bridge instead of
+	// the lab interface, for the visibility coverage check. gatewayd checks
+	// the bridge exists; the capture is otherwise a normal manual capture.
+	CoverageLab bool `json:"coverage_lab,omitempty"`
 }
 
 func (r StartRequest) WithDefaults() StartRequest {
@@ -112,6 +116,9 @@ func (r StartRequest) Validate() error {
 	}
 	if err := validateText("start reason", r.StartReason, 0, 256); err != nil {
 		return err
+	}
+	if r.CoverageLab && r.Automatic {
+		return errors.New("the automatic lab recording cannot record the coverage lab")
 	}
 	if !validOpaqueKey(r.IdempotencyKey) {
 		return errors.New("capture idempotency key must contain 16 to 128 ASCII letters, digits, hyphens, or underscores")
