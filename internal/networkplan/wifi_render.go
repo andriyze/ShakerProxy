@@ -82,7 +82,11 @@ func RenderHostapdConf(plan Plan) (string, error) {
 	line("wmm_enabled", "1")
 	line("auth_algs", "1")
 	line("macaddr_acl", "0")
-	line("ap_isolate", boolDigit(config.ClientIsolation))
+	// ap_isolate stops the adapter from switching frames between its own
+	// clients. With client isolation that keeps Wi-Fi devices apart; on a
+	// bridge it hands their traffic to the bridge, whose hairpin port sends it
+	// back out, so it is recorded (WiFiClientTrafficBridged).
+	line("ap_isolate", boolDigit(config.ClientIsolation || WiFiClientTrafficBridged(plan)))
 	switch config.Security {
 	case WiFiSecurityWPA2PSK:
 		line("wpa", "2")
@@ -170,8 +174,13 @@ func addWiFiPreview(preview *Preview, plan Plan) {
 	if wifi.Hidden {
 		preview.Impact = append(preview.Impact, "The Wi-Fi network name would not be broadcast; enter it manually on each device")
 	}
-	if wifi.ClientIsolation {
+	switch WiFiClientTraffic(plan) {
+	case WiFiClientTrafficIsolated:
 		preview.Impact = append(preview.Impact, "Wi-Fi devices would not be able to reach each other directly")
+	case WiFiClientTrafficRecorded:
+		preview.Impact = append(preview.Impact, fmt.Sprintf("Traffic between two Wi-Fi devices (casting, AirPlay, local file sharing) would go through bridge %s instead of being switched inside the access point, so it is recorded like any other traffic", AccessPointBridgeName(plan)))
+	case WiFiClientTrafficInsideAP:
+		preview.Impact = append(preview.Impact, "Traffic directly between two Wi-Fi devices would be switched inside the access point and not recorded; add a wired lab port with bridge_with_lab to record it")
 	}
 	preview.Impact = append(preview.Impact, "The access point starts only after the rollback deadline is armed and stops if the change is rolled back")
 }

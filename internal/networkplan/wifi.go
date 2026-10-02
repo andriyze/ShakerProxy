@@ -143,6 +143,38 @@ func wifiTopologySupported(topology Topology) bool {
 	return false
 }
 
+// WiFiClientTrafficBridged reports whether traffic between two Wi-Fi devices
+// crosses ShakerProxy's bridge, where it is recorded and policy applies. An
+// access point normally switches it between its own clients inside the
+// adapter, out of sight; with ap_isolate the adapter hands it to the bridge
+// instead, and hairpin mode on the access point's bridge port sends it back
+// out to the other device. Without a bridge (Wi-Fi as the whole lab), or with
+// Wi-Fi client isolation (devices must not reach each other), it does not.
+func WiFiClientTrafficBridged(plan Plan) bool {
+	return AccessPointBridgeName(plan) != "" && !plan.WiFi.ClientIsolation
+}
+
+// Wi-Fi client traffic paths, as reported in the gateway status.
+const (
+	WiFiClientTrafficRecorded = "BRIDGED"
+	WiFiClientTrafficIsolated = "ISOLATED"
+	WiFiClientTrafficInsideAP = "INSIDE_ACCESS_POINT"
+)
+
+// WiFiClientTraffic names how traffic between two Wi-Fi devices travels, or
+// "" without an access point.
+func WiFiClientTraffic(plan Plan) string {
+	switch {
+	case !WiFiEnabled(plan):
+		return ""
+	case plan.WiFi.ClientIsolation:
+		return WiFiClientTrafficIsolated
+	case WiFiClientTrafficBridged(plan):
+		return WiFiClientTrafficRecorded
+	}
+	return WiFiClientTrafficInsideAP
+}
+
 // AccessPointBridgeName is the bridge hostapd adds the access point to: the
 // inline bridge spbr0, where Wi-Fi devices join the network beside the
 // wired device port, or the lab bridge lgbr0 of a bridged Wi-Fi lab. It is
