@@ -15,7 +15,7 @@ export const STREAM_KINDS: { id: StreamKind; label: string; description: string;
     id: "dns",
     label: "DNS",
     description: "Name lookups and their answers",
-    query: "(kind:shakerproxy.dns OR kind:zeek.dns)",
+    query: "(kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked)",
   },
   {
     id: "tls",
@@ -153,6 +153,7 @@ export type StreamLine = { kind: StreamKind; badge: string; name: string; detail
 
 // streamLine is what one row says, e.g. DNS · maps.google.com · A → 142.250.1.1
 export function streamLine(event: RecentEvent): StreamLine {
+  if (event.blocked) return blockedStreamLine(event)
   const kind = streamKind(event)
   const peer = endpoint(event.destination_ip, event.destination_port)
   const bytes = event.network_bytes ? compactBytes(event.network_bytes) : ""
@@ -246,4 +247,34 @@ export function collapseRepeats<T extends Pick<RecentEvent, "occurred_at">>(
     previousKey = current
   }
   return out
+}
+
+const BLOCK_REASONS: Record<string, string> = {
+  dot: "DNS over TLS",
+  doq: "DNS over QUIC",
+  "doh-ip": "DNS over HTTPS",
+  "doh3-ip": "DNS over HTTP/3",
+  "doh-name": "encrypted DNS resolver",
+  canary: "encrypted DNS check",
+  "device-domain": "blocked for this device",
+}
+
+// blockReasonLabel names what ShakerProxy refused in plain language.
+export function blockReasonLabel(reason?: string): string {
+  return BLOCK_REASONS[reason ?? ""] ?? "encrypted DNS"
+}
+
+// blockedStreamLine is a lookup or connection ShakerProxy refused: the device
+// tried encrypted DNS (and falls back to plain DNS), or a blocked domain.
+function blockedStreamLine(event: RecentEvent): StreamLine {
+  const peer = endpoint(event.destination_ip, event.destination_port)
+  const label = blockReasonLabel(event.blocked_reason)
+  return {
+    kind: "dns",
+    badge: "BLOCKED",
+    name: event.dns_query || peer || event.kind,
+    detail: event.dns_query ? label : `${label} · falls back to plain DNS`,
+    peer: event.dns_query ? "via ShakerProxy" : peer,
+    problem: true,
+  }
 }

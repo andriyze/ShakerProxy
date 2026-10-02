@@ -908,6 +908,9 @@ export type RecentEvent = {
   dns_answer_count?: number
   // What the lookup resolved to (IP addresses and CNAME targets), at most 8.
   dns_answers?: string[]
+  // ShakerProxy refused this lookup or connection, and why.
+  blocked?: boolean
+  blocked_reason?: "device-domain" | "doh-name" | "canary" | "dot" | "doq" | "doh-ip" | "doh3-ip"
   detection_type?: string
   detection_severity?: string
   detection_state?: string
@@ -1213,6 +1216,7 @@ export type EncryptedDNSPolicy = {
   block_doq: boolean
   block_known_doh: boolean
   block_known_doh3: boolean
+  block_doh_names?: boolean
   redirect_plain_dns: boolean
   local_listen_port: number
   upstream_servers: string[]

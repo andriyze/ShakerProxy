@@ -37,11 +37,11 @@ test("each kind of traffic reads as one line", () => {
 })
 
 test("chips compose one filter, including a client's merged records", () => {
-  assert.match(composeLiveQuery(DEFAULT_LIVE_FILTERS), /^\(\(kind:shakerproxy\.dns OR kind:zeek\.dns\) OR /)
+  assert.match(composeLiveQuery(DEFAULT_LIVE_FILTERS), /^\(\(kind:shakerproxy\.dns OR kind:zeek\.dns OR kind:shakerproxy\.blocked\) OR /)
   const query = composeLiveQuery({ kinds: ["dns", "http"], clients: [PHONE], time: "last_1h", search: "github" }, "", (id) => (id === PHONE ? [FORMER] : []))
   assert.equal(
     query,
-    `time:last_1h AND ((kind:shakerproxy.dns OR kind:zeek.dns) OR (http.host:* AND NOT source:SURICATA)) AND (device.id:${PHONE} OR device.id:${FORMER}) AND github`,
+    `time:last_1h AND ((kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked) OR (http.host:* AND NOT source:SURICATA)) AND (device.id:${PHONE} OR device.id:${FORMER}) AND github`,
   )
   assert.equal(composeLiveQuery({ kinds: [], clients: [], time: "", search: "a b" }, "proto:mqtt"), `"a b" AND (proto:mqtt)`)
   assert.ok(composeLiveQuery({ ...DEFAULT_LIVE_FILTERS, clients: Array.from({ length: 30 }, (_, index) => `device-${String(index).padStart(32, "0")}`) }).length < 2048)
