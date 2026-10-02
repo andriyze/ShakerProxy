@@ -230,3 +230,51 @@ func TestSplitDeviceMovesNDPEvidence(t *testing.T) {
 		}
 	}
 }
+
+// A GrapheneOS phone used four randomized MACs in one afternoon at the same
+// static address; each reconnect created a new device, so a Traffic view
+// filtered to the phone showed nothing new and attribution became ambiguous.
+func TestReconcileNeighborsKeepsAPhoneThatRotatesItsRandomizedMAC(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	store := deterministicMutationStore(t, now)
+	for index, mac := range []string{"8a:23:46:10:cf:33", "ae:f9:0a:ef:51:8c", "e2:4f:7b:ef:5c:30"} {
+		if _, err := store.ReconcileNeighbors([]NeighborObservation{neighborObservation("192.168.10.201", mac, now.Add(time.Duration(index-3)*time.Minute))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := store.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Devices) != 1 {
+		t.Fatalf("a rotating randomized MAC created %d devices: %+v", len(snapshot.Devices), snapshot.Devices)
+	}
+	macs := 0
+	for _, identity := range snapshot.Devices[0].Identities {
+		if identity.Kind == IdentityMAC {
+			macs++
+		}
+	}
+	if macs != 3 {
+		t.Fatalf("the device should keep all three MACs, has %d: %+v", macs, snapshot.Devices[0].Identities)
+	}
+}
+
+func TestReconcileNeighborsKeepsDifferentDevicesApartWhenAnAddressIsReused(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	store := deterministicMutationStore(t, now)
+	// A globally unique (manufacturer) MAC is a real device; a later device
+	// at the same address is someone else, randomized MAC or not.
+	for index, mac := range []string{"00:1a:2b:3c:4d:5e", "e2:4f:7b:ef:5c:30", "00:1a:2b:3c:4d:5f"} {
+		if _, err := store.ReconcileNeighbors([]NeighborObservation{neighborObservation("192.168.10.50", mac, now.Add(time.Duration(index-3)*time.Minute))}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := store.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Devices) != 3 {
+		t.Fatalf("devices with manufacturer MACs were merged: %+v", snapshot.Devices)
+	}
+}
