@@ -150,12 +150,44 @@ export function eventTone(event: SummarizableEvent): EventTone {
   return ""
 }
 
+// ShakerProxy's DNS forwarder records every lookup a lab device sends it,
+// with or without a capture. A capture records the same lookup again through
+// Zeek, a moment apart.
+export const FORWARDED_LOOKUP_KIND = "shakerproxy.dns"
+const FORWARDED_LOOKUP_WINDOW_MS = 5_000
+
+type LookupEvent = { kind: string; source_ip?: string; dns_query?: string; dns_record_type?: string; occurred_at?: string }
+
+function lookupKey(event: LookupEvent): string {
+  return `${event.source_ip ?? ""}|${(event.dns_query ?? "").toLowerCase()}|${event.dns_record_type ?? ""}`
+}
+
+// forwardedLookups indexes the forwarder's lookups in a list by client, name
+// and record type, for isAnalyzerDuplicate.
+export function forwardedLookups(events: LookupEvent[]): Map<string, number[]> {
+  const index = new Map<string, number[]>()
+  for (const event of events) {
+    if (event.kind !== FORWARDED_LOOKUP_KIND || !event.dns_query) continue
+    const at = Date.parse(event.occurred_at ?? "")
+    if (!Number.isFinite(at)) continue
+    const key = lookupKey(event)
+    const times = index.get(key)
+    if (times) times.push(at)
+    else index.set(key, [at])
+  }
+  return index
+}
+
 // Zeek and Suricata both describe the same traffic. The readable list keeps
-// one row per connection and per lookup (Zeek's conn, dns and ssl records,
-// alerts, interception and web requests) and drops Suricata's flow, DNS and
-// mDNS copies, Zeek's protocol warnings, and the connection records of DNS
-// lookups that already appear as named lookups.
-export function isAnalyzerDuplicate(event: { kind: string; service?: string; app_protocol?: string }): boolean {
+// one row per connection and per lookup (the forwarder's lookups, Zeek's
+// conn, dns and ssl records, alerts, interception and web requests) and drops
+// Suricata's flow, DNS and mDNS copies, Zeek's protocol warnings, the
+// connection records of DNS lookups that already appear as named lookups, and
+// Zeek's copy of a lookup the forwarder already reported.
+export function isAnalyzerDuplicate(
+  event: LookupEvent & { service?: string; app_protocol?: string },
+  forwarded?: Map<string, number[]>,
+): boolean {
   switch (event.kind) {
     case "suricata.flow":
     case "suricata.dns":
@@ -164,6 +196,11 @@ export function isAnalyzerDuplicate(event: { kind: string; service?: string; app
       return true
     case "zeek.conn":
       return event.app_protocol === "dns" || (event.service ?? "").split(",").includes("dns")
+    case "zeek.dns": {
+      const times = forwarded?.get(lookupKey(event))
+      const at = Date.parse(event.occurred_at ?? "")
+      return !!times && Number.isFinite(at) && times.some((time) => Math.abs(time - at) <= FORWARDED_LOOKUP_WINDOW_MS)
+    }
     default:
       return false
   }

@@ -68,3 +68,35 @@ func TestOutOfRangeSettingsAreClampedLoudly(t *testing.T) {
 		t.Fatalf("clamping and invalid values were not reported: %s", log)
 	}
 }
+
+func TestLookupsAreRecordedToTheEventSpool(t *testing.T) {
+	spool := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	var configured *dnsproxy.Server
+	code := run(context.Background(), nil, environment(map[string]string{"SHAKERPROXY_DNS_EVENT_SPOOL": spool}), &stdout, &stderr, func(_ context.Context, server *dnsproxy.Server) error {
+		configured = server
+		return nil
+	})
+	if code != 0 || configured == nil || configured.Observer == nil || !strings.Contains(stdout.String(), `"recording_lookups":true`) {
+		t.Fatalf("lookups are not recorded: code=%d log=%s", code, stdout.String())
+	}
+}
+
+// A missing spool (for example before the package created it) must not stop
+// the forwarder from answering.
+func TestForwarderServesWithoutAUsableEventSpool(t *testing.T) {
+	for name, spool := range map[string]string{"missing": "/nonexistent/dns-events/pending", "off": "off"} {
+		var stdout, stderr bytes.Buffer
+		var configured *dnsproxy.Server
+		code := run(context.Background(), nil, environment(map[string]string{"SHAKERPROXY_DNS_EVENT_SPOOL": spool}), &stdout, &stderr, func(_ context.Context, server *dnsproxy.Server) error {
+			configured = server
+			return nil
+		})
+		if code != 0 || configured == nil || configured.Observer != nil || !strings.Contains(stdout.String(), `"recording_lookups":false`) {
+			t.Fatalf("%s: code=%d log=%s", name, code, stdout.String())
+		}
+		if name == "missing" && !strings.Contains(stdout.String(), "DNS lookups are not recorded for Traffic") {
+			t.Fatalf("missing spool was not reported: %s", stdout.String())
+		}
+	}
+}

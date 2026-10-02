@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"shakerproxy.dev/shakerproxy/internal/dnsproxy"
+	"shakerproxy.dev/shakerproxy/internal/ingest"
 )
 
 func validEvent() string {
@@ -66,6 +70,72 @@ func TestValidateEnvelopeRejectsSecretsAndUnknownFieldsBySchemaBoundary(t *testi
 	bad := strings.TrimSuffix(validEvent(), "}") + `,"authorization":"Bearer stolen"}`
 	if err := validateEnvelope([]byte(bad)); err == nil {
 		t.Fatal("unknown secret-bearing top-level field was accepted")
+	}
+}
+
+// The DNS spool carries what shakerproxy-dnsd writes and nothing else: an
+// event from a dnsd lookup reaches ingest unchanged and is a valid ingest
+// envelope, while interception events and HOST detections are quarantined.
+func TestHostSpoolDeliversOnlyDNSLookups(t *testing.T) {
+	root := t.TempDir()
+	tokenPath := filepath.Join(root, "token")
+	if err := os.WriteFile(tokenPath, []byte(strings.Repeat("t", 32)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spool := filepath.Join(root, "pending")
+	if err := os.Mkdir(spool, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	query := []byte{0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, 7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'c', 'o', 'm', 0, 0, 1, 0, 1}
+	lookup, err := dnsproxy.NewLookup(time.Now(), "udp", netip.MustParseAddrPort("192.168.10.201:40000"), query, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookupEvent, err := dnsproxy.LookupEvent("evt_00000000000000000001_00000001_abcdefabcdef", lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ingest.DecodeEnvelope(lookupEvent); err != nil {
+		t.Fatalf("dnsd's event is not a valid ingest envelope: %v", err)
+	}
+	detection := strings.Replace(strings.Replace(validEvent(), `"source":"MITMPROXY"`, `"source":"HOST"`, 1), `"kind":"http_request"`, `"kind":"shakerproxy.detection.beaconing"`, 1)
+	files := map[string]string{
+		"evt_00000000000000000001_00000001_abcdefabcdef.json": string(lookupEvent),
+		"evt_00000000000000000002_interception.json":          validEvent(),
+		"evt_00000000000000000003_detection.json":             detection,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(spool, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	delivered := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var envelope struct {
+			Kind string `json:"kind"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&envelope)
+		delivered = append(delivered, envelope.Kind)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	instance := &forwarder{
+		configuration: configuration{SpoolRoot: spool, IngestURL: server.URL, TokenFile: tokenPath, Timeout: time.Second, Source: sourceHost},
+		client:        server.Client(),
+		token:         []byte(strings.Repeat("t", 32)),
+	}
+	if err := instance.drain(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivered) != 1 || delivered[0] != "shakerproxy.dns" {
+		t.Fatalf("delivered %v, want only the DNS lookup", delivered)
+	}
+	quarantined, _ := os.ReadDir(filepath.Join(root, "quarantine"))
+	if remaining, _ := os.ReadDir(spool); len(remaining) != 0 || len(quarantined) != 2 {
+		t.Fatalf("spool left %d files, quarantined %d", len(remaining), len(quarantined))
+	}
+	if _, err := newForwarder(configuration{SpoolRoot: spool, IngestURL: "http://ingestd:8081/v1/events", TokenFile: tokenPath, Source: "ZEEK"}, nil); err == nil {
+		t.Fatal("an unsupported spool source was accepted")
 	}
 }
 

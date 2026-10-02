@@ -39,6 +39,23 @@ type configuration struct {
 	ConnectorSocket string
 	Interval        time.Duration
 	Timeout         time.Duration
+	// Source is the only event source this spool may deliver: MITMPROXY
+	// (the interception addon, the default) or HOST (shakerproxy-dnsd's
+	// lookups, kind hostDNSKind only).
+	Source string
+}
+
+const (
+	sourceMitmproxy = "MITMPROXY"
+	sourceHost      = "HOST"
+	hostDNSKind     = "shakerproxy.dns"
+)
+
+func (c configuration) source() string {
+	if c.Source == "" {
+		return sourceMitmproxy
+	}
+	return c.Source
 }
 
 type forwarder struct {
@@ -69,7 +86,8 @@ func permanentError(immediate bool, format string, arguments ...any) error {
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	config := configuration{
-		SpoolRoot:       envOr("SHAKERPROXY_MITM_EVENT_SPOOL", "/var/lib/shakerproxy/mitmproxy-events/pending"),
+		SpoolRoot:       envOr("SHAKERPROXY_EVENT_SPOOL", envOr("SHAKERPROXY_MITM_EVENT_SPOOL", "/var/lib/shakerproxy/mitmproxy-events/pending")),
+		Source:          envOr("SHAKERPROXY_EVENT_SOURCE", sourceMitmproxy),
 		IngestURL:       envOr("SHAKERPROXY_INGEST_URL", "http://ingestd:8081/v1/events"),
 		TokenFile:       envOr("SHAKERPROXY_INGEST_TOKEN_FILE", "/run/secrets/ingest_token"),
 		ConnectorSocket: os.Getenv("SHAKERPROXY_CLOUD_CONNECTOR_SOCKET"),
@@ -94,7 +112,7 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	logger.Info("mitm event forwarder starting", "spool", config.SpoolRoot, "interval", config.Interval)
+	logger.Info("mitm event forwarder starting", "spool", config.SpoolRoot, "source", config.source(), "interval", config.Interval)
 	if err := instance.run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Error("mitm event forwarder stopped", "error", err)
 		os.Exit(1)
@@ -110,6 +128,9 @@ func newForwarder(config configuration, logger *slog.Logger) (*forwarder, error)
 	}
 	if config.ConnectorSocket != "" && !filepath.IsAbs(config.ConnectorSocket) {
 		return nil, errors.New("cloud connector socket must be absolute")
+	}
+	if source := config.source(); source != sourceMitmproxy && source != sourceHost {
+		return nil, fmt.Errorf("event source %q is not supported", source)
 	}
 	data, err := os.ReadFile(config.TokenFile)
 	if err != nil {
@@ -250,7 +271,7 @@ func (f *forwarder) forwardOne(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	envelope, err := decodeEnvelope(data)
+	envelope, err := decodeSpooledEnvelope(data, f.configuration.source())
 	if err != nil {
 		return permanentError(true, "spooled event %s is invalid: %w", filepath.Base(path), err)
 	}
@@ -309,6 +330,13 @@ type eventEnvelope struct {
 }
 
 func decodeEnvelope(data []byte) (eventEnvelope, error) {
+	return decodeSpooledEnvelope(data, sourceMitmproxy)
+}
+
+// decodeSpooledEnvelope accepts only events of the spool's own source. The
+// DNS spool is writable by shakerproxy-dnsd, so it may carry lookup events
+// and nothing else (in particular no HOST detections).
+func decodeSpooledEnvelope(data []byte, source string) (eventEnvelope, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var envelope eventEnvelope
@@ -318,7 +346,10 @@ func decodeEnvelope(data []byte) (eventEnvelope, error) {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return eventEnvelope{}, errors.New("event contains trailing data")
 	}
-	if envelope.Schema != 1 || !strings.HasPrefix(envelope.EventID, "evt_") || envelope.Source != "MITMPROXY" || envelope.Kind == "" || envelope.OccurredAt.IsZero() || envelope.SourceVersion == "" || envelope.ParserVersion == "" || envelope.Confidence < 0 || envelope.Confidence > 100 || envelope.Payload == nil {
+	if source == sourceHost && envelope.Kind != hostDNSKind {
+		return eventEnvelope{}, errors.New("the DNS event spool accepts only lookup events")
+	}
+	if envelope.Schema != 1 || !strings.HasPrefix(envelope.EventID, "evt_") || envelope.Source != source || envelope.Kind == "" || envelope.OccurredAt.IsZero() || envelope.SourceVersion == "" || envelope.ParserVersion == "" || envelope.Confidence < 0 || envelope.Confidence > 100 || envelope.Payload == nil {
 		return eventEnvelope{}, errors.New("event envelope fields are invalid")
 	}
 	return envelope, nil

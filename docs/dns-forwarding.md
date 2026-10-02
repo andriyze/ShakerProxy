@@ -52,6 +52,28 @@ one after a quarter of the timeout (at most 500 ms), a failing one is replaced
 immediately and tried last for 30 seconds, so one dead resolver no longer
 delays every lookup by the full timeout.
 
+## Lookups in Traffic
+
+Every query the forwarder answers for a lab device appears in Traffic and in
+the device report as a DNS lookup (kind `shakerproxy.dns`), whether or not a
+capture is running: the name, record type, outcome (`NOERROR`, `NXDOMAIN`,
+and so on, including names blocked for the device), and the A, AAAA and CNAME
+answers with their TTLs. The device is the one that held the client address at
+the time, as for captured traffic.
+
+`shakerproxy-dnsd` writes one event file per lookup to
+`/var/lib/shakerproxy/dns-events/pending`, after the answer has been sent, and
+the `dns-event-forwarder` container delivers them to ingest. Recording never
+delays an answer: lookups wait in a bounded queue, and when the queue or the
+spool (20,000 undelivered events) is full they are dropped, counted, and
+logged at most every five minutes. If the spool is missing the forwarder still
+answers and logs `DNS lookups are not recorded for Traffic` once at start.
+Set `SHAKERPROXY_DNS_EVENT_SPOOL=off` to stop recording.
+
+When a capture records the same lookup through Zeek, Traffic shows the
+forwarder's row and hides Zeek's copy with the other analyzer duplicates; the
+device report counts each name once.
+
 Earlier releases decoded that document with the wrong schema and answered
 every query with SERVFAIL as soon as "Force plain DNS" was applied; a
 cross-component test now checks that the forwarder accepts exactly what the

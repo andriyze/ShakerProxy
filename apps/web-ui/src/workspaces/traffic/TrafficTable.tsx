@@ -1,9 +1,9 @@
-import React, { FormEvent, useEffect, useRef, useState } from "react"
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { withPassword } from "../../shell/passwordPrompt"
 import { formatBytes, formatNetworkEndpoint, idempotencyKey } from "../../lib/format"
 import { MAX_VISIBLE_LIVE_ROWS, virtualRowWindow } from "../../lib/liveRows"
 import { tlsOutcomeExplanation } from "../../lib/tlsTrust"
-import { eventSummary, eventTone, eventTypeLabel, isAnalyzerDuplicate } from "../../lib/eventSummary"
+import { eventSummary, eventTone, eventTypeLabel, forwardedLookups, isAnalyzerDuplicate } from "../../lib/eventSummary"
 import { EventDetailDrawer } from "./EventDetailDrawer"
 import { api, describeError } from "../../api"
 import type { Device, DeviceMutationResult, RecentEvent } from "../../types"
@@ -29,7 +29,8 @@ export function WindowedTrafficTable({
   // One row per connection and lookup by default; the analyzers' duplicate
   // records stay one click away.
   const [showDuplicates, setShowDuplicates] = useState(false)
-  const events = showDuplicates ? allEvents : allEvents.filter((event) => !isAnalyzerDuplicate(event))
+  const forwarded = useMemo(() => forwardedLookups(allEvents), [allEvents])
+  const events = showDuplicates ? allEvents : allEvents.filter((event) => !isAnalyzerDuplicate(event, forwarded))
   const hiddenDuplicates = allEvents.length - events.length
   const rowHeight = density === "compact" ? 54 : 72
   const preferredHeight = Math.min(560, Math.max(rowHeight, events.length * rowHeight))

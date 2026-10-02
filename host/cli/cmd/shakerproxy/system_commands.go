@@ -121,7 +121,7 @@ var hostUnits = map[string]string{
 }
 
 // appContainers are the Compose services of the application stack.
-var appContainers = []string{"control-api", "web-ui", "edge", "ingestd", "forwarderd", "zeek", "suricata", "postgres", "mitmproxy", "mitm-event-forwarder", "inventory-cloud-forwarder"}
+var appContainers = []string{"control-api", "web-ui", "edge", "ingestd", "forwarderd", "zeek", "suricata", "postgres", "mitmproxy", "mitm-event-forwarder", "dns-event-forwarder", "inventory-cloud-forwarder"}
 
 func firstExecutable(candidates ...string) string {
 	for _, candidate := range candidates {

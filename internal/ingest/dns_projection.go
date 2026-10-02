@@ -20,11 +20,12 @@ type DNSProjection struct {
 }
 
 // ProjectDNSFields extracts a bounded observation from known Zeek/Suricata DNS
-// schemas and from ShakerProxy's DNS-over-HTTPS detections. It never infers DNS
-// from port 53 alone and never modifies policy.
+// schemas, ShakerProxy's DNS forwarder lookups and its DNS-over-HTTPS
+// detections. It never infers DNS from port 53 alone and never modifies policy.
 func ProjectDNSFields(envelope Envelope) DNSProjection {
 	doh := envelope.Source == SourceMitmproxy && envelope.Kind == "encrypted_dns_detected"
-	if !doh && ((envelope.Source != SourceZeek && envelope.Source != SourceSuricata) || !strings.Contains(strings.ToLower(envelope.Kind), "dns")) {
+	forwarded := isHostDNS(envelope)
+	if !doh && !forwarded && ((envelope.Source != SourceZeek && envelope.Source != SourceSuricata) || !strings.Contains(strings.ToLower(envelope.Kind), "dns")) {
 		return DNSProjection{}
 	}
 	decoder := json.NewDecoder(bytes.NewReader(envelope.Payload))
@@ -34,6 +35,18 @@ func ProjectDNSFields(envelope Envelope) DNSProjection {
 		return DNSProjection{}
 	}
 	result := DNSProjection{}
+	if forwarded {
+		result.Query = dnsName(raw["query"])
+		result.RecordType = dnsCode(raw["query_type"])
+		result.ResponseCode = dnsCode(raw["response_code"])
+		if number, ok := raw["answer_count"].(json.Number); ok {
+			if count, err := number.Int64(); err == nil && count >= 0 && count <= 10000 {
+				answers := int(count)
+				result.AnswerCount = &answers
+			}
+		}
+		return result
+	}
 	if doh {
 		// The addon decodes the DNS question from the DoH request. An empty
 		// name means it could not be decoded, which is not the DNS root.
