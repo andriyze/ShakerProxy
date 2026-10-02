@@ -49,7 +49,7 @@ func (s *Server) inspectDiagnostics(ctx context.Context) gatewayprotocol.Diagnos
 		add(diagnosticCheck("interfaces", gatewayprotocol.DiagnosticFail, "Host interfaces could not be inspected", inspectionErr.Error()))
 		add(diagnosticCheck("firewall", gatewayprotocol.DiagnosticFail, "Firewall coexistence could not be inspected", inspectionErr.Error()))
 	} else {
-		managed := map[string]bool{networkplan.LabBridgeName: true}
+		managed := map[string]bool{networkplan.LabBridgeName: true, networkplan.InlineBridgeName: true}
 		if active := state.activeNetworkPlan(); active != nil {
 			for _, planned := range active.Plan.Interfaces {
 				managed[planned.CurrentName] = true

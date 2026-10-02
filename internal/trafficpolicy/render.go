@@ -29,6 +29,11 @@ type RenderContext struct {
 	// routes lab IPv6 (ULA_NAT66_LAB or NATIVE_ROUTED_PREFIX).
 	LabIPv6Prefix  string
 	LabGatewayIPv6 string
+	// LabBridgePort is the device-side port of an inline bridge (topology
+	// TRANSPARENT_BRIDGE, LabInterface spbr0). Client rules then match frames
+	// that entered through that port, and plain DNS to any resolver, the
+	// network's router included, is answered by ShakerProxy.
+	LabBridgePort string
 	// IPv6Listeners reports that the DNS and TLS listeners accept IPv6. IPv6
 	// redirects are rendered only when true so an IPv4-only listener cannot
 	// blackhole lab IPv6 traffic; IPv6 blocking rules are rendered regardless.
@@ -50,6 +55,8 @@ type Segment struct {
 	GatewayIPv4 string
 	IPv6Prefix  string
 	GatewayIPv6 string
+	// BridgePort is the device-side port when Interface is an inline bridge.
+	BridgePort string
 	// Devices maps device IDs to their addresses on this segment. VPN
 	// addresses are bound to the device's key, so no MAC is needed.
 	Devices map[string]DeviceMatch
@@ -82,13 +89,18 @@ type familyRenderer struct {
 	// noOnboarding leaves out the CA onboarding page; it is served on the
 	// lab gateway only.
 	noOnboarding bool
+	// physIn is the device-side port of an inline bridge: the lab is then
+	// "frames that entered through this port", whatever their address.
+	physIn string
 }
 
 // outbound restricts a client rule to traffic leaving the lab. When the lab
 // is a bridge (wired + Wi-Fi) with br_netfilter, lab-to-lab frames traverse
 // the same hooks and must not be redirected, blocked or proxied.
 func (f familyRenderer) outbound() string {
-	if f.source == "" {
+	if f.source == "" || f.physIn != "" {
+		// On an inline bridge every destination is outside the device port,
+		// the network's router included.
 		return ""
 	}
 	return " ! -d " + f.source
@@ -98,6 +110,11 @@ func (f familyRenderer) outbound() string {
 // lab. It goes by destination: in a single-arm lab the internet is reached
 // through the lab interface itself, so "! -o <lab>" never matches there.
 func (f familyRenderer) leavingLab() string {
+	if f.physIn != "" && f.source == "" {
+		// A bridged IPv6 lab has no prefix of its own: everything but
+		// link-local leaves the device.
+		return "! -d fe80::/10"
+	}
 	if f.source == "" {
 		return "! -o " + f.iface
 	}
@@ -105,6 +122,9 @@ func (f familyRenderer) leavingLab() string {
 }
 
 func (f familyRenderer) scope() string {
+	if f.physIn != "" {
+		return "-i " + f.iface + " -m physdev --physdev-in " + f.physIn
+	}
 	if f.source == "" {
 		return "-i " + f.iface
 	}
@@ -160,7 +180,7 @@ func RenderFirewall(policy Policy, context RenderContext) (FirewallRules, error)
 	if context.LabInterface != "" || context.VPN == nil {
 		segments = append(segments, Segment{
 			Interface: context.LabInterface, IPv4CIDR: context.LabCIDR, GatewayIPv4: context.LabGatewayIPv4,
-			IPv6Prefix: context.LabIPv6Prefix, GatewayIPv6: context.LabGatewayIPv6, Devices: context.Devices,
+			IPv6Prefix: context.LabIPv6Prefix, GatewayIPv6: context.LabGatewayIPv6, BridgePort: context.LabBridgePort, Devices: context.Devices,
 		})
 	}
 	if context.VPN != nil {
@@ -228,6 +248,15 @@ func segmentRenderers(segment Segment, ipv6Listeners bool) (familyRenderer, fami
 		v4.gateway = gateway.String()
 	}
 	v6 := familyRenderer{ipv6: true, iface: segment.Interface, unreachable: "icmp6-port-unreachable", private: privateIPv6Destinations, redirects: ipv6Listeners, devices: segment.Devices}
+	if segment.BridgePort != "" {
+		if !enforcementInterfacePattern.MatchString(segment.BridgePort) || segment.BridgePort == segment.Interface {
+			return familyRenderer{}, familyRenderer{}, fmt.Errorf("traffic policy requires a safe bridge port name")
+		}
+		v4.physIn, v6.physIn = segment.BridgePort, segment.BridgePort
+		// IPv6 crosses an inline bridge untouched (it is recorded, not
+		// redirected): ShakerProxy has no IPv6 address on the lab's prefix.
+		v6.redirects = false
+	}
 	if segment.IPv6Prefix != "" {
 		prefix6, err := netip.ParsePrefix(segment.IPv6Prefix)
 		if err != nil || !prefix6.Addr().Is6() || prefix6.Addr().Is4In6() || prefix6.Bits() < 16 {

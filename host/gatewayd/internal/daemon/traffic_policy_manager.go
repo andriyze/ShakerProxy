@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"shakerproxy.dev/shakerproxy/internal/gatewayprotocol"
+	"shakerproxy.dev/shakerproxy/internal/networkplan"
 	"shakerproxy.dev/shakerproxy/internal/policycoordination"
 	"shakerproxy.dev/shakerproxy/internal/trafficpolicy"
 )
@@ -501,6 +502,9 @@ func (m *TrafficPolicyManager) activeRenderContext(ctx context.Context, policy t
 		VPN:            vpnSegment,
 	}
 	context.LabIPv6Prefix, context.LabGatewayIPv6 = labIPv6Context(plan)
+	if _, device, bridged := networkplan.BridgePorts(plan); bridged {
+		context.LabBridgePort = device.CurrentName
+	}
 	context.IPv6Listeners = m.ipv6ListenersReady(ctx, policy)
 	return context, true, nil
 }

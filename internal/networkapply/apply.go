@@ -17,6 +17,7 @@ type ApplyMachine interface {
 	GenerateNetplan(context.Context) error
 	SetIPv4Forwarding(context.Context, int) error
 	SetIPv4SendRedirects(context.Context, string, int) error
+	SetBridgeNFCallIPTables(context.Context, int) error
 	ApplyNetplan(context.Context) error
 	LoadShakerProxyFirewall(context.Context, string, string) error
 	EnsureShakerProxyAttachments(context.Context, string, bool) error
@@ -116,6 +117,13 @@ func (a Applier) Apply(ctx context.Context, staged networkplan.StagedPlan) error
 			return fmt.Errorf("disable IPv4 redirects on single-arm interface: %w", err)
 		}
 	}
+	if networkplan.InlineBridge(staged.Plan) {
+		// Bridged IPv4 passes through iptables from the bridge's first frame,
+		// so DNS forcing and connection reporting cover it.
+		if err := a.Machine.SetBridgeNFCallIPTables(ctx, 1); err != nil {
+			return fmt.Errorf("enable bridge netfilter: %w", err)
+		}
+	}
 	if err := a.Machine.ApplyNetplan(ctx); err != nil {
 		return fmt.Errorf("apply Netplan: %w", err)
 	}
@@ -169,6 +177,10 @@ func (OSApplyMachine) SetIPv4Forwarding(ctx context.Context, value int) error {
 
 func (OSApplyMachine) SetIPv4SendRedirects(ctx context.Context, interfaceName string, value int) error {
 	return (OSRollbackMachine{}).SetIPv4SendRedirects(ctx, interfaceName, value)
+}
+
+func (OSApplyMachine) SetBridgeNFCallIPTables(ctx context.Context, value int) error {
+	return (OSRollbackMachine{}).SetBridgeNFCallIPTables(ctx, value)
 }
 
 func (OSApplyMachine) ApplyNetplan(ctx context.Context) error {

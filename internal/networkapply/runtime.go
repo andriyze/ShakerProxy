@@ -38,6 +38,7 @@ type RuntimeMachine interface {
 	EnsureOrderedHook(context.Context, string, FirewallHook) error
 	SetIPv4Forwarding(context.Context, int) error
 	SetIPv4SendRedirects(context.Context, string, int) error
+	SetBridgeNFCallIPTables(context.Context, int) error
 	SetIPv6AcceptRA(context.Context, string, int) error
 	SetIPv6Forwarding(context.Context, int) error
 	OwnedRuleCount(context.Context, string, string, string) (int, bool, error)
@@ -56,6 +57,7 @@ type runtimeWork struct {
 	ipv4Restore        string
 	ipv4Hooks          []FirewallHook
 	redirectsInterface string
+	bridgeNetfilter    bool
 	ipv6               networktransaction.IPv6RollbackSpec
 	ipv6Restore        string
 	ipv6Hooks          []FirewallHook
@@ -123,6 +125,7 @@ func (r RuntimeRestorer) bind(staged networkplan.StagedPlan) (runtimeWork, error
 		}
 		work.redirectsInterface = arm.CurrentName
 	}
+	work.bridgeNetfilter = networkplan.InlineBridge(staged.Plan)
 	if work.ipv6.Firewall != "" {
 		work.ipv6Hooks = []FirewallHook{{Table: "filter", Parent: work.ipv6.ForwardParent, Chain: "SHAKERPROXY-FORWARD"}}
 		if work.ipv6.Firewall == networktransaction.IPv6FirewallRoute {
@@ -150,6 +153,11 @@ func (r RuntimeRestorer) Restore(ctx context.Context, staged networkplan.StagedP
 	for _, hook := range work.ipv4Hooks {
 		if err := r.Machine.EnsureOrderedHook(ctx, work.iptablesPath, hook); err != nil {
 			return fmt.Errorf("attach ShakerProxy firewall chain %s: %w", hook.Chain, err)
+		}
+	}
+	if work.bridgeNetfilter {
+		if err := r.Machine.SetBridgeNFCallIPTables(ctx, 1); err != nil {
+			return fmt.Errorf("enable bridge netfilter: %w", err)
 		}
 	}
 	if err := r.Machine.SetIPv4Forwarding(ctx, 1); err != nil {
@@ -222,6 +230,9 @@ func (r RuntimeRestorer) Drift(ctx context.Context, staged networkplan.StagedPla
 		return nil, err
 	}
 	r.expectSysctl(&drift, "/proc/sys/net/ipv4/ip_forward", "1", "IPv4 forwarding is off")
+	if work.bridgeNetfilter {
+		r.expectSysctl(&drift, bridgeNFCallIPTablesPath, "1", "bridged traffic no longer passes through the firewall (bridge-nf-call-iptables is off)")
+	}
 	if work.redirectsInterface != "" {
 		r.expectSysctl(&drift, "/proc/sys/net/ipv4/conf/"+work.redirectsInterface+"/send_redirects", "0", "IPv4 redirects are enabled on the single-arm interface")
 	}
@@ -351,6 +362,10 @@ func (OSRuntimeMachine) SetIPv4Forwarding(ctx context.Context, value int) error 
 
 func (OSRuntimeMachine) SetIPv4SendRedirects(ctx context.Context, interfaceName string, value int) error {
 	return (OSRollbackMachine{}).SetIPv4SendRedirects(ctx, interfaceName, value)
+}
+
+func (OSRuntimeMachine) SetBridgeNFCallIPTables(ctx context.Context, value int) error {
+	return (OSRollbackMachine{}).SetBridgeNFCallIPTables(ctx, value)
 }
 
 func (OSRuntimeMachine) SetIPv6AcceptRA(ctx context.Context, interfaceName string, value int) error {

@@ -1082,7 +1082,7 @@ func (s *Server) captureSource(ctx context.Context) (capture.Source, string, err
 	if state.EmergencyBypass || state.OperatingMode != gatewayprotocol.ModeRouted || active == nil {
 		return capture.Source{}, "", errors.New("capture requires a confirmed routed network plan and emergency bypass disabled")
 	}
-	plannedValue, ok := networkplan.LabInterface(active.Plan)
+	plannedValue, ok := labCaptureInterface(active.Plan)
 	if !ok {
 		return capture.Source{}, "", errors.New("confirmed network plan has no lab ingress interface")
 	}
@@ -1104,6 +1104,17 @@ func (s *Server) captureSource(ctx context.Context) (capture.Source, string, err
 		}
 	}
 	return capture.Source{}, "", errors.New("confirmed lab ingress interface identity is no longer present")
+}
+
+// labCaptureInterface is the interface the lab recording records. An inline
+// bridge is recorded on its device port, where frames are as they were on
+// the wire: on the bridge itself br_netfilter has already rewritten a
+// redirected DNS query's destination to ShakerProxy's own address.
+func labCaptureInterface(plan networkplan.Plan) (networkplan.Interface, bool) {
+	if _, device, bridged := networkplan.BridgePorts(plan); bridged {
+		return device, true
+	}
+	return networkplan.LabInterface(plan)
 }
 
 // coverageLabBridge is the virtual test lab's client bridge

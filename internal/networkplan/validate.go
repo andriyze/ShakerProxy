@@ -115,6 +115,8 @@ func Validate(plan Plan) ValidationResult {
 		}
 		addWarning("SINGLE_ARM_MANUAL_CLIENT_SETUP", "topology", "each test client must use the ShakerProxy address as its default gateway and DNS server")
 		addWarning("SINGLE_ARM_IPV6_BYPASS", "ipv6.strategy", "clients can bypass ShakerProxy over IPv6 unless IPv6 is disabled on the client or isolated by the upstream network")
+	} else if plan.Topology == TopologyTransparentBridge {
+		validateInlineBridge(plan, roles, addError, addWarning)
 	} else if routed {
 		if roles[RoleWAN] != 1 {
 			addError("WAN_COUNT_INVALID", "interfaces", "routed topology requires exactly one WAN interface")
@@ -255,6 +257,9 @@ func ValidateWithObservedSSH(plan Plan, observed []ObservedInterface, activeSSH 
 					if iface.CurrentName == lab.CurrentName && currentPrefix.Addr() == gateway {
 						continue
 					}
+					if inlineBridgeObservedConflict(plan, iface.CurrentName, currentPrefix.Addr()) {
+						continue
+					}
 					result.Errors = append(result.Errors, Issue{Code: "LAB_CIDR_HOST_CONFLICT", Path: "ipv4.lab_cidr", Message: fmt.Sprintf("lab CIDR overlaps existing address %s on %s", rawAddress, iface.CurrentName)})
 				}
 			}
@@ -310,6 +315,8 @@ func validateActiveSSH(plan Plan, sessions []ActiveSSHSession, result *Validatio
 		path := fmt.Sprintf("active_ssh[%d]", index)
 		if session.DestinationInterface == "" {
 			result.Errors = append(result.Errors, Issue{Code: "ACTIVE_SSH_PATH_UNKNOWN", Path: path + ".destination_address", Message: "active SSH destination could not be mapped to a host interface"})
+		} else if validateInlineBridgeSSH(plan, index, session, selectedRoles[session.DestinationInterface], result) {
+			// Judged by the bridge rules above.
 		} else if selectedRoles[session.DestinationInterface] == RoleLab || selectedRoles[session.DestinationInterface] == RoleWiFiAP {
 			result.Errors = append(result.Errors, Issue{Code: "ACTIVE_SSH_ON_LAB_INTERFACE", Path: path + ".destination_interface", Message: "an interface carrying active SSH cannot become the lab interface"})
 		} else if selectedRoles[session.DestinationInterface] == RoleWAN || selectedRoles[session.DestinationInterface] == RoleWANLab {
@@ -575,7 +582,7 @@ func prefixesOverlap(left, right netip.Prefix) bool {
 
 func validTopology(value Topology) bool {
 	switch value {
-	case TopologyTwoNIC, TopologySingleArm, TopologyThreeInterface, TopologyVLANTrunk, TopologyExistingRoutedVLAN, TopologyPassiveSensor, TopologyAdvancedCustom:
+	case TopologyTwoNIC, TopologySingleArm, TopologyThreeInterface, TopologyVLANTrunk, TopologyExistingRoutedVLAN, TopologyPassiveSensor, TopologyAdvancedCustom, TopologyTransparentBridge:
 		return true
 	}
 	return false
@@ -620,6 +627,9 @@ func WANInterface(plan Plan) (Interface, bool) {
 }
 
 func LabInterface(plan Plan) (Interface, bool) {
+	if InlineBridge(plan) {
+		return inlineBridgeInterface(plan)
+	}
 	if lab, ok := wifiLabInterface(plan); ok {
 		return lab, true
 	}
@@ -630,5 +640,5 @@ func LabInterface(plan Plan) (Interface, bool) {
 }
 
 func UsesManagedDHCP4(plan Plan) bool {
-	return plan.Topology != TopologySingleArm && plan.Topology != TopologyPassiveSensor
+	return plan.Topology != TopologySingleArm && plan.Topology != TopologyPassiveSensor && plan.Topology != TopologyTransparentBridge
 }

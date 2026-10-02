@@ -167,6 +167,7 @@ netlab: ## Network namespace lab suite (sudo)
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/ipv6-lab.sh
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/coverage-probes.sh
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/vpn-mode.sh
+	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/bridge-mode.sh
 	sudo ./tests/netlab/wifi-hwsim.sh
 	SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/mitmproxy-container.sh
 

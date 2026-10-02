@@ -94,7 +94,7 @@ export function WiFiVisibilityPanel() {
               <strong>Listen on Wi-Fi</strong>
               <small>
                 {view.lab_ssid ? `Lab network “${view.lab_ssid}”. ` : ""}
-                {view.lab_devices} lab device addresses are known; only their frames and the lab network's are recorded.
+                {view.lab_devices === 1 ? "1 lab device address is known" : `${view.lab_devices} lab device addresses are known`}; only their frames and the lab network's are recorded.
               </small>
             </span>
           </label>

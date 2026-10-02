@@ -30,6 +30,7 @@ beyond those records.
 ## Operate and evaluate
 
 - [Networking and guarded activation](networking.md)
+- [Inline bridge (no device setup)](bridge-mode.md)
 - [Wi-Fi access point](wifi-access-point.md)
 - [Wi-Fi visibility](wifi-visibility.md)
 - [IPv6 in the lab](ipv6.md)

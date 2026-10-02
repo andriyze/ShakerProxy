@@ -93,7 +93,8 @@ func WiFiBridged(plan Plan) bool {
 // IsLabBridge reports whether an interface returned by LabInterface is the
 // synthetic ShakerProxy bridge rather than a physical host interface.
 func IsLabBridge(iface Interface) bool {
-	return iface.StableID == labBridgeStableID && iface.CurrentName == LabBridgeName
+	return iface.StableID == labBridgeStableID && iface.CurrentName == LabBridgeName ||
+		iface.StableID == inlineBridgeStableID && iface.CurrentName == InlineBridgeName
 }
 
 // EffectiveWiFiBand applies the documented default band (2.4 GHz, the most

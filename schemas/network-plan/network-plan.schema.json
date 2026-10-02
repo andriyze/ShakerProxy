@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": 1},
     "name": {"type": "string", "minLength": 1, "maxLength": 120},
-    "topology": {"enum": ["TWO_NIC", "SINGLE_ARM", "THREE_INTERFACE", "VLAN_TRUNK", "EXISTING_ROUTED_VLAN", "PASSIVE_SENSOR", "ADVANCED_CUSTOM"]},
+    "topology": {"enum": ["TWO_NIC", "SINGLE_ARM", "THREE_INTERFACE", "VLAN_TRUNK", "EXISTING_ROUTED_VLAN", "PASSIVE_SENSOR", "ADVANCED_CUSTOM", "TRANSPARENT_BRIDGE"]},
     "interfaces": {
       "type": "array",
       "minItems": 1,

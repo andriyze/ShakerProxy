@@ -7,7 +7,7 @@ export type InterfaceIdentity = { name: string; stable_id: string; hardware_addr
 
 // Topologies whose lab side the shell builds from its own fields, so
 // extensions (Wi-Fi AP, IPv6 strategy) do not apply to them.
-export const TOPOLOGIES_WITHOUT_EXTENSIONS = new Set(["PASSIVE_SENSOR", "SINGLE_ARM"])
+export const TOPOLOGIES_WITHOUT_EXTENSIONS = new Set(["PASSIVE_SENSOR", "SINGLE_ARM", "TRANSPARENT_BRIDGE"])
 
 export function extensionsApply(topology: string): boolean {
   return !TOPOLOGIES_WITHOUT_EXTENSIONS.has(topology)

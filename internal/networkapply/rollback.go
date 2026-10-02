@@ -22,7 +22,11 @@ type RollbackMachine interface {
 	ReloadNetplan(context.Context) error
 	SetIPv4Forwarding(context.Context, int) error
 	SetIPv4SendRedirects(context.Context, string, int) error
+	SetBridgeNFCallIPTables(context.Context, int) error
 }
+
+// bridgeNFCallIPTablesPath decides whether bridged IPv4 traverses iptables.
+const bridgeNFCallIPTablesPath = "/proc/sys/net/bridge/bridge-nf-call-iptables"
 
 type DHCP4Rollbacker interface {
 	DisableDHCP4(context.Context) error
@@ -93,6 +97,11 @@ func (e RollbackExecutor) Execute(ctx context.Context, manifest networktransacti
 	if manifest.Rollback.IPv4SendRedirectsInterface != "" {
 		if err := e.Machine.SetIPv4SendRedirects(ctx, manifest.Rollback.IPv4SendRedirectsInterface, manifest.Rollback.IPv4SendRedirects); err != nil {
 			failures = append(failures, fmt.Errorf("restore IPv4 redirect state: %w", err))
+		}
+	}
+	if manifest.Rollback.BridgeNetfilter {
+		if err := e.Machine.SetBridgeNFCallIPTables(ctx, manifest.Rollback.BridgeNFCallIPTables); err != nil {
+			failures = append(failures, fmt.Errorf("restore bridge netfilter state: %w", err))
 		}
 	}
 	if dhcp4BackupValid {
@@ -240,6 +249,17 @@ func (OSRollbackMachine) SetIPv4SendRedirects(ctx context.Context, interfaceName
 	return nil
 }
 
+func (OSRollbackMachine) SetBridgeNFCallIPTables(ctx context.Context, value int) error {
+	if value != 0 && value != 1 {
+		return errors.New("bridge netfilter value must be zero or one")
+	}
+	result, err := runRollbackCommand(ctx, "/usr/sbin/sysctl", []string{"-w", "net.bridge.bridge-nf-call-iptables=" + strconv.Itoa(value)})
+	if err != nil || result.exitCode != 0 {
+		return commandResultError("sysctl", result, err)
+	}
+	return nil
+}
+
 func safeSysctlInterfaceName(name string) bool {
 	if name == "" || len(name) > 15 || name == "." || name == ".." {
 		return false
@@ -361,6 +381,9 @@ func allowedRollbackCommand(path string, arguments []string) bool {
 	}
 	if path == "/usr/sbin/sysctl" {
 		if joined == "-w\x00net.ipv4.ip_forward=0" || joined == "-w\x00net.ipv4.ip_forward=1" {
+			return true
+		}
+		if joined == "-w\x00net.bridge.bridge-nf-call-iptables=0" || joined == "-w\x00net.bridge.bridge-nf-call-iptables=1" {
 			return true
 		}
 		if len(arguments) == 2 && arguments[0] == "-w" {

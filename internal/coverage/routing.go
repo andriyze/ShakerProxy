@@ -69,6 +69,14 @@ func InspectRouting(in RoutingInput) []Finding {
 			Fix:    "Set up and confirm a lab on the Network page, or turn on VPN mode and add a device.",
 		}}
 	}
+	if in.Topology == "TRANSPARENT_BRIDGE" {
+		findings := inlineBridgeFindings()
+		findings = append(findings, encryptedDNSFindings(in)...)
+		if in.VPN {
+			findings = append(findings, vpnFinding(in))
+		}
+		return findings
+	}
 	singleArm := in.Topology == "SINGLE_ARM"
 	findings := []Finding{ipv6Finding(in, singleArm), dhcpFinding(in, singleArm), peerFinding(in, singleArm)}
 	findings = append(findings, encryptedDNSFindings(in)...)
@@ -77,6 +85,23 @@ func InspectRouting(in RoutingInput) []Finding {
 		findings = append(findings, vpnFinding(in))
 	}
 	return findings
+}
+
+// inlineBridgeFindings judges an inline bridge: devices keep the network's
+// own router, DHCP and IPv6, but every frame between the device port and the
+// rest of the network crosses ShakerProxy, so none of them is a way around.
+func inlineBridgeFindings() []Finding {
+	return []Finding{
+		{ID: FindingIPv6, Title: "IPv6", Status: FindingOK,
+			Detail: "The network's router advertises IPv6 through the bridge, so a device's IPv6 crosses ShakerProxy and is recorded. DNS forcing and device blocks apply to IPv4; IPv6 is recorded but not redirected."},
+		{ID: FindingDHCP, Title: "Address assignment (DHCP)", Status: FindingOK,
+			Detail: "Inline bridge: the network's router hands out addresses through ShakerProxy, so devices need no setup and have no other way to their gateway than across the bridge."},
+		{ID: FindingPeerToPeer, Title: "Device-to-device traffic (AirPlay, casting, local SSH)", Status: FindingOK,
+			Detail: "Traffic between a device on the device port and anything on the router's side crosses the bridge and is recorded. Two devices behind the same switch on the device port still talk directly.",
+			Fix:    "Connect one test device to the device port, or use ShakerProxy's Wi-Fi access point for several."},
+		{ID: FindingLocalDiscovery, Title: "Local discovery (mDNS/Bonjour, SSDP)", Status: FindingOK,
+			Detail: "Every multicast and broadcast frame crossing the bridge is recorded, including the discovery AirPlay, Chromecast and smart-home apps use."},
+	}
 }
 
 // vpnFinding describes the WireGuard VPN path: a full tunnel leaves a

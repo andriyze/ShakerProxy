@@ -1419,6 +1419,7 @@ export type NetworkTopology =
   | "EXISTING_ROUTED_VLAN"
   | "PASSIVE_SENSOR"
   | "ADVANCED_CUSTOM"
+  | "TRANSPARENT_BRIDGE"
 
 export type WANIPv4Mode = "KEEP_EXISTING" | "DHCP" | "STATIC"
 

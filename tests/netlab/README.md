@@ -49,6 +49,18 @@ WireGuard it skips (and fails under `make netlab`). Set
 `SHAKERPROXY_NETLAB_BIN` to a directory with prebuilt `daemon.test` and
 `shakerproxy-dnsd` to skip the build.
 
+`bridge-mode.sh` proves the inline bridge (`docs/bridge-mode.md`): a router
+namespace runs DHCP only (dnsmasq with no DNS), and ShakerProxy bridges an
+upstream and a device port with the plan's real firewall, bridge netfilter
+and the traffic policy's real rules (the script builds `spbr0` with `ip` in
+place of Netplan). The device gets its lease from the router through the
+bridge; its DNS to the router is answered by dnsd; conntrack reports its
+connection to another device on the router's side; the device port recording
+holds DHCP, ARP, the DNS query as sent and that device-to-device traffic; and
+rollback removes the chains, restores bridge netfilter and the host's address.
+It needs `br_netfilter`, the iptables `physdev` match, dnsmasq and a DHCP
+client (`dhclient` or busybox `udhcpc`).
+
 `wifi-hwsim.sh` proves [Wi-Fi visibility](../../docs/wifi-visibility.md) with
 four simulated radios (`mac80211_hwsim`), each in its own namespace: hostapd
 serves a WPA2 lab network on channel 6, a lab device searches for "HomeWiFi",

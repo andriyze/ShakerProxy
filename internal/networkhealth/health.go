@@ -160,7 +160,9 @@ func (p OSProbe) Management(ctx context.Context, staged networkplan.StagedPlan) 
 }
 
 func (p OSProbe) WAN(_ context.Context, staged networkplan.StagedPlan) error {
-	wan, ok := networkplan.WANInterface(staged.Plan)
+	// On an inline bridge the host's address and default route live on the
+	// bridge, not on the upstream port.
+	wan, ok := networkplan.UplinkInterface(staged.Plan)
 	if !ok || !safeInterfaceName(wan.CurrentName) {
 		return errors.New("validated WAN interface is unavailable")
 	}
@@ -214,6 +216,12 @@ func (p OSProbe) IPv4Forwarding(ctx context.Context, staged networkplan.StagedPl
 		redirects, readErr := p.readFile("/proc/sys/net/ipv4/conf/" + arm.CurrentName + "/send_redirects")
 		if readErr != nil || strings.TrimSpace(string(redirects)) != "0" {
 			return errors.New("IPv4 redirects are not disabled on the single-arm interface")
+		}
+	}
+	if networkplan.InlineBridge(staged.Plan) {
+		bridged, readErr := p.readFile("/proc/sys/net/bridge/bridge-nf-call-iptables")
+		if readErr != nil || strings.TrimSpace(string(bridged)) != "1" {
+			return errors.New("bridged traffic does not pass through the firewall (bridge-nf-call-iptables is off)")
 		}
 	}
 	runner := p.Firewall
