@@ -313,6 +313,18 @@ http.method:POST, http.status:>=400, http.path:/api/*, bytes:>1MB, app.protocol:
 Input: `{"query":"time:last_1h AND device.name:\"Living room TV\" AND tls.state:FAILED","limit":50}`.
 Scope: `traffic:read`.
 
+### `traffic_summary`
+
+Counts over a window instead of events: totals (events, bytes sent and
+received), counts per stream type (DNS, TLS, QUIC, HTTP, discovery, alert,
+blocked, other; see `docs/traffic-stream-types.md`), top devices with friendly
+names, top destination owners and categories, destination ports and app
+protocols, and a timeline. Owner and category counts cover the newest 20,000
+matching events and say so (`sampled_events`); the others are exact. Analyzer
+duplicate records are not counted. Input:
+`{"device":"tv","window":"24h","query":"NOT service:dns","buckets":12}`.
+Calls `GET /api/v1/events/summary`. Scope: `traffic:read`.
+
 ### `dns_lookups`
 
 Plain DNS lookups answered by ShakerProxy's DNS forwarder or seen by Zeek and

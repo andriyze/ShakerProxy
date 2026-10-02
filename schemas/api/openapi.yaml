@@ -1529,6 +1529,33 @@ paths:
         "401": {$ref: "#/components/responses/Error"}
         "422": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
+  /events/summary:
+    get:
+      operationId: getEventSummary
+      description: >-
+        Timeline, facet counts and totals for the live Traffic view and SOC agents, over the same filter as /events.
+        Each event is counted once under one stream type (dns, tls, quic, http, discovery, alert, other, blocked; rules in
+        docs/traffic-stream-types.md), and the analyzers' duplicate records are left out as the view's All filter does.
+        The window is [from, to); without from and to it is the q's time:last_… window, else the last 15 minutes ending now.
+        Counts are exact except the organization and category facets, which cover the newest 20,000 matching events
+        (exact false and sampled_events set). Requires traffic:read; device labels are friendly names.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: query, name: from, description: "Start of the window (RFC 3339). Without to, the window ends now.", schema: {type: string, format: date-time}}
+        - {in: query, name: to, description: "End of the window (RFC 3339), exclusive; at most 30 days after from and at least one second.", schema: {type: string, format: date-time}}
+        - {in: query, name: buckets, schema: {type: integer, minimum: 1, maximum: 240, default: 60}}
+        - {in: query, name: source, schema: {type: string, enum: [HOST, ZEEK, SURICATA, MITMPROXY]}}
+        - {in: query, name: kind, schema: {type: string, maxLength: 256}}
+        - {in: query, name: capture_session_id, schema: {type: string, pattern: "^capture-[a-f0-9]{32}$"}}
+        - {in: query, name: device_id, schema: {type: string, pattern: "^device-[a-f0-9]{32}$"}}
+        - {in: query, name: q, description: "The same typed filter accepted by /events.", schema: {type: string, maxLength: 2048}}
+      responses:
+        "200": {description: Events summary, content: {application/json: {schema: {$ref: "#/components/schemas/EventSummary"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /events/query-metadata:
     get:
       operationId: getEventQueryMetadata
@@ -2887,6 +2914,72 @@ components:
       type: string
       enum: [ANALYZER, PORT_HEURISTIC, UNCLASSIFIED]
       description: "ANALYZER: Zeek/Suricata/mitmproxy recognized the protocol from payload. PORT_HEURISTIC: only a well-known port matched. UNCLASSIFIED: neither matched."
+    StreamTypeCounts:
+      type: object
+      additionalProperties: false
+      required: [dns, tls, quic, http, discovery, alert, other, blocked]
+      properties:
+        dns: {type: integer, minimum: 0}
+        tls: {type: integer, minimum: 0}
+        quic: {type: integer, minimum: 0}
+        http: {type: integer, minimum: 0}
+        discovery: {type: integer, minimum: 0}
+        alert: {type: integer, minimum: 0}
+        other: {type: integer, minimum: 0}
+        blocked: {type: integer, minimum: 0}
+    EventSummary:
+      type: object
+      additionalProperties: false
+      required: [schema, generated_at, from, to, bucket_seconds, buckets, totals, facets]
+      properties:
+        schema: {const: 1}
+        generated_at: {type: string, format: date-time}
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        bucket_seconds: {type: number, exclusiveMinimum: 0}
+        buckets:
+          type: array
+          maxItems: 240
+          items:
+            type: object
+            additionalProperties: false
+            required: [start, counts]
+            properties:
+              start: {type: string, format: date-time}
+              counts: {$ref: "#/components/schemas/StreamTypeCounts"}
+        totals:
+          type: object
+          additionalProperties: false
+          required: [events, bytes_sent, bytes_received, types]
+          properties:
+            events: {type: integer, minimum: 0}
+            bytes_sent: {type: integer, minimum: 0, description: What devices sent, from Zeek connection and Suricata flow records.}
+            bytes_received: {type: integer, minimum: 0}
+            types: {$ref: "#/components/schemas/StreamTypeCounts"}
+        facets:
+          type: array
+          description: In this order: device, type, organization, category, destination_port, app_protocol.
+          items:
+            type: object
+            additionalProperties: false
+            required: [field, values, other_count, exact]
+            properties:
+              field: {type: string, enum: [device, type, organization, category, destination_port, app_protocol]}
+              values:
+                type: array
+                maxItems: 20
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [value, count]
+                  properties:
+                    value: {type: string, description: "A device ID, or ip:<address> for traffic not attributed to a device; a stream type; an organization or category name; a port; an app protocol."}
+                    label: {type: string, description: The device's friendly name, or the address of unattributed traffic.}
+                    count: {type: integer, minimum: 1}
+              other_count: {type: integer, minimum: 0, description: Events (sampled events for a sampled facet) not in values, including those without a value.}
+              exact: {type: boolean}
+              sampled_events: {type: integer, minimum: 1, maximum: 20000, description: Present when exact is false.}
+        canonical_query: {type: string}
     ProtocolSummary:
       type: object
       additionalProperties: false

@@ -252,6 +252,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/address-aliases/resolve", s.requireAuth(http.HandlerFunc(s.resolveAddressAlias)))
 	mux.Handle("GET /api/v1/device-audit", s.requireAuth(http.HandlerFunc(s.listDeviceAudit)))
 	mux.Handle("GET /api/v1/events", s.requireAuthOrScope(apitoken.ScopeTrafficRead, http.HandlerFunc(s.listRecentEvents)))
+	mux.Handle("GET /api/v1/events/summary", s.requireAuthOrScope(apitoken.ScopeTrafficRead, http.HandlerFunc(s.listTrafficSummary)))
 	mux.Handle("GET /api/v1/events/query-metadata", s.requireAuthOrScope(apitoken.ScopeTrafficRead, http.HandlerFunc(s.eventQueryMetadata)))
 	mux.Handle("GET /api/v1/events/query-completions", s.requireAuthOrScope(apitoken.ScopeTrafficRead, http.HandlerFunc(s.eventQueryCompletions)))
 	mux.Handle("POST /api/v1/event-query-snapshots", s.requireAuth(http.HandlerFunc(s.createEventQuerySnapshot)))

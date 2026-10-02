@@ -299,19 +299,25 @@ FROM normalized_events`
 // blockedProjection reads whether ShakerProxy refused the lookup or
 // connection, and why, from the HOST payload (dnsd lookups and the gateway's
 // blocked attempts); it needs no stored column.
-const blockedProjection = `COALESCE(source = 'HOST' AND (kind = '` + HostBlockedKind + `' OR (kind = '` + HostDNSKind + `' AND payload->>'blocked' = 'true')), false),
+const blockedProjection = blockedFlagSQL + `,
 CASE WHEN source <> 'HOST' THEN ''
      WHEN kind = '` + HostBlockedKind + `' THEN COALESCE(payload->>'reason', '')
      WHEN kind = '` + HostDNSKind + `' AND payload->>'blocked' = 'true' THEN COALESCE(NULLIF(payload->>'blocked_reason', ''), 'device-domain')
      ELSE '' END`
 
+// blockedFlagSQL is true for a lookup or connection ShakerProxy refused.
+const blockedFlagSQL = `COALESCE(source = 'HOST' AND (kind = '` + HostBlockedKind + `' OR (kind = '` + HostDNSKind + `' AND payload->>'blocked' = 'true')), false)`
+
 // bytesProjection reads what each side of a connection sent from the
 // analyzer payload: Zeek conn's orig_bytes and resp_bytes (the IP-level
 // counts when those are missing) and Suricata flow's bytes_toserver and
 // bytes_toclient. Anything but a whole non-negative number reads as unknown.
-var bytesProjection = `CASE WHEN source = 'ZEEK' AND kind = 'zeek.conn' THEN COALESCE(` + jsonCount("payload->'orig_bytes'") + `, ` + jsonCount("payload->'orig_ip_bytes'") + `)
-     WHEN source = 'SURICATA' AND kind = 'suricata.flow' THEN ` + jsonCount("payload#>'{flow,bytes_toserver}'") + ` END,
-CASE WHEN source = 'ZEEK' AND kind = 'zeek.conn' THEN COALESCE(` + jsonCount("payload->'resp_bytes'") + `, ` + jsonCount("payload->'resp_ip_bytes'") + `)
+var bytesProjection = bytesSentSQL + ",\n" + bytesReceivedSQL
+
+var bytesSentSQL = `CASE WHEN source = 'ZEEK' AND kind = 'zeek.conn' THEN COALESCE(` + jsonCount("payload->'orig_bytes'") + `, ` + jsonCount("payload->'orig_ip_bytes'") + `)
+     WHEN source = 'SURICATA' AND kind = 'suricata.flow' THEN ` + jsonCount("payload#>'{flow,bytes_toserver}'") + ` END`
+
+var bytesReceivedSQL = `CASE WHEN source = 'ZEEK' AND kind = 'zeek.conn' THEN COALESCE(` + jsonCount("payload->'resp_bytes'") + `, ` + jsonCount("payload->'resp_ip_bytes'") + `)
      WHEN source = 'SURICATA' AND kind = 'suricata.flow' THEN ` + jsonCount("payload#>'{flow,bytes_toclient}'") + ` END`
 
 // jsonCount is a JSON whole number of at most 15 digits as bigint, else NULL.
