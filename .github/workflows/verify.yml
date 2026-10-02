@@ -60,7 +60,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             iproute2 iptables nftables tcpdump wireshark-common radvd conntrack dnsutils \
-            wireguard-tools iputils-ping netcat-openbsd socat dnsmasq-base isc-dhcp-client
+            wireguard-tools iputils-ping netcat-openbsd socat dnsmasq-base busybox
           sudo modprobe wireguard
       - name: Network namespace lab
         run: |

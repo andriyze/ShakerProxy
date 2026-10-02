@@ -36,11 +36,13 @@ fail() {
 for command in ip iptables iptables-restore sysctl python3 grep mktemp tcpdump dnsmasq; do
   command -v "$command" >/dev/null || netlab_skip "missing $command"
 done
+# busybox udhcpc first: Ubuntu's AppArmor profile for dhclient lets it run
+# only the system's own hook script, so the test's script never runs there.
 DHCP_CLIENT=""
-if command -v dhclient >/dev/null; then
-  DHCP_CLIENT=dhclient
-elif command -v busybox >/dev/null && busybox udhcpc --help >/dev/null 2>&1; then
+if command -v busybox >/dev/null && busybox udhcpc --help >/dev/null 2>&1; then
   DHCP_CLIENT=udhcpc
+elif command -v dhclient >/dev/null; then
+  DHCP_CLIENT=dhclient
 else
   netlab_skip "missing a DHCP client (dhclient or busybox udhcpc)"
 fi
@@ -219,6 +221,7 @@ SCRIPT
   ip netns exec "$CLIENT" env LEASE_REPORT="$LAB_TEMP/lease" timeout 30 dhclient -1 -sf "$LAB_TEMP/dhcp-script" \
     -lf "$LAB_TEMP/dhclient.leases" -pf "$LAB_TEMP/dhclient.pid" eth0 >"$LAB_TEMP/dhclient.log" 2>&1 || { cat "$LAB_TEMP/dhclient.log"; fail "the device got no DHCP lease through the bridge"; }
   kill "$(cat "$LAB_TEMP/dhclient.pid" 2>/dev/null)" 2>/dev/null || true
+  [[ -s "$LAB_TEMP/lease" ]] || { cat "$LAB_TEMP/dhclient.log"; fail "dhclient bound but its hook script did not run (an AppArmor profile may confine dhclient; install busybox for udhcpc)"; }
 else
   cat >"$LAB_TEMP/dhcp-script" <<'SCRIPT'
 #!/bin/sh
