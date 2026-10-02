@@ -20,6 +20,7 @@ const (
 	maxAgentDeviceTags          = 16
 	maxAgentDeviceWarnings      = 8
 	maxAgentTruncatedFields     = 4
+	maxAgentDeviceFormerIDs     = 16
 )
 
 var agentDeviceIDPattern = regexp.MustCompile(`^device-[a-f0-9]{32}$`)
@@ -60,6 +61,11 @@ type Device struct {
 	AttributionConfidence int              `json:"attribution_confidence"`
 	AttributionWarnings   []string         `json:"attribution_warnings,omitempty"`
 	TruncatedFields       []string         `json:"truncated_fields,omitempty"`
+	// PinnedAddress is the IP address an administrator named the device by.
+	PinnedAddress string `json:"pinned_address,omitempty"`
+	// FormerIDs are device records merged into this one (e.g. a phone's
+	// earlier private MACs); older events may carry them as device_id.
+	FormerIDs []string `json:"former_ids,omitempty"`
 }
 
 type DevicePage struct {
@@ -168,6 +174,19 @@ func validateAgentDevice(device Device) error {
 	for _, hostname := range device.Hostnames {
 		if !boundedAgentText(hostname.Hostname, 1, 253) || hostname.Confidence < 0 || hostname.Confidence > 100 || hostname.FirstSeen.IsZero() || hostname.LastSeen.Before(hostname.FirstSeen) {
 			return errors.New("agent device API returned invalid hostname evidence")
+		}
+	}
+	if device.PinnedAddress != "" {
+		if parsed, err := netip.ParseAddr(device.PinnedAddress); err != nil || parsed.String() != device.PinnedAddress {
+			return errors.New("agent device API returned an invalid pinned address")
+		}
+	}
+	if len(device.FormerIDs) > maxAgentDeviceFormerIDs {
+		return errors.New("agent device API returned too many former device IDs")
+	}
+	for _, id := range device.FormerIDs {
+		if !agentDeviceIDPattern.MatchString(id) || id == device.ID {
+			return errors.New("agent device API returned an invalid former device ID")
 		}
 	}
 	return nil

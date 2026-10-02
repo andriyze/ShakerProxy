@@ -60,6 +60,12 @@ type agentDevice struct {
 	AttributionConfidence int                   `json:"attribution_confidence"`
 	AttributionWarnings   []string              `json:"attribution_warnings,omitempty"`
 	TruncatedFields       []string              `json:"truncated_fields,omitempty"`
+	// PinnedAddress is the IP address an administrator named this device
+	// by; traffic from it is attributed to the device whatever MAC it uses.
+	PinnedAddress string `json:"pinned_address,omitempty"`
+	// FormerIDs are the IDs of device records merged into this one (for
+	// example a phone's earlier private MACs); older events may carry them.
+	FormerIDs []string `json:"former_ids,omitempty"`
 }
 
 type agentDevicePage struct {
@@ -282,5 +288,7 @@ func projectAgentDevice(device deviceinventory.Device) agentDevice {
 		AttributionConfidence: device.AttributionConfidence,
 		AttributionWarnings:   warnings,
 		TruncatedFields:       truncatedFields,
+		PinnedAddress:         device.PinnedAddress,
+		FormerIDs:             append([]string(nil), device.FormerIDs...),
 	}
 }
