@@ -56,7 +56,7 @@ func TestToolSurfaceIsShortReadOnlyAndDescribedWithExamples(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	want := []string{"compare_runs", "device_activity", "device_report", "dns_lookups", "dns_visibility", "encrypted_dns", "event_detail", "find_device", "follow_traffic", "http_exchange", "http_requests", "list_devices", "protocols", "search_traffic", "system_status", "test_sessions", "tls_issues", "traffic_summary", "visibility_coverage", "vpn_devices", "wifi_activity"}
+	want := []string{"captures", "cases", "compare_runs", "device_activity", "device_controls", "device_report", "diagnostics", "dns_lookups", "dns_visibility", "encrypted_dns", "event_detail", "find_device", "follow_traffic", "http_exchange", "http_requests", "list_devices", "protocols", "search_traffic", "system_status", "test_sessions", "tls_issues", "traffic_summary", "visibility_coverage", "vpn_devices", "wifi_activity"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tool surface: got %v want %v", names, want)
 	}

@@ -80,6 +80,20 @@ type Device struct {
 	// FormerIDs are device records merged into this one (e.g. a phone's
 	// earlier private MACs); older events may carry them as device_id.
 	FormerIDs []string `json:"former_ids,omitempty"`
+	// Platform is what the device most likely is ("GrapheneOS phone"); only
+	// tokens that may read traffic get it.
+	Platform *DevicePlatform `json:"platform,omitempty"`
+}
+
+// DevicePlatform names a device's platform and the evidence: Source
+// "connectivity_check" (Domain is the server it checked) or "dhcp" (Detail
+// is the vendor class or option order of its DHCP request).
+type DevicePlatform struct {
+	Platform string    `json:"platform"`
+	Source   string    `json:"source"`
+	Domain   string    `json:"domain,omitempty"`
+	Detail   string    `json:"detail,omitempty"`
+	LastSeen time.Time `json:"last_seen"`
 }
 
 type DevicePage struct {
@@ -211,6 +225,11 @@ func validateAgentDevice(device Device) error {
 			if parsed, err := netip.ParseAddr(value); value != "" && (err != nil || !parsed.Is4() || parsed.String() != value) {
 				return errors.New("agent device API returned an invalid DHCP server")
 			}
+		}
+	}
+	if platform := device.Platform; platform != nil {
+		if !boundedAgentText(platform.Platform, 1, 64) || platform.Source != "connectivity_check" && platform.Source != "dhcp" || !boundedAgentText(platform.Domain, 0, 253) || !boundedAgentText(platform.Detail, 0, 255) {
+			return errors.New("agent device API returned an invalid platform hint")
 		}
 	}
 	return nil
