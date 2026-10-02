@@ -39,12 +39,28 @@ test("the panel only renders responses it understands", () => {
 test("the event drawer shows requests and responses as inert text", () => {
   const drawer = webUIFile("workspaces/traffic/EventDetailDrawer.tsx")
   assert.match(drawer, /api<HTTPExchange>\(`\/api\/v1\/events\/\$\{encodeURIComponent\(recordID\)\}\/http-exchange`/)
-  assert.match(drawer, /<HTTPExchangePanel recordID=\{recordID\} reveal=\{reveal\} onState=\{setExchangeState\} \/>/)
-  // Sensitive header values stay masked until revealed, through the shared Headers table.
-  assert.match(drawer, /<Headers snapshot=\{pair\.request\.headers\} reveal=\{reveal\} \/>/)
-  assert.match(drawer, /<Headers snapshot=\{pair\.response\.headers\} reveal=\{reveal\} \/>/)
+  assert.match(drawer, /<HTTPExchangePanel recordID=\{recordID\} reveal=\{reveal\} onReveal=/)
+  // Sensitive header values stay masked until revealed: each message is one text block.
+  assert.match(drawer, /const lines = messageHeaderLines\(headers, reveal\)/)
+  assert.match(drawer, /headers=\{pair\.request\.headers\}/)
+  assert.match(drawer, /headers=\{pair\.response\.headers\}/)
+  assert.match(drawer, /<pre className="http-message__text">/)
   // Bodies (including HTML) render as text in <pre>, never as markup.
   assert.doesNotMatch(drawer, /dangerouslySetInnerHTML|innerHTML|srcDoc|<iframe/)
   assert.match(drawer, /<pre className="event-detail-plaintext">\{preview \|\| "\(empty body\)"\}<\/pre>/)
   assert.match(drawer, /exchange\.state === "RETRY"/)
+})
+
+test("a message reads like developer tools and replays with curl", async () => {
+  const { bodyDisplay, curlCommand, messageHeaderLines, rawMessage } = await import("../../apps/web-ui/src/lib/httpExchange.ts")
+  const headers = { bytes: 90, items: [{ name: "Host", value: "example-iot.local" }, { name: "Cookie", value: "session=abc", sensitive: true }, { name: "Accept-Encoding", value: "gzip" }, { name: "Content-Type", value: "application/json" }] }
+  const body = { content_type: "application/json", body_bytes: 16, decoded_preview: false, preview_bytes: 16, preview_encoding: "utf-8", preview: '{"a":1,"b":"it\'s"}', truncated: false, complete: true }
+  const masked = messageHeaderLines(headers, false)
+  assert.equal(masked[1].hidden, true)
+  assert.doesNotMatch(rawMessage("POST /r HTTP/1.1", masked, body), /session=abc/)
+  assert.equal(rawMessage("POST /r HTTP/1.1", messageHeaderLines(headers, true), body), 'POST /r HTTP/1.1\nHost: example-iot.local\nCookie: session=abc\nAccept-Encoding: gzip\nContent-Type: application/json\n\n{\n  "a": 1,\n  "b": "it\'s"\n}')
+  const request = { method: "POST", target: "/r?x=1", proto: "HTTP/1.1", headers, body }
+  assert.equal(curlCommand(request, "http", false), `curl -X POST 'http://example-iot.local/r?x=1' --compressed -H 'Content-Type: application/json' --data-raw '{"a":1,"b":"it'\\''s"}'`)
+  assert.match(curlCommand(request, "http", true), /-H 'Cookie: session=abc'/)
+  assert.equal(bodyDisplay({ ...body, preview_encoding: "hex", preview: "48545450ff00" }), `0000  ${"48 54 54 50 ff 00".padEnd(47)}  HTTP..`)
 })
