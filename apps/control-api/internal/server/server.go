@@ -88,6 +88,7 @@ type analyzerStatusService interface {
 type Server struct {
 	store                       *Store
 	gateway                     gatewayclient.Client
+	coverage                    coverageState
 	allowedHosts                map[string]struct{}
 	logger                      *slog.Logger
 	inventory                   *deviceinventory.Store

@@ -615,6 +615,9 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 			return nil, &gatewayprotocol.RPCError{Code: -32044, Message: "new capture is blocked by critical CPU, memory, or disk pressure"}
 		}
 		source, policyRevision, err := s.captureSource(ctx)
+		if err == nil && params.Request.CoverageLab {
+			source, err = coverageCaptureSource(ctx)
+		}
 		if err != nil {
 			return nil, &gatewayprotocol.RPCError{Code: -32041, Message: err.Error()}
 		}
@@ -1031,6 +1034,30 @@ func (s *Server) captureSource(ctx context.Context) (capture.Source, string, err
 		}
 	}
 	return capture.Source{}, "", errors.New("confirmed lab ingress interface identity is no longer present")
+}
+
+// coverageLabBridge is the virtual test lab's client bridge
+// (host/testlab), the only interface a coverage capture may record.
+const coverageLabBridge = "lgtest-client"
+
+// coverageCaptureSource records the virtual test lab's client bridge for the
+// visibility coverage check, so its probes cross the production capture and
+// analyzer path. The caller has already required a confirmed routed lab.
+func coverageCaptureSource(ctx context.Context) (capture.Source, error) {
+	host, err := inspectHost(ctx)
+	if err != nil {
+		return capture.Source{}, errors.New("capture interface inspection failed")
+	}
+	return coverageSourceFrom(host)
+}
+
+func coverageSourceFrom(host gatewayprotocol.HostInspection) (capture.Source, error) {
+	for _, observed := range host.Interfaces {
+		if observed.Name == coverageLabBridge && observed.OperState != "down" {
+			return capture.Source{InterfaceName: observed.Name, InterfaceStableID: observed.StableID}, nil
+		}
+	}
+	return capture.Source{}, errors.New("the virtual test lab is not prepared; run the visibility coverage check from ShakerProxy")
 }
 
 func validIdempotencyKey(value string) bool {

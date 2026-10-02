@@ -51,6 +51,12 @@ type Runtime struct {
 
 var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
 
+// testLabClients is the virtual test lab's client network
+// (internal/testlab DefaultClientCIDR), a benchmarking range that never
+// leaves the appliance. The visibility coverage check sends its DNS here so
+// the forwarder's real path is proven.
+var testLabClients = netip.MustParsePrefix("198.18.240.0/24")
+
 // AllowedClient reports whether a query may be answered. Loopback, private
 // (RFC 1918, ULA), CGNAT and link-local clients are always accepted, plus the
 // lab prefixes the gateway publishes (a routed lab may use global space). This
@@ -58,7 +64,7 @@ var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
 // protecting its port is missing.
 func (r *Runtime) AllowedClient(client netip.Addr) bool {
 	client = client.Unmap()
-	if client.IsLoopback() || client.IsPrivate() || client.IsLinkLocalUnicast() || sharedAddressSpace.Contains(client) {
+	if client.IsLoopback() || client.IsPrivate() || client.IsLinkLocalUnicast() || sharedAddressSpace.Contains(client) || testLabClients.Contains(client) {
 		return true
 	}
 	if r == nil {
