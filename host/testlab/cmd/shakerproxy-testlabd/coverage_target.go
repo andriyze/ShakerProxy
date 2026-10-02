@@ -15,7 +15,8 @@ import (
 )
 
 // Endpoints the virtual target adds for the visibility coverage probes. Each
-// answers just enough for the analyzers to recognise the protocol.
+// answers just enough for the analyzers to recognise the protocol. Like the
+// target's other listeners they bind ":port", one socket for IPv4 and IPv6.
 
 func serveCoverageEndpoints(certificate tls.Certificate) {
 	go serveSSHBanner(":" + strconv.Itoa(coverage.PortSSH))
@@ -118,7 +119,7 @@ func serveDoH(certificate tls.Certificate, address string) {
 		_, _ = w.Write(query)
 	})
 	server := &http.Server{Addr: address, Handler: mux, ReadHeaderTimeout: 3 * time.Second, TLSConfig: &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12}}
-	_ = server.ListenAndServeTLS("", "")
+	listenFailed(address, server.ListenAndServeTLS("", ""))
 }
 
 // listenFailed stops the target: a target missing an endpoint makes its probe

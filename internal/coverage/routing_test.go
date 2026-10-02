@@ -16,7 +16,7 @@ func findingsByID(list []Finding) map[string]Finding {
 // The test VM: a single-arm lab on a home network without IPv6, encrypted
 // DNS allowed.
 func TestRoutingFindingsForASingleArmLab(t *testing.T) {
-	got := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "SINGLE_ARM", IPv6Strategy: "DISABLED", GatewayIPv4: "192.168.10.177", LabInterface: "ens18", PolicyAvailable: true}))
+	got := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "SINGLE_ARM", IPv6Strategy: "DISABLED", GatewayIPv4: "192.168.10.177", LabInterface: "ens18", PolicyAvailable: true, RouterAdvertsSearched: true}))
 	for id, status := range map[string]FindingStatus{
 		FindingIPv6: FindingOK, FindingDHCP: FindingGap, FindingPeerToPeer: FindingGap,
 		FindingEncryptedDNS: FindingGap, FindingPlainDNS: FindingGap, FindingLocalDiscovery: FindingOK,
@@ -41,18 +41,43 @@ func TestIPv6FromAnotherRouterIsAGap(t *testing.T) {
 	if got[FindingIPv6].Status != FindingGap || !strings.Contains(got[FindingIPv6].Detail, "ens18") {
 		t.Fatalf("IPv6 = %+v", got[FindingIPv6])
 	}
-	advertised := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "TWO_NIC", IPv6Strategy: "ULA_NAT66_LAB", ForeignRouterAdverts: []string{"fe80::1", "fe80::1"}}))
-	if advertised[FindingIPv6].Status != FindingGap || !strings.Contains(advertised[FindingIPv6].Detail, "(fe80::1)") {
+	advertised := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "TWO_NIC", IPv6Strategy: "ULA_NAT66_LAB", ForeignRouterAdverts: []string{"fe80::1", "fe80::1"}, RouterAdvertsSearched: true}))
+	if advertised[FindingIPv6].Status != FindingGap || !strings.Contains(advertised[FindingIPv6].Detail, "also advertises IPv6 on the lab network (fe80::1)") {
 		t.Fatalf("a foreign router advertisement is a gap even when ShakerProxy routes IPv6: %+v", advertised[FindingIPv6])
 	}
-	routed := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "TWO_NIC", IPv6Strategy: "ULA_NAT66_LAB"}))
+	routed := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "TWO_NIC", IPv6Strategy: "ULA_NAT66_LAB", RouterAdvertsSearched: true}))
 	if routed[FindingIPv6].Status != FindingOK {
 		t.Fatalf("routed IPv6 = %+v", routed[FindingIPv6])
 	}
 }
 
+// The home router on a single-arm lab advertises IPv6 while ShakerProxy
+// routes only IPv4: every IPv6 connection bypasses it.
+func TestARouterAdvertisementOnASingleArmLabIsAGap(t *testing.T) {
+	got := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "SINGLE_ARM", IPv6Strategy: "DISABLED", LabInterface: "ens18",
+		ForeignRouterAdverts: []string{"fe80::be24:11ff:fe00:1"}, RouterAdvertsSearched: true}))
+	finding := got[FindingIPv6]
+	if finding.Status != FindingGap || !strings.Contains(finding.Detail, "(fe80::be24:11ff:fe00:1), and ShakerProxy does not route IPv6") || finding.Fix == "" {
+		t.Fatalf("IPv6 = %+v", finding)
+	}
+}
+
+func TestUnsearchedRecordingLeavesIPv6Unknown(t *testing.T) {
+	for _, strategy := range []string{"DISABLED", "ULA_NAT66_LAB"} {
+		got := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "SINGLE_ARM", IPv6Strategy: strategy, LabInterface: "ens18"}))
+		if got[FindingIPv6].Status != FindingUnknown || got[FindingIPv6].Fix == "" {
+			t.Fatalf("%s: IPv6 = %+v", strategy, got[FindingIPv6])
+		}
+	}
+	// What the host itself shows still decides without a recording.
+	hostEvidence := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "SINGLE_ARM", IPv6Strategy: "DISABLED", LabIPv6: true, LabInterface: "ens18"}))
+	if hostEvidence[FindingIPv6].Status != FindingGap {
+		t.Fatalf("IPv6 = %+v", hostEvidence[FindingIPv6])
+	}
+}
+
 func TestAWiFiLabWithEncryptedDNSBlockedHasNoGaps(t *testing.T) {
-	list := InspectRouting(RoutingInput{Routing: true, Topology: "TWO_NIC", IPv6Strategy: "DISABLED", WirelessAccessPoint: true,
+	list := InspectRouting(RoutingInput{Routing: true, Topology: "TWO_NIC", IPv6Strategy: "DISABLED", WirelessAccessPoint: true, RouterAdvertsSearched: true,
 		PolicyAvailable: true, BlockDoT: true, BlockDoQ: true, BlockKnownDoH: true, RedirectPlainDNS: true})
 	if gaps := CountGaps(list); gaps != 0 {
 		t.Fatalf("gaps = %d: %+v", gaps, list)

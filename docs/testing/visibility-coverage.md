@@ -29,7 +29,16 @@ Each probe is sent once from a virtual client and must show up in stored events:
 | NTP | An NTP client request | Stored and named `ntp` |
 | mDNS (AirPlay discovery) | A PTR query for `_airplay._tcp.local` to 224.0.0.251 | Stored and named `mdns` |
 | SSDP (casting discovery) | An `M-SEARCH` to 239.255.255.250:1900 | Stored and named `ssdp` |
-| IPv6 | — | Skipped: the virtual lab is IPv4-only; the routing inspection covers IPv6 |
+| DNS over IPv6 (AAAA) | An AAAA lookup over IPv6 to the gateway's lab address, answered by ShakerProxy's DNS forwarder | A lookup for the run's IPv6 name is stored |
+| HTTP over IPv6 | A cleartext GET with a unique IPv6 path | The path is stored |
+| HTTPS / TLS over IPv6 | A TLS handshake with a unique IPv6 server name | The server name is stored |
+| QUIC over IPv6 | A QUIC v1 Initial with a unique IPv6 server name | The server name is stored |
+| TCP / UDP over IPv6, unusual port | TCP 9998 / UDP 9997 over IPv6 | The connection is stored |
+| ICMPv6 | Two ICMPv6 echo requests | Stored and named `icmpv6` |
+
+The IPv6 probes carry markers of their own and are judged only by events from the client's IPv6 address, so IPv4
+evidence can't pass an IPv6 probe or the other way round. If the appliance has IPv6 turned off, the IPv6 rows are
+skipped with that reason. If the lab's IPv6 doesn't work, they fail with the reason; the IPv4 rows still run.
 
 Each result also records:
 
@@ -49,6 +58,10 @@ The check never writes events itself. It only reads back what production stored.
    NTP, TCP/UDP echo, DoH). The virtual clients' DNS for their gateway is redirected to ShakerProxy's DNS
    forwarder, and the forwarder accepts the test lab's `198.18.240.0/24` clients. The redirect lives in the test lab's
    own nftables table; one comment-tagged `INPUT` rule lets the bridge reach the forwarder.
+   The lab then gets IPv6 from `fd8a:6c1e:4b37::/48`, routed by its own `lgtest-router` namespace, so the
+   host's IPv6 forwarding never changes. DNS to the gateway's IPv6 lab address is redirected the same way. The
+   forwarder accepts unique-local clients. Comment-tagged `ip6tables` rules accept the forwarder port and frames
+   bridged within each lab bridge, which Docker's `br_netfilter` sends through `FORWARD`.
 2. **Record:** control-api starts a normal capture through gatewayd with `coverage_lab: true`. gatewayd
    records the virtual-client bridge (`lgtest-client`) instead of the lab interface, and refuses if that bridge
    does not exist. Like any manual capture, it pauses the automatic lab recording for its duration
@@ -61,7 +74,7 @@ The check never writes events itself. It only reads back what production stored.
    passes or 150 seconds pass:
 
    ```text
-   (capture.id:<run capture> OR (source:HOST AND src.ip:198.18.240.0/24)) AND time>=<start>
+   (capture.id:<run capture> OR (source:HOST AND (src.ip:198.18.240.0/24 OR src.ip:fd8a:6c1e:4b37:f0::/64))) AND time>=<start>
    ```
 
 ## Ways around ShakerProxy (routing inspection)
@@ -71,7 +84,7 @@ managed state, host inspection and DNS policy, plus the last 24 hours of recorde
 
 | Finding | GAP when |
 |---|---|
-| IPv6 | Another router advertises IPv6 (a recorded ICMPv6 router advertisement from another host), or the lab interface has IPv6 that ShakerProxy did not configure, while the lab does not route IPv6 |
+| IPv6 | Another router advertises IPv6: Zeek recorded an ICMPv6 router advertisement (`protocol:icmp AND src.port:134`) from an address that is not one of the appliance's own, link-local included. This is a GAP whether or not ShakerProxy routes IPv6, since devices may pick the other router. Also a GAP when the lab interface has IPv6 that ShakerProxy did not configure while the lab does not route IPv6. UNKNOWN when recorded traffic could not be searched |
 | Address assignment | Another DHCP server answered on the lab network, or the lab is single-arm (the network's router hands out addresses, so only devices set by hand use ShakerProxy) |
 | Device-to-device traffic | Single-arm lab (devices talk directly); UNKNOWN for wired two-port labs; OK for ShakerProxy's Wi-Fi access point |
 | Encrypted DNS | DoT, DoQ or known DoH is not blocked by the DNS policy |
@@ -110,7 +123,23 @@ covers.
 |---|---|
 | PASS | DNS via ShakerProxy and to another resolver, DoT (`dot`), DoQ (`doq`), HTTP, HTTPS/TLS, QUIC, TCP and UDP on unusual ports, ICMP, SSH, NTP, mDNS (`mdns`), SSDP (`ssdp`) |
 | FAIL | **DNS over HTTPS**: recorded (`zeek.conn`, `zeek.ssl`, server name `cloudflare-dns.com`) but classified `tls`. The protocol classifier names DoH only when an analyzer reports it, so DoH to a known resolver is not labelled as encrypted DNS. |
-| SKIP | IPv6: the virtual lab is IPv4-only |
+| SKIP | IPv6: the virtual lab was IPv4-only at the time |
+
+The IPv6 probes were later proven by running the real `shakerproxy-testlabd` in a privileged container (Linux 7.0,
+`br_netfilter` loaded, Docker-like `FORWARD DROP` and an IPv6 `INPUT` drop on the forwarder port):
+
+- prepare, probe and cleanup over its socket all worked;
+- all 22 probes were sent and answered, and the AAAA lookup reached the forwarder from `fd8a:6c1e:4b37:f0::10`;
+- cleanup left no `lgtest-` objects, the same firewall rules and the same `net.ipv6.conf.all.forwarding`.
+
+Zeek 8.2.1 recorded every IPv6 probe from the bridge capture:
+
+- HTTP with its unique path;
+- TLS and QUIC with their unique server names;
+- TCP 9998 and UDP 9997;
+- ICMPv6 echo, which Zeek logs as `proto=icmp` with the type as the originator port (ingest names it `icmpv6`).
+
+A router advertisement appears the same way, as `proto=icmp`, `id.orig_p=134`, from the router's link-local address.
 
 On the appliance, the delay column adds:
 
@@ -133,4 +162,5 @@ shakerproxy coverage
   records, not how a particular phone or TV behaves.
 - **No device attribution:** virtual clients are not lab devices, so their events are not attributed to a device;
   `attributed` is reported, but doesn't affect the result.
-- **IPv4 only:** the virtual lab has no IPv6 probes yet.
+- **IPv6 inside the appliance:** the IPv6 probes use a private unique-local prefix. They prove ShakerProxy records
+  IPv6, not that the lab network routes IPv6 through ShakerProxy; the IPv6 routing finding covers that.

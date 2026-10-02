@@ -162,7 +162,8 @@ func init() {
 			run:      (*cli).doctorCommand},
 		{name: "coverage", group: groupSystem, summary: "What traffic ShakerProxy is proven to see, and every way around it",
 			usage: []string{"coverage", "coverage run --password-file FILE"},
-			details: "Shows the last visibility coverage check (DNS, DoH, DoT, DoQ, HTTP, HTTPS, QUIC, TCP, UDP, ICMP, SSH, NTP, mDNS, SSDP, IPv6:\n" +
+			details: "Shows the last visibility coverage check (DNS, DoH, DoT, DoQ, HTTP, HTTPS, QUIC, TCP, UDP, ICMP, SSH, NTP, mDNS, SSDP, and\n" +
+				"DNS, HTTP, HTTPS, QUIC, TCP, UDP and ICMPv6 over IPv6:\n" +
 				"seen or not, as what, and how fast) and how devices could bypass ShakerProxy in this lab. `coverage run` sends one of\n" +
 				"each from the virtual test lab through the real capture and analyzers; it needs the administrator password.",
 			examples: []string{"shakerproxy coverage", "shakerproxy coverage run --password-file pw", "shakerproxy coverage --json"},

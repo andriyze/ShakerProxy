@@ -18,7 +18,11 @@ type expectation struct {
 	label    string // plain name of that protocol for messages
 }
 
-var clientPrefix = netip.MustParsePrefix(ClientCIDR)
+var (
+	clientPrefix     = netip.MustParsePrefix(ClientCIDR)
+	clientIPv6Prefix = netip.MustParsePrefix(ClientIPv6CIDR)
+	targetIPv6       = netip.MustParseAddr(TargetIPv6)
+)
 
 func fromClient(event Event) bool {
 	address, err := netip.ParseAddr(event.SourceIP)
@@ -29,8 +33,31 @@ func toTarget(event Event, port int) bool {
 	return event.DestinationIP == TargetIPv4 && (port == 0 || event.DestinationPort == port)
 }
 
+// fromClientIPv6 and toTargetIPv6 compare parsed addresses: IPv6 has many
+// spellings of one address.
+func fromClientIPv6(event Event) bool {
+	address, err := netip.ParseAddr(event.SourceIP)
+	return err == nil && clientIPv6Prefix.Contains(address)
+}
+
+func toTargetIPv6(event Event, port int) bool {
+	address, err := netip.ParseAddr(event.DestinationIP)
+	return err == nil && address == targetIPv6 && (port == 0 || event.DestinationPort == port)
+}
+
 func isProtocol(event Event, protocol string) bool {
 	return strings.EqualFold(event.Protocol, protocol)
+}
+
+// isICMPv6 accepts each analyzer's name for ICMPv6: Zeek calls it icmp,
+// Suricata IPv6-ICMP.
+func isICMPv6(event Event) bool {
+	for _, name := range []string{"icmp", "icmpv6", "icmp6", "ipv6-icmp"} {
+		if isProtocol(event, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func sameName(left, right string) bool {
@@ -102,10 +129,42 @@ var expectations = map[string]expectation{
 		protocol: "mdns", label: "mDNS",
 	},
 	ProbeSSDP: {match: func(_ Plan, e Event) bool { return fromClient(e) && e.DestinationIP == SSDPGroup }, protocol: "ssdp", label: "SSDP"},
-	ProbeIPv6: {match: func(_ Plan, e Event) bool {
-		address, err := netip.ParseAddr(e.SourceIP)
-		return err == nil && address.Is6() && !address.Is4In6()
+	ProbeDNSIPv6: {
+		match: func(p Plan, e Event) bool { return fromClientIPv6(e) && sameName(e.DNSQuery, p.DNSIPv6Name) },
+		proof: func(p Plan, e Event) bool { return sameName(e.DNSQuery, p.DNSIPv6Name) },
+		label: "DNS",
+	},
+	ProbeHTTPIPv6: {
+		match: func(p Plan, e Event) bool {
+			return fromClientIPv6(e) && (strings.HasPrefix(e.HTTPPath, p.HTTPIPv6Path) || toTargetIPv6(e, PortHTTP) && isProtocol(e, "tcp"))
+		},
+		proof:    func(p Plan, e Event) bool { return strings.HasPrefix(e.HTTPPath, p.HTTPIPv6Path) },
+		protocol: "http", label: "HTTP",
+	},
+	ProbeHTTPSIPv6: {
+		match: func(p Plan, e Event) bool {
+			return fromClientIPv6(e) && (sameName(e.TLSServerName, p.TLSIPv6ServerName) || toTargetIPv6(e, PortHTTPS) && isProtocol(e, "tcp"))
+		},
+		proof:    func(p Plan, e Event) bool { return sameName(e.TLSServerName, p.TLSIPv6ServerName) },
+		protocol: "tls", label: "TLS",
+	},
+	ProbeQUICIPv6: {
+		match: func(p Plan, e Event) bool {
+			return fromClientIPv6(e) && (sameName(e.TLSServerName, p.QUICIPv6ServerName) || toTargetIPv6(e, QUICPort) && isProtocol(e, "udp"))
+		},
+		proof:    func(p Plan, e Event) bool { return sameName(e.TLSServerName, p.QUICIPv6ServerName) },
+		protocol: "quic", label: "QUIC",
+	},
+	ProbeTCPIPv6: {match: func(_ Plan, e Event) bool {
+		return fromClientIPv6(e) && toTargetIPv6(e, PortTCPOdd) && isProtocol(e, "tcp")
 	}},
+	ProbeUDPIPv6: {match: func(_ Plan, e Event) bool {
+		return fromClientIPv6(e) && toTargetIPv6(e, PortUDPOdd) && isProtocol(e, "udp")
+	}},
+	ProbeICMPv6: {
+		match:    func(_ Plan, e Event) bool { return fromClientIPv6(e) && toTargetIPv6(e, 0) && isICMPv6(e) },
+		protocol: "icmpv6", label: "ICMPv6",
+	},
 }
 
 // Evaluate judges every probe against the events stored for the run.

@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"time"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 
 	"shakerproxy.dev/shakerproxy/internal/coverage"
 )
@@ -37,46 +39,35 @@ func runCoverageProbes(planJSON string) int {
 type probeFunc func(coverage.Plan) (sent bool, detail string)
 
 func coverageProbes(plan coverage.Plan) []coverage.ProbeOutcome {
-	target := coverage.TargetIPv4
-	at := func(port int) string { return net.JoinHostPort(target, strconv.Itoa(port)) }
-	probes := map[string]probeFunc{
+	probes := ipv4Probes()
+	for id, probe := range ipv6Probes() {
+		probes[id] = probe
+	}
+	return runProbes(plan, probes, labIPv6{skip: os.Getenv(ipv6SkipEnv), failure: os.Getenv(ipv6FailureEnv)})
+}
+
+func ipv4Probes() map[string]probeFunc {
+	at := func(port int) string { return net.JoinHostPort(coverage.TargetIPv4, strconv.Itoa(port)) }
+	return map[string]probeFunc{
 		coverage.ProbeDNSGateway: func(p coverage.Plan) (bool, string) {
 			return udpExchange(net.JoinHostPort(coverage.GatewayIPv4, "53"), dnsQuery(p.DNSGatewayName, 1, 0x5301), true)
 		},
 		coverage.ProbeDNSDirect: func(p coverage.Plan) (bool, string) {
 			return udpExchange(at(53), dnsQuery(p.DNSDirectName, 1, 0x5302), true)
 		},
-		coverage.ProbeDoT: func(p coverage.Plan) (bool, string) { return tlsHandshake(at(coverage.PortDoT), p.DoTServerName) },
-		coverage.ProbeDoH: func(coverage.Plan) (bool, string) { return dohLookup(at(coverage.PortDoH)) },
-		coverage.ProbeDoQ: func(p coverage.Plan) (bool, string) { return quicInitial(at(coverage.PortDoT), p.DoQServerName, "doq") },
-		coverage.ProbeHTTP: func(p coverage.Plan) (bool, string) {
-			client := http.Client{Timeout: 4 * time.Second}
-			response, err := client.Get("http://" + at(coverage.PortHTTP) + p.HTTPPath)
-			if err != nil {
-				return false, err.Error()
-			}
-			response.Body.Close()
-			return true, "HTTP " + strconv.Itoa(response.StatusCode)
-		},
+		coverage.ProbeDoT:   func(p coverage.Plan) (bool, string) { return tlsHandshake(at(coverage.PortDoT), p.DoTServerName) },
+		coverage.ProbeDoH:   func(coverage.Plan) (bool, string) { return dohLookup(at(coverage.PortDoH)) },
+		coverage.ProbeDoQ:   func(p coverage.Plan) (bool, string) { return quicInitial(at(coverage.PortDoT), p.DoQServerName, "doq") },
+		coverage.ProbeHTTP:  func(p coverage.Plan) (bool, string) { return httpGet("http://" + at(coverage.PortHTTP) + p.HTTPPath) },
 		coverage.ProbeHTTPS: func(p coverage.Plan) (bool, string) { return tlsHandshake(at(coverage.PortHTTPS), p.TLSServerName) },
 		coverage.ProbeQUIC: func(p coverage.Plan) (bool, string) {
 			return quicInitial(at(coverage.QUICPort), p.QUICServerName, "h3")
 		},
-		coverage.ProbeTCP: func(coverage.Plan) (bool, string) {
-			connection, err := net.DialTimeout("tcp", at(coverage.PortTCPOdd), 3*time.Second)
-			if err != nil {
-				return false, err.Error()
-			}
-			defer connection.Close()
-			_ = connection.SetDeadline(time.Now().Add(3 * time.Second))
-			_, _ = connection.Write([]byte("shakerproxy coverage\n"))
-			_, _ = bufio.NewReader(connection).ReadString('\n')
-			return true, "connected"
-		},
+		coverage.ProbeTCP: func(coverage.Plan) (bool, string) { return tcpEcho(at(coverage.PortTCPOdd)) },
 		coverage.ProbeUDP: func(coverage.Plan) (bool, string) {
 			return udpExchange(at(coverage.PortUDPOdd), []byte("shakerproxy coverage"), true)
 		},
-		coverage.ProbeICMP: func(coverage.Plan) (bool, string) { return icmpEcho(target) },
+		coverage.ProbeICMP: func(coverage.Plan) (bool, string) { return icmpEcho(netip.MustParseAddr(coverage.TargetIPv4)) },
 		coverage.ProbeSSH: func(coverage.Plan) (bool, string) {
 			connection, err := net.DialTimeout("tcp", at(coverage.PortSSH), 3*time.Second)
 			if err != nil {
@@ -103,11 +94,20 @@ func coverageProbes(plan coverage.Plan) []coverage.ProbeOutcome {
 			return udpExchange(net.JoinHostPort(coverage.SSDPGroup, strconv.Itoa(coverage.SSDPPort)), []byte(search), false)
 		},
 	}
+}
+
+// runProbes runs each probe in report order. When the lab has no working
+// IPv6, the IPv6 probes are not sent: they are skipped, or fail, with the
+// reason.
+func runProbes(plan coverage.Plan, probes map[string]probeFunc, ipv6 labIPv6) []coverage.ProbeOutcome {
 	outcomes := make([]coverage.ProbeOutcome, 0, len(coverage.Probes))
 	for _, probe := range coverage.Probes {
-		if probe.ID == coverage.ProbeIPv6 {
-			outcomes = append(outcomes, coverage.ProbeOutcome{ID: probe.ID, Skipped: true,
-				Detail: "The virtual test lab is IPv4-only, so IPv6 is not probed; the routing inspection checks whether IPv6 can bypass ShakerProxy."})
+		if coverage.IPv6Probe(probe.ID) && ipv6.skip != "" {
+			outcomes = append(outcomes, coverage.ProbeOutcome{ID: probe.ID, Skipped: true, Detail: bound(ipv6.skip, 512)})
+			continue
+		}
+		if coverage.IPv6Probe(probe.ID) && ipv6.failure != "" {
+			outcomes = append(outcomes, coverage.ProbeOutcome{ID: probe.ID, Detail: bound(ipv6.failure, 512)})
 			continue
 		}
 		run, ok := probes[probe.ID]
@@ -122,8 +122,55 @@ func coverageProbes(plan coverage.Plan) []coverage.ProbeOutcome {
 	return outcomes
 }
 
+// ipv6Probes send the IPv6 traffic types from the client's unique-local
+// address, each with its own marker from the plan.
+func ipv6Probes() map[string]probeFunc {
+	at := func(port int) string { return net.JoinHostPort(coverage.TargetIPv6, strconv.Itoa(port)) }
+	return map[string]probeFunc{
+		coverage.ProbeDNSIPv6: func(p coverage.Plan) (bool, string) {
+			return udpExchange(net.JoinHostPort(coverage.GatewayIPv6, "53"), dnsQuery(p.DNSIPv6Name, 28, 0x5306), true)
+		},
+		coverage.ProbeHTTPIPv6: func(p coverage.Plan) (bool, string) {
+			return httpGet("http://" + at(coverage.PortHTTP) + p.HTTPIPv6Path)
+		},
+		coverage.ProbeHTTPSIPv6: func(p coverage.Plan) (bool, string) {
+			return tlsHandshake(at(coverage.PortHTTPS), p.TLSIPv6ServerName)
+		},
+		coverage.ProbeQUICIPv6: func(p coverage.Plan) (bool, string) {
+			return quicInitial(at(coverage.QUICPort), p.QUICIPv6ServerName, "h3")
+		},
+		coverage.ProbeTCPIPv6: func(coverage.Plan) (bool, string) { return tcpEcho(at(coverage.PortTCPOdd)) },
+		coverage.ProbeUDPIPv6: func(coverage.Plan) (bool, string) {
+			return udpExchange(at(coverage.PortUDPOdd), []byte("shakerproxy coverage"), true)
+		},
+		coverage.ProbeICMPv6: func(coverage.Plan) (bool, string) { return icmpEcho(netip.MustParseAddr(coverage.TargetIPv6)) },
+	}
+}
+
+func httpGet(url string) (bool, string) {
+	client := http.Client{Timeout: 4 * time.Second}
+	response, err := client.Get(url)
+	if err != nil {
+		return false, err.Error()
+	}
+	response.Body.Close()
+	return true, "HTTP " + strconv.Itoa(response.StatusCode)
+}
+
+func tcpEcho(address string) (bool, string) {
+	connection, err := net.DialTimeout("tcp", address, 3*time.Second)
+	if err != nil {
+		return false, err.Error()
+	}
+	defer connection.Close()
+	_ = connection.SetDeadline(time.Now().Add(3 * time.Second))
+	_, _ = connection.Write([]byte("shakerproxy coverage\n"))
+	_, _ = bufio.NewReader(connection).ReadString('\n')
+	return true, "connected"
+}
+
 // dnsQuery builds one DNS question for name with type qtype (1 = A,
-// 12 = PTR) and recursion desired.
+// 12 = PTR, 28 = AAAA) and recursion desired.
 func dnsQuery(name string, qtype uint16, id uint16) []byte {
 	var message bytes.Buffer
 	_ = binary.Write(&message, binary.BigEndian, [6]uint16{id, 0x0100, 1, 0, 0, 0})
@@ -192,19 +239,25 @@ func dohLookup(address string) (bool, string) {
 	return true, "DoH " + strconv.Itoa(response.StatusCode)
 }
 
-// icmpEcho sends two echo requests over an unprivileged ICMP datagram
-// socket; setupCoverage allows those in the client's namespace, so the
+// icmpEcho sends two echo requests, ICMP or ICMPv6 by the target's family,
+// over an unprivileged ICMP datagram socket; setupCoverage allows those in
+// the client's namespace (net.ipv4.ping_group_range covers both), so the
 // service needs no raw-socket capability.
-func icmpEcho(target string) (bool, string) {
-	connection, err := icmp.ListenPacket("udp4", "0.0.0.0")
+func icmpEcho(target netip.Addr) (bool, string) {
+	network, local, request := "udp4", "0.0.0.0", icmp.Type(ipv4.ICMPTypeEcho)
+	if target.Is6() {
+		network, local, request = "udp6", "::", ipv6.ICMPTypeEchoRequest
+	}
+	connection, err := icmp.ListenPacket(network, local)
 	if err != nil {
 		return false, err.Error()
 	}
 	defer connection.Close()
-	destination := &net.UDPAddr{IP: net.ParseIP(target)}
+	destination := &net.UDPAddr{IP: target.AsSlice()}
 	answered := 0
 	for sequence := 1; sequence <= 2; sequence++ {
-		message := icmp.Message{Type: ipv4.ICMPTypeEcho, Body: &icmp.Echo{ID: os.Getpid() & 0xffff, Seq: sequence, Data: []byte("shakerproxy coverage")}}
+		// The kernel fills in the ICMPv6 checksum of a datagram socket.
+		message := icmp.Message{Type: request, Body: &icmp.Echo{ID: os.Getpid() & 0xffff, Seq: sequence, Data: []byte("shakerproxy coverage")}}
 		packet, err := message.Marshal(nil)
 		if err != nil {
 			return false, err.Error()

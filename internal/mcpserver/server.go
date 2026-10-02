@@ -127,7 +127,7 @@ func New(backend Backend) (*mcp.Server, error) {
 	mcp.AddTool(server, readOnlyTool(toolDNSVisibility, "DNS visibility",
 		`Check whether every DNS lookup on the lab is visible: plain DNS forced through ShakerProxy, and encrypted DNS (DoH, DoT, DoQ) blocked so devices fall back to plain DNS; lists the blocked resolvers and names. Example: {}.`), service.dnsVisibility)
 	mcp.AddTool(server, readOnlyTool(toolCoverage, "Visibility coverage",
-		`Show which traffic types ShakerProxy is proven to see (DNS, DoH, DoT, DoQ, HTTP, HTTPS, QUIC, TCP, UDP, ICMP, SSH, NTP, mDNS, SSDP, IPv6) from the last visibility coverage check, with how long each took to appear, and every way devices could bypass ShakerProxy in the current lab (IPv6, another DHCP server, device-to-device traffic, encrypted DNS). Example: {}.`), service.visibilityCoverage)
+		`Show which traffic types ShakerProxy is proven to see (DNS, DoH, DoT, DoQ, HTTP, HTTPS, QUIC, TCP, UDP, ICMP, SSH, NTP, mDNS, SSDP, and DNS, HTTP, HTTPS, QUIC, TCP, UDP and ICMPv6 over IPv6) from the last visibility coverage check, with how long each took to appear, and every way devices could bypass ShakerProxy in the current lab (another IPv6 router advertising, another DHCP server, device-to-device traffic, encrypted DNS). Example: {}.`), service.visibilityCoverage)
 	return server, nil
 }
 

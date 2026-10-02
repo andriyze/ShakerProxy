@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +75,7 @@ func (d *daemon) coveragePrepare(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	originalForward := strings.TrimSpace(readFile("/proc/sys/net/ipv4/ip_forward"))
 	var setupErr error
+	var ipv6 labIPv6
 	locked := withConfigurationLock(ctx, request.RunID+"-prepare", func(ctx context.Context) {
 		cleanupCoverage(ctx)
 		cleanupLab(ctx)
@@ -83,7 +86,9 @@ func (d *daemon) coveragePrepare(w http.ResponseWriter, r *http.Request) {
 			cleanupCoverage(ctx)
 			cleanupLab(ctx)
 			restoreForward(ctx, originalForward)
+			return
 		}
+		ipv6 = setupCoverageIPv6(ctx)
 	})
 	if !locked {
 		writeError(w, http.StatusConflict, "appliance configuration is busy; the coverage lab was not built")
@@ -94,10 +99,14 @@ func (d *daemon) coveragePrepare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "the coverage lab could not be built: "+bound(setupErr.Error(), 512))
 		return
 	}
+	if ipv6.failure != "" {
+		d.logger.Warn("coverage lab has no working IPv6; the IPv6 probes report it", "run_id", request.RunID, "reason", ipv6.failure)
+	}
 	expiresAt := time.Now().Add(testlab.CoverageLease).UTC()
 	d.mu.Lock()
 	d.coverageRun = request.RunID
 	d.coverageForward = originalForward
+	d.coverageIPv6 = ipv6
 	runID := request.RunID
 	d.coverageTimer = time.AfterFunc(testlab.CoverageLease, func() {
 		d.logger.Warn("coverage lab lease expired; removing it", "run_id", runID)
@@ -120,6 +129,7 @@ func (d *daemon) coverageProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.busy = true
+	ipv6 := d.coverageIPv6
 	d.mu.Unlock()
 	defer func() {
 		d.mu.Lock()
@@ -133,7 +143,15 @@ func (d *daemon) coverageProbe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid coverage plan")
 		return
 	}
-	output, err := runCommand(ctx, "ip", "netns", "exec", normalNS, os.Args[0], "--coverage-probes", string(plan))
+	command := exec.CommandContext(ctx, "ip", "netns", "exec", normalNS, os.Args[0], "--coverage-probes", string(plan))
+	command.Env = append(os.Environ(), ipv6.probeEnvironment()...)
+	stderr := &boundedOutput{limit: 2048}
+	command.Stderr = stderr
+	stdout, err := command.Output()
+	if err != nil {
+		err = fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	output := string(stdout)
 	var outcomes []coverage.ProbeOutcome
 	if decodeErr := json.Unmarshal([]byte(lastLine(output)), &outcomes); err != nil || decodeErr != nil {
 		d.logger.Error("coverage probes failed", "run_id", request.Plan.RunID, "error", err, "decode_error", decodeErr)
@@ -192,7 +210,7 @@ func (d *daemon) finishCoverage(ctx context.Context, runID string) bool {
 		d.coverageTimer.Stop()
 		d.coverageTimer = nil
 	}
-	d.coverageRun, d.coverageForward = "", ""
+	d.coverageRun, d.coverageForward, d.coverageIPv6 = "", "", labIPv6{}
 	return true
 }
 
@@ -243,14 +261,9 @@ func setupCoverage(ctx context.Context) error {
 }
 
 func cleanupCoverage(ctx context.Context) {
-	for _, rule := range coverageInputRules() {
-		for attempt := 0; attempt < 8; attempt++ {
-			if _, err := runCommand(ctx, "iptables", append([]string{"-D", "INPUT"}, rule...)...); err != nil {
-				break
-			}
-		}
-	}
-	// The redirect lives in the test lab table, which cleanupLab deletes.
+	deleteTaggedRules(ctx, "iptables", "INPUT", coverageInputRules())
+	deleteTaggedRules(ctx, "ip6tables", "INPUT", coverageInputRules())
+	// The redirects live in the test lab table, which cleanupLab deletes.
 }
 
 func lastLine(output string) string {

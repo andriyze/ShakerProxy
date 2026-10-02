@@ -111,6 +111,7 @@ func ProjectProtocolFields(envelope Envelope, network NetworkProjection, tls TLS
 			ClientPort:  network.SourcePort,
 			ToBroadcast: broadcastDestination(network.DestinationIP),
 			Intercepted: mitmproxyDecrypted(envelope, tls),
+			IPv6:        ipv6Flow(network),
 		}))
 	}
 	// An analyzer that already recognised DoH keeps its own evidence and
@@ -219,6 +220,16 @@ func validProtocolProjection(event RecentEvent) bool {
 	switch protocolclass.Evidence(event.ProtocolEvidence) {
 	case protocolclass.EvidenceAnalyzer, protocolclass.EvidencePort, protocolclass.EvidenceUnclassified:
 		return true
+	}
+	return false
+}
+
+// ipv6Flow reports a flow between IPv6 addresses (not IPv4-mapped ones).
+func ipv6Flow(network NetworkProjection) bool {
+	for _, value := range []string{network.SourceIP, network.DestinationIP} {
+		if address, err := netip.ParseAddr(value); err == nil {
+			return address.Is6() && !address.Is4In6()
+		}
 	}
 	return false
 }
