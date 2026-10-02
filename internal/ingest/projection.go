@@ -57,8 +57,26 @@ func ProjectNetworkFields(envelope Envelope) NetworkProjection {
 		projection.DestinationPort = projectionPort(fields["destination_port"])
 		projection.Protocol = projectionText(fields["protocol"])
 		projection.Service = projectionText(fields["service"])
+	case SourceHost:
+		// Only ShakerProxy's DNS forwarder lookups describe a device's
+		// traffic; other HOST events (detections) keep no network fields.
+		if envelope.Kind == HostDNSKind {
+			projection.SourceIP = projectionIP(fields["source_ip"])
+			projection.SourcePort = projectionPort(fields["source_port"])
+			projection.DestinationPort = projectionPort(fields["destination_port"])
+			projection.Protocol = projectionText(fields["protocol"])
+			projection.Service = projectionText(fields["service"])
+		}
 	}
 	return projection
+}
+
+// HostDNSKind is a lookup answered by ShakerProxy's lab DNS forwarder
+// (shakerproxy-dnsd), recorded whether or not a capture runs.
+const HostDNSKind = "shakerproxy.dns"
+
+func isHostDNS(envelope Envelope) bool {
+	return envelope.Source == SourceHost && envelope.Kind == HostDNSKind
 }
 
 func projectionIP(raw json.RawMessage) string {

@@ -315,10 +315,10 @@ Scope: `traffic:read`.
 
 ### `dns_lookups`
 
-Plain DNS lookups from Zeek and Suricata plus detected DNS over HTTPS, for the
-lab or one device, optionally limited to one name and its subdomains. The
-filter is
-`(kind:zeek.dns OR kind:suricata.dns OR kind:encrypted_dns_detected OR service:doh)`
+Plain DNS lookups answered by ShakerProxy's DNS forwarder or seen by Zeek and
+Suricata, plus detected DNS over HTTPS, for the lab or one device, optionally
+limited to one name and its subdomains. The filter is
+`(kind:shakerproxy.dns OR kind:zeek.dns OR kind:suricata.dns OR kind:encrypted_dns_detected OR service:doh)`
 because analyzer DNS logs carry no `service` value. Input:
 `{"device":"tv","name":"samsungacr.com","window":"24h"}`. Scope: `traffic:read`.
 

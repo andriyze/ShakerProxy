@@ -108,6 +108,8 @@ type DeviceActivityCounts struct {
 	SuricataHTTP                 int64 `json:"suricata_http"`
 	Alerts                       int64 `json:"alerts"`
 	EncryptedDNSDetections       int64 `json:"encrypted_dns_detections"`
+	// ForwarderDNS counts lookups answered by ShakerProxy's DNS forwarder.
+	ForwarderDNS int64 `json:"forwarder_dns"`
 }
 
 type DeviceDomainObservation struct {
@@ -285,12 +287,14 @@ count(DISTINCT COALESCE(flow_id, record_id)) FILTER (WHERE source = 'MITMPROXY' 
 count(*) FILTER (WHERE kind = 'zeek.http'),
 count(*) FILTER (WHERE kind = 'suricata.http'),
 count(*) FILTER (WHERE kind = 'suricata.alert' OR kind LIKE 'shakerproxy.detection.%'),
-count(*) FILTER (WHERE source = 'MITMPROXY' AND (kind = 'encrypted_dns_detected' OR service = 'doh'))
+count(*) FILTER (WHERE source = 'MITMPROXY' AND (kind = 'encrypted_dns_detected' OR service = 'doh')),
+count(*) FILTER (WHERE kind = '` + HostDNSKind + `' AND dns_query IS NOT NULL)
 FROM normalized_events WHERE ` + deviceActivityScope
 
 const deviceActivityDomainsStatement = `SELECT domain, origin, count(*), min(occurred_at), max(occurred_at) FROM (
-SELECT lower(rtrim(dns_query, '.')) AS domain, 'dns' AS origin, occurred_at FROM normalized_events
- WHERE ` + deviceActivityScope + ` AND dns_query IS NOT NULL AND (kind = 'zeek.dns' OR (kind = 'suricata.dns' AND COALESCE(payload->'dns'->>'type', '') NOT IN ('answer', 'response')))
+SELECT lower(rtrim(dns_query, '.')) AS domain, 'dns' AS origin, occurred_at FROM normalized_events observed_dns
+ WHERE ` + deviceActivityScope + ` AND dns_query IS NOT NULL AND (kind = '` + HostDNSKind + `' OR ((kind = 'zeek.dns' OR (kind = 'suricata.dns' AND COALESCE(payload->'dns'->>'type', '') NOT IN ('answer', 'response')))
+  AND NOT EXISTS (SELECT 1 FROM normalized_events forwarded WHERE ` + deviceActivityScope + ` AND forwarded.kind = '` + HostDNSKind + `' AND forwarded.dns_query = observed_dns.dns_query)))
 UNION ALL
 SELECT lower(rtrim(COALESCE(tls_server_name, NULLIF(payload->>'server_name', ''), NULLIF(payload->'tls'->>'sni', '')), '.')), 'tls', occurred_at FROM normalized_events
  WHERE ` + deviceActivityScope + ` AND (tls_server_name IS NOT NULL OR kind IN ('zeek.ssl', 'suricata.tls'))
@@ -399,7 +403,7 @@ func (s PostgresSink) QueryDeviceActivity(ctx context.Context, query DeviceActiv
 		&counts.ZeekDNS, &counts.SuricataDNS, &counts.ZeekTLS, &counts.SuricataTLS, &counts.InterceptorTLS,
 		&counts.TLSIntercepted, &counts.TLSBypassed, &counts.TLSFailed, &counts.TLSPinningSuspected,
 		&counts.InterceptorHTTPRequests, &counts.InterceptorCleartextRequests, &counts.ZeekHTTP, &counts.SuricataHTTP,
-		&counts.Alerts, &counts.EncryptedDNSDetections,
+		&counts.Alerts, &counts.EncryptedDNSDetections, &counts.ForwarderDNS,
 	); err != nil {
 		return DeviceActivity{}, fmt.Errorf("count device activity: %w", err)
 	}
@@ -816,7 +820,7 @@ func (activity DeviceActivity) Validate(query DeviceActivityQuery) error {
 		return errors.New("device activity boundary is invalid")
 	}
 	counts := activity.Counts
-	for _, value := range []int64{counts.Events, counts.ZeekConnections, counts.ZeekConnectionBytes, counts.SuricataFlows, counts.SuricataFlowBytes, counts.ZeekDNS, counts.SuricataDNS, counts.ZeekTLS, counts.SuricataTLS, counts.InterceptorTLS, counts.TLSIntercepted, counts.TLSBypassed, counts.TLSFailed, counts.TLSPinningSuspected, counts.InterceptorHTTPRequests, counts.InterceptorCleartextRequests, counts.ZeekHTTP, counts.SuricataHTTP, counts.Alerts, counts.EncryptedDNSDetections} {
+	for _, value := range []int64{counts.Events, counts.ZeekConnections, counts.ZeekConnectionBytes, counts.SuricataFlows, counts.SuricataFlowBytes, counts.ZeekDNS, counts.SuricataDNS, counts.ZeekTLS, counts.SuricataTLS, counts.InterceptorTLS, counts.TLSIntercepted, counts.TLSBypassed, counts.TLSFailed, counts.TLSPinningSuspected, counts.InterceptorHTTPRequests, counts.InterceptorCleartextRequests, counts.ZeekHTTP, counts.SuricataHTTP, counts.Alerts, counts.EncryptedDNSDetections, counts.ForwarderDNS} {
 		if value < 0 {
 			return errors.New("device activity counts are invalid")
 		}

@@ -46,6 +46,11 @@ if [ "$1" = "configure" ]; then
     /var/lib/shakerproxy/mitmproxy-state \
     /var/lib/shakerproxy/mitmproxy-events \
     /var/lib/shakerproxy/mitmproxy-events/pending
+  # shakerproxy-dnsd (group shakerproxy-dns) leaves one event per lab DNS
+  # lookup in pending/; the dns-event-forwarder container (65532) delivers
+  # and removes them. Nobody else can enter either directory.
+  install -d -m 0750 -o 65532 -g shakerproxy-dns /var/lib/shakerproxy/dns-events
+  install -d -m 2770 -o 65532 -g shakerproxy-dns /var/lib/shakerproxy/dns-events/pending
   /usr/libexec/shakerproxy/shakerproxy-provision-runtime
   management_ca="$(/usr/libexec/shakerproxy/shakerproxy-pki --edge-gid "$(getent group shakerproxy-edge | awk -F: 'NR == 1 { print $3 }')" ensure)"
   printf 'Management HTTPS CA fingerprint (SHA-256): %s\n' "$(printf '%s' "$management_ca" | jq -r '.sha256_fingerprint // "unknown"' 2>/dev/null || echo unknown)"

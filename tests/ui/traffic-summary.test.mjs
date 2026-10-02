@@ -112,6 +112,36 @@ test("the readable traffic list keeps one row per connection and lookup", async 
     assert.equal(isAnalyzerDuplicate(event), false, event.kind)
 })
 
+test("a lookup the DNS forwarder reported is shown once, not again from the capture", async () => {
+  const { isAnalyzerDuplicate, forwardedLookups, eventSummary, eventTypeLabel, eventTone } = await import(
+    "../../apps/web-ui/src/lib/eventSummary.ts"
+  )
+  const forwarder = {
+    kind: "shakerproxy.dns",
+    source: "HOST",
+    source_ip: "192.168.10.201",
+    occurred_at: "2026-10-01T12:00:00.100Z",
+    dns_query: "connectivitycheck.grapheneos.network",
+    dns_record_type: "A",
+    dns_response_code: "NOERROR",
+    dns_answer_count: 2,
+  }
+  const zeekCopy = { ...forwarder, kind: "zeek.dns", source: "ZEEK", occurred_at: "2026-10-01T12:00:00.900Z" }
+  const laterLookup = { ...zeekCopy, occurred_at: "2026-10-01T12:05:00Z" }
+  const otherResolver = { ...zeekCopy, dns_query: "dns.google" }
+  const otherDevice = { ...zeekCopy, source_ip: "192.168.10.50" }
+  const forwarded = forwardedLookups([forwarder, zeekCopy, laterLookup, otherResolver, otherDevice])
+  assert.equal(isAnalyzerDuplicate(forwarder, forwarded), false)
+  assert.equal(isAnalyzerDuplicate(zeekCopy, forwarded), true)
+  for (const event of [laterLookup, otherResolver, otherDevice]) assert.equal(isAnalyzerDuplicate(event, forwarded), false)
+  // Without a capture there is nothing to hide, and without the index Zeek
+  // lookups are always shown.
+  assert.equal(isAnalyzerDuplicate(zeekCopy), false)
+  assert.equal(eventSummary(forwarder), "DNS lookup connectivitycheck.grapheneos.network (A) → 2 answers")
+  assert.equal(eventTypeLabel(forwarder), "DNS")
+  assert.equal(eventTone(forwarder), "dns")
+})
+
 test("rows say what an event is in plain words, not which analyzer wrote it", async () => {
   const { eventTypeLabel } = await import("../../apps/web-ui/src/lib/eventSummary.ts")
   assert.equal(eventTypeLabel({ kind: "zeek.dns", dns_query: "x.com" }), "DNS")

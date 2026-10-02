@@ -112,7 +112,8 @@ The report contains:
 - `device`, `window_start`, `window_end`, `session` (or `null`), `ca_trust`.
 - `totals`: events, flows, bytes, DNS queries, TLS connections, HTTP requests,
   alerts. When Zeek and Suricata both see a connection it is counted once.
-- `domains`: every name seen in DNS lookups, TLS server names, and HTTP hosts,
+- `domains`: every name seen in DNS lookups (ShakerProxy's DNS forwarder records
+  these without a capture), TLS server names, and HTTP hosts,
   with the registrable domain, the organization, a category (`analytics`,
   `advertising`, `crash-reporting`, `telemetry`, `cloud-platform`, `cdn`,
   `push`, `os-services`, `streaming`, `iot-cloud`, `unknown`), sources, event

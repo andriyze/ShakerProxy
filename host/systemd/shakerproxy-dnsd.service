@@ -35,6 +35,9 @@ RestrictNamespaces=true
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 ReadOnlyPaths=/var/lib/shakerproxy/traffic
+# One event file per answered lab lookup, for Traffic (the "-" keeps the
+# forwarder starting if the package has not created the spool yet).
+ReadWritePaths=-/var/lib/shakerproxy/dns-events/pending
 RestrictAddressFamilies=AF_INET AF_INET6
 SystemCallArchitectures=native
 

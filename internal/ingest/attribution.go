@@ -56,7 +56,8 @@ func (e AttributionEvidence) Validate(event RecentEvent) error {
 	} else if !attributionInterfacePattern.MatchString(e.Interface) || e.VLANID != nil && (*e.VLANID < 1 || *e.VLANID > 4094) || !attributionSHA256Pattern.MatchString(e.ScopePlanSHA256) {
 		return errors.New("event attribution scope is invalid")
 	}
-	if event.DeviceID == "" || e.DeviceID != event.DeviceID || !deviceIDPattern.MatchString(e.DeviceID) || event.Source != SourceZeek && event.Source != SourceSuricata || event.Confidence > e.Confidence || event.OccurredAt.Before(e.ValidFrom) || !event.OccurredAt.Before(e.ValidUntil) {
+	attributable := event.Source == SourceZeek || event.Source == SourceSuricata || event.Source == SourceHost && event.Kind == HostDNSKind && e.Endpoint == AttributionEndpointSource
+	if event.DeviceID == "" || e.DeviceID != event.DeviceID || !deviceIDPattern.MatchString(e.DeviceID) || !attributable || event.Confidence > e.Confidence || event.OccurredAt.Before(e.ValidFrom) || !event.OccurredAt.Before(e.ValidUntil) {
 		return errors.New("event attribution evidence does not cover the event")
 	}
 	if e.Endpoint == AttributionEndpointSource && event.SourceIP != e.Address || e.Endpoint == AttributionEndpointDestination && event.DestinationIP != e.Address {
@@ -65,19 +66,25 @@ func (e AttributionEvidence) Validate(event RecentEvent) error {
 	return nil
 }
 
+// AttributeAnalyzerEvent attributes Zeek and Suricata events by either
+// endpoint, and DNS forwarder lookups by the asking client.
 func AttributeAnalyzerEvent(envelope Envelope, attributor DeviceAttributor) (Envelope, *AttributionEvidence, error) {
-	if attributor == nil || envelope.DeviceID != "" || envelope.Source != SourceZeek && envelope.Source != SourceSuricata {
+	if attributor == nil || envelope.DeviceID != "" || envelope.Source != SourceZeek && envelope.Source != SourceSuricata && !isHostDNS(envelope) {
 		return envelope, nil, nil
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(envelope.Payload, &fields); err != nil || fields == nil {
 		return envelope, nil, nil
 	}
-	sourceField, destinationField := "id.orig_h", "id.resp_h"
-	if envelope.Source == SourceSuricata {
-		sourceField, destinationField = "src_ip", "dest_ip"
+	endpoints := []string{"id.orig_h", "id.resp_h"}
+	switch {
+	case envelope.Source == SourceSuricata:
+		endpoints = []string{"src_ip", "dest_ip"}
+	case isHostDNS(envelope):
+		// The other end is ShakerProxy itself.
+		endpoints = []string{"source_ip"}
 	}
-	for endpointIndex, field := range []string{sourceField, destinationField} {
+	for endpointIndex, field := range endpoints {
 		address, ok := analyzerAddress(fields[field])
 		if !ok {
 			continue
@@ -109,7 +116,7 @@ func AttributeAnalyzerEvent(envelope Envelope, attributor DeviceAttributor) (Env
 				VLANID: cloneAttributionVLAN(attribution.VLANID), ScopePlanSHA256: attribution.ScopePlanSHA256,
 			}
 			projection := ProjectNetworkFields(envelope)
-			projected := RecentEvent{Source: envelope.Source, OccurredAt: envelope.OccurredAt, DeviceID: envelope.DeviceID, Confidence: envelope.Confidence, SourceIP: projection.SourceIP, DestinationIP: projection.DestinationIP}
+			projected := RecentEvent{Source: envelope.Source, Kind: envelope.Kind, OccurredAt: envelope.OccurredAt, DeviceID: envelope.DeviceID, Confidence: envelope.Confidence, SourceIP: projection.SourceIP, DestinationIP: projection.DestinationIP}
 			if err := evidence.Validate(projected); err != nil {
 				return Envelope{}, nil, fmt.Errorf("validate analyzer attribution evidence: %w", err)
 			}

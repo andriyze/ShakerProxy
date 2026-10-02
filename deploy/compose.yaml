@@ -290,6 +290,39 @@ services:
     networks: [control]
     restart: unless-stopped
 
+  # Delivers the lookups shakerproxy-dnsd (host) answers for lab devices to
+  # ingest, so Traffic lists each device's DNS names with no capture running.
+  # The spool accepts only HOST shakerproxy.dns events.
+  dns-event-forwarder:
+    image: ${SHAKERPROXY_INGESTD_IMAGE:?set immutable ingest/forwarder image digest}
+    profiles: [core]
+    depends_on:
+      ingestd: {condition: service_started}
+    entrypoint: [/usr/local/bin/mitm-event-forwarderd]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    environment:
+      SHAKERPROXY_EVENT_SOURCE: HOST
+      SHAKERPROXY_EVENT_SPOOL: /var/lib/shakerproxy/dns-events/pending
+      SHAKERPROXY_INGEST_URL: http://ingestd:8081/v1/events
+      SHAKERPROXY_INGEST_TOKEN_FILE: /run/secrets/ingest_token
+    volumes:
+      - /var/lib/shakerproxy/dns-events:/var/lib/shakerproxy/dns-events
+      - /etc/shakerproxy/secrets/ingest-token:/run/secrets/ingest_token:ro
+    healthcheck:
+      test: [CMD, /usr/local/bin/mitm-event-forwarderd, healthcheck]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+    networks: [control]
+    restart: unless-stopped
+
   inventory-cloud-forwarder:
     image: ${SHAKERPROXY_INGESTD_IMAGE:?set immutable ingest/forwarder image digest}
     profiles: [core]
