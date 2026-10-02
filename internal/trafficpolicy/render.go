@@ -34,6 +34,11 @@ type RenderContext struct {
 	// that entered through that port, and plain DNS to any resolver, the
 	// network's router included, is answered by ShakerProxy.
 	LabBridgePort string
+	// LabBridgeIPv6 reports that ShakerProxy has its own IPv6 address on the
+	// inline bridge (from the router's advertisements). Only then is DNS that
+	// devices send over IPv6 redirected: the kernel redirects a query to an
+	// address of the bridge with the query's scope, and drops it without one.
+	LabBridgeIPv6 bool
 	// IPv6Listeners reports that the DNS and TLS listeners accept IPv6. IPv6
 	// redirects are rendered only when true so an IPv4-only listener cannot
 	// blackhole lab IPv6 traffic; IPv6 blocking rules are rendered regardless.
@@ -57,6 +62,8 @@ type Segment struct {
 	GatewayIPv6 string
 	// BridgePort is the device-side port when Interface is an inline bridge.
 	BridgePort string
+	// BridgeIPv6 reports ShakerProxy's own IPv6 address on that bridge.
+	BridgeIPv6 bool
 	// Devices maps device IDs to their addresses on this segment. VPN
 	// addresses are bound to the device's key, so no MAC is needed.
 	Devices map[string]DeviceMatch
@@ -180,7 +187,7 @@ func RenderFirewall(policy Policy, context RenderContext) (FirewallRules, error)
 	if context.LabInterface != "" || context.VPN == nil {
 		segments = append(segments, Segment{
 			Interface: context.LabInterface, IPv4CIDR: context.LabCIDR, GatewayIPv4: context.LabGatewayIPv4,
-			IPv6Prefix: context.LabIPv6Prefix, GatewayIPv6: context.LabGatewayIPv6, BridgePort: context.LabBridgePort, Devices: context.Devices,
+			IPv6Prefix: context.LabIPv6Prefix, GatewayIPv6: context.LabGatewayIPv6, BridgePort: context.LabBridgePort, BridgeIPv6: context.LabBridgeIPv6, Devices: context.Devices,
 		})
 	}
 	if context.VPN != nil {
@@ -253,9 +260,9 @@ func segmentRenderers(segment Segment, ipv6Listeners bool) (familyRenderer, fami
 			return familyRenderer{}, familyRenderer{}, fmt.Errorf("traffic policy requires a safe bridge port name")
 		}
 		v4.physIn, v6.physIn = segment.BridgePort, segment.BridgePort
-		// IPv6 crosses an inline bridge untouched (it is recorded, not
-		// redirected): ShakerProxy has no IPv6 address on the lab's prefix.
-		v6.redirects = false
+		// DNS over IPv6 is answered only when ShakerProxy has its own IPv6
+		// address on the bridge; otherwise it is recorded, not redirected.
+		v6.redirects = ipv6Listeners && segment.BridgeIPv6
 	}
 	if segment.IPv6Prefix != "" {
 		prefix6, err := netip.ParsePrefix(segment.IPv6Prefix)
