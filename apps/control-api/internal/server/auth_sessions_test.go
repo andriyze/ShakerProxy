@@ -357,3 +357,53 @@ func firstDeviceID(t *testing.T, server *Server) string {
 	}
 	return snapshot.Devices[0].ID
 }
+
+// Every upgrade restarts control-api; the administrator stayed signed in only
+// until then and had to sign in again after each release.
+func TestSessionsSurviveARestartWithoutStoringTokens(t *testing.T) {
+	directory := t.TempDir()
+	now := time.Date(2026, 10, 2, 4, 0, 0, 0, time.UTC)
+	first := &Server{store: NewStore(directory, ""), sessions: make(map[string]sessionRecord), clock: func() time.Time { return now }}
+	first.sessionsPath = first.store.SessionsPath()
+	token, _, err := first.newVerifiedSession("admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := first.newVerifiedSession("admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.revokeSession(other)
+	raw, err := os.ReadFile(first.sessionsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), token) || strings.Contains(string(raw), other) {
+		t.Fatal("a session token was written to disk")
+	}
+	if info, err := os.Stat(first.sessionsPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("sessions file mode = %v err=%v", info.Mode().Perm(), err)
+	}
+	restarted := &Server{store: NewStore(directory, ""), sessions: make(map[string]sessionRecord), clock: func() time.Time { return now.Add(10 * time.Minute) }}
+	restarted.sessionsPath = restarted.store.SessionsPath()
+	restarted.loadSessions()
+	if session, ok := restarted.authenticateSession(token); !ok || session.Username != "admin" {
+		t.Fatal("the session did not survive the restart")
+	}
+	if _, ok := restarted.authenticateSession(other); ok {
+		t.Fatal("a revoked session came back after the restart")
+	}
+	expired := &Server{store: NewStore(directory, ""), sessions: make(map[string]sessionRecord), clock: func() time.Time { return now.Add(13 * time.Hour) }}
+	expired.sessionsPath = expired.store.SessionsPath()
+	expired.loadSessions()
+	if _, ok := expired.authenticateSession(token); ok {
+		t.Fatal("an expired session was restored")
+	}
+	restarted.revokeAllSessions()
+	again := &Server{store: NewStore(directory, ""), sessions: make(map[string]sessionRecord), clock: func() time.Time { return now.Add(11 * time.Minute) }}
+	again.sessionsPath = again.store.SessionsPath()
+	again.loadSessions()
+	if _, ok := again.authenticateSession(token); ok {
+		t.Fatal("signing everyone out did not survive the restart")
+	}
+}

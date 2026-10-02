@@ -116,6 +116,8 @@ type Server struct {
 	nameResolver                *deviceinventory.NameResolver
 	sessionsMu                  sync.Mutex
 	sessions                    map[string]sessionRecord
+	sessionsPath                string
+	sessionsSavedAt             time.Time
 	clock                       func() time.Time
 	authFailuresMu              sync.Mutex
 	authFailures                map[string]authFailureCounter
@@ -141,6 +143,10 @@ func New(config Config) *Server {
 		hosts[strings.ToLower(strings.TrimSpace(host))] = struct{}{}
 	}
 	server := &Server{store: config.Store, gateway: gatewayclient.Client{SocketPath: config.GatewaySocket}, allowedHosts: hosts, logger: config.Logger, inventory: config.Inventory, keaLeasePath: config.KeaLeasePath, eventReader: config.EventReader, liveEventReader: config.LiveEventReader, ingestStatus: config.IngestStatus, eventSnapshots: config.EventSnapshots, savedViews: config.SavedViews, captureEventDeletions: config.CaptureEventDeletions, eventSelectionDeletions: config.EventSelectionDeletions, zeekCheckpointDeletions: config.ZeekCheckpointDeletions, suricataCheckpointDeletions: config.SuricataCheckpointDeletions, capabilities: config.Capabilities, recoveryObjectives: config.RecoveryObjectives, managementCACertPath: config.ManagementCACertPath, managementPKIStatusPath: config.ManagementPKIStatusPath, cases: config.Cases, apiTokens: config.APITokens, forwarders: config.Forwarders, nameResolver: &deviceinventory.NameResolver{Store: config.Inventory}, sessions: make(map[string]sessionRecord), authFailures: make(map[string]authFailureCounter), tokenRates: make(map[string]tokenRateWindow), liveSlots: make(chan struct{}, 16), openAPIPath: config.OpenAPIPath, adminResetRequestPath: config.AdminResetRequestPath}
+	if config.Store != nil {
+		server.sessionsPath = config.Store.SessionsPath()
+		server.loadSessions()
+	}
 	if server.openAPIPath == "" {
 		server.openAPIPath = "/usr/share/shakerproxy/schemas/api/openapi.yaml"
 	}

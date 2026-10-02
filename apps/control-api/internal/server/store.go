@@ -55,6 +55,14 @@ type captureExportLedger struct {
 	Records []CaptureExportRecord `json:"records"`
 }
 
+// SessionsPath is where sign-in sessions (token digests only) are kept.
+func (s *Store) SessionsPath() string {
+	if s == nil || s.dataDir == "" {
+		return ""
+	}
+	return filepath.Join(s.dataDir, "sessions.json")
+}
+
 func NewStore(dataDir, tokenPath string) *Store {
 	return &Store{dataDir: dataDir, tokenPath: tokenPath}
 }
