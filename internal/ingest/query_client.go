@@ -354,7 +354,7 @@ func validateEventFacets(facets EventFacets, visibleEvents int) error {
 			return errors.New("event query service returned inconsistent facet counts")
 		}
 	}
-	return nil
+	return validateEventDomains(facets.Domains)
 }
 
 func validFacetValue(field, value string) bool {

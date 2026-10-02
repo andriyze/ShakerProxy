@@ -66,6 +66,16 @@ events. Larger populations are explicitly labeled as a newest-10,000 sample;
 they are never described as exact or silently extrapolated. Each field exposes
 at most 12 values plus an `other` count, and older cursor pages omit facets.
 
+A Domains facet over the same events lists up to 15 internet domains the
+events name: DNS questions, TLS server names (SNI) and HTTP hosts, grouped by
+registrable domain under the ICANN public suffixes (`www.googleapis.com` counts
+toward `googleapis.com`). Each count is distinct connections and lookups, keyed
+by addresses and ports, so a connection that Zeek, Suricata and mitmproxy all
+report, or that spans capture segments, counts once. Local names (`.local`,
+`.arpa`) and IP literals are left out. Filtered to a device, it is that
+device's domain list. Clicking a domain adds it to the filter as a bare word,
+and the Traffic page refreshes the facets every 30 seconds while it is live.
+
 The control API holds a query-only token that must differ from the ingest
 write token. It has no database URL or analyzer credential. `ingestd` rejects
 the write token on the read endpoint and returns a bounded JSON response over

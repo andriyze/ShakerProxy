@@ -147,3 +147,19 @@ func TestParseRejectsScopedIPAddresses(t *testing.T) {
 		}
 	}
 }
+
+// The Traffic page's Domains facet narrows the current filter with a bare
+// domain word; it must stay a free-text search, not a field or a time value.
+func TestParseKeepsAFacetDomainAsFreeText(t *testing.T) {
+	query, err := Parse(`(device.id:device-0123456789abcdef0123456789abcdef AND time:last_1h) AND googleapis.com`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Root == nil || query.Root.Type != NodeAnd || len(query.Root.Children) != 2 {
+		t.Fatalf("unexpected query tree: %#v", query.Root)
+	}
+	domain := query.Root.Children[1].Predicate
+	if domain == nil || domain.Field != TextField || domain.Value != "googleapis.com" || domain.Operator != OperatorEqual {
+		t.Fatalf("the domain was not a free-text predicate: %#v", domain)
+	}
+}

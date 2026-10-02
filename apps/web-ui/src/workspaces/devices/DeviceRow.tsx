@@ -1,4 +1,5 @@
 import React, { FormEvent, useState } from "react"
+import { uniqueAddresses } from "../../lib/deviceAddresses"
 import { withPassword } from "../../shell/passwordPrompt"
 import { timeAgo, idempotencyKey } from "../../lib/format"
 import { DeviceTrafficDeletionPreviewControl } from "./DeviceTrafficDeletion"
@@ -21,7 +22,8 @@ export function DeviceRow({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const mac = device.identities.find((identity) => identity.kind === "MAC")
-  const activeAddresses = device.addresses.filter((address) => address.active)
+  const addresses = uniqueAddresses(device.addresses)
+  const activeAddresses = addresses.filter((address) => address.active)
   const vendorLabel =
     device.vendor?.name ||
     (
@@ -198,19 +200,17 @@ export function DeviceRow({
             .join(" · ") || "No active mapping"}
         </strong>
         <small>
-          {device.addresses.length} time-bounded observation{device.addresses.length === 1 ? "" : "s"}
+          {addresses.length} address{addresses.length === 1 ? "" : "es"}
         </small>
-        {device.addresses.length > 0 && (
+        {addresses.length > 0 && (
           <details>
             <summary>Address history and scope</summary>
-            {device.addresses.map((item) => (
-              <small
-                key={`${item.address}-${item.valid_from}-${item.interface ?? "unknown"}-${item.vlan_id ?? "none"}-${item.scope_plan_sha256 ?? "unknown"}`}
-              >
-                <strong>{item.address}</strong> · {item.interface ?? "legacy scope unknown"}
-                {item.vlan_id ? ` · VLAN ${item.vlan_id}` : ""} · {item.confidence}% ·{" "}
-                {new Date(item.valid_from).toLocaleString()} → {new Date(item.valid_until).toLocaleString()}
-                {item.scope_plan_sha256 ? ` · plan ${item.scope_plan_sha256.slice(0, 12)}…` : ""}
+            {addresses.map((item) => (
+              <small key={`${item.address}-${item.interface ?? "unknown"}-${item.vlan_id ?? "none"}`}>
+                <strong>{item.address}</strong> · {item.active ? "current" : "earlier"} ·{" "}
+                {item.interface ?? "legacy scope unknown"}
+                {item.vlan_id ? ` · VLAN ${item.vlan_id}` : ""} · {new Date(item.first_seen).toLocaleString()} →{" "}
+                {new Date(item.last_seen).toLocaleString()}
               </small>
             ))}
           </details>
