@@ -243,3 +243,44 @@ func TestLivePcapTicksOnRawIP(t *testing.T) {
 		t.Fatalf("tick header checksum does not verify: %#x", sum)
 	}
 }
+
+// An inline bridge with ShakerProxy's access point records the device port
+// and the access point into one segment: two Ethernet interfaces. Live
+// analysis streams both interfaces' packets, in file order.
+func TestLivePcapStreamsASegmentWithTwoEthernetInterfaces(t *testing.T) {
+	at := time.Date(2026, 10, 2, 10, 0, 0, 0, time.UTC)
+	order := binary.LittleEndian
+	segment := pcapngSection(order, pcapLinkTypeEthernet, 0, []livePacket{{at, frame(1)}})
+	block := func(blockType uint32, body []byte) {
+		length := uint32(12 + len(body))
+		header := make([]byte, 8)
+		order.PutUint32(header[:4], blockType)
+		order.PutUint32(header[4:], length)
+		trailer := make([]byte, 4)
+		order.PutUint32(trailer, length)
+		segment = append(append(append(segment, header...), body...), trailer...)
+	}
+	accessPoint := make([]byte, 8)
+	order.PutUint16(accessPoint[:2], pcapLinkTypeEthernet)
+	order.PutUint32(accessPoint[4:], 262144)
+	block(pcapngInterface, accessPoint)
+	packet := frame(2)
+	units := uint64(at.Add(time.Second).UnixMicro())
+	body := make([]byte, 20+len(packet)+(4-len(packet)%4)%4)
+	order.PutUint32(body[0:4], 1) // the access point's interface
+	order.PutUint32(body[4:8], uint32(units>>32))
+	order.PutUint32(body[8:12], uint32(units))
+	order.PutUint32(body[12:16], uint32(len(packet)))
+	order.PutUint32(body[16:20], uint32(len(packet)))
+	copy(body[20:], packet)
+	block(pcapngEnhancedPacket, body)
+
+	var out bytes.Buffer
+	if err := newPcapngToPcap().Feed(segment, &out); err != nil {
+		t.Fatalf("a two-port segment was refused: %v", err)
+	}
+	linkType, records := parsePcapStream(t, out.Bytes())
+	if linkType != pcapLinkTypeEthernet || len(records) != 2 || records[0].data[14] != 1 || records[1].data[14] != 2 || records[1].seconds != uint32(at.Unix()+1) {
+		t.Fatalf("link type %d, records %#v", linkType, records)
+	}
+}

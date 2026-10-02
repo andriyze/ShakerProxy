@@ -42,6 +42,13 @@ func TestBridgeNetlabRole(t *testing.T) {
 		IPv4: networkplan.IPv4Configuration{Enabled: true, LabCIDR: "192.168.77.0/24", GatewayAddress: "192.168.77.20"},
 		IPv6: networkplan.IPv6Configuration{Strategy: networkplan.IPv6ObserveOnly},
 	}
+	// tests/netlab/bridge-ap-hwsim.sh adds ShakerProxy's Wi-Fi access point
+	// (a simulated radio) to the bridge.
+	if ap := os.Getenv("SHAKERPROXY_BRIDGELAB_AP"); ap != "" {
+		plan.Interfaces = append(plan.Interfaces, networkplan.Interface{StableID: "netlab-ap", CurrentName: ap, Role: networkplan.RoleWiFiAP})
+		plan.WiFi = &networkplan.WiFiConfiguration{Enabled: true, SSID: os.Getenv("SHAKERPROXY_BRIDGELAB_SSID"), Security: networkplan.WiFiSecurityWPA2PSK,
+			Passphrase: os.Getenv("SHAKERPROXY_BRIDGELAB_PASSPHRASE"), CountryCode: "US", Band: networkplan.WiFiBand24GHz, Channel: 6, BridgeWithLab: true}
+	}
 	preview := networkplan.BuildPreview(plan, time.Now())
 	if !preview.Validation.Valid {
 		t.Fatalf("netlab bridge plan is invalid: %+v", preview.Validation.Errors)
@@ -90,7 +97,18 @@ func TestBridgeNetlabRole(t *testing.T) {
 		if err := traffic.ReconcileNow(ctx); err != nil {
 			t.Fatal(err)
 		}
-		report(map[string]string{"netplan": preview.NetplanYAML, "firewall": preview.FirewallRestoreIPv4, "firewall_ipv6": preview.FirewallRestoreIPv6})
+		// The access point's configuration, as the applier writes it to
+		// /etc/shakerproxy/hostapd; the script runs hostapd with it.
+		if networkplan.WiFiEnabled(plan) {
+			config, err := networkplan.RenderHostapdConf(plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, "hostapd.conf"), []byte(config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		report(map[string]string{"netplan": preview.NetplanYAML, "firewall": preview.FirewallRestoreIPv4, "firewall_ipv6": preview.FirewallRestoreIPv6, "hostapd": preview.HostapdConf})
 	case "conntrack":
 		scope := labConnectionScope(store, nil)
 		listener, err := conntrack.Listen()

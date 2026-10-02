@@ -99,8 +99,8 @@ func inlineBridgeFindings(in RoutingInput) []Finding {
 		Fix:    "Connect one test device to the device port, or add ShakerProxy's Wi-Fi access point to the bridge for several."}
 	if in.WirelessAccessPoint {
 		dhcp = "Inline bridge: the network's router hands out addresses through ShakerProxy, to wired devices on the device port and to Wi-Fi devices on ShakerProxy's access point, so they need no setup and have no other way to their gateway than across the bridge."
-		peer.Detail = "Wi-Fi devices on ShakerProxy's access point reach each other and the rest of the network through ShakerProxy, so their device-to-device traffic is recorded; so is traffic between the device port and the router's side. Two devices behind the same switch on the device port still talk directly."
-		peer.Fix = ""
+		peer.Detail = "Wi-Fi devices on ShakerProxy's access point reach the wired device and the rest of the network across the bridge, so that traffic is recorded, as is traffic between the device port and the router's side. Traffic sent directly between two Wi-Fi devices is forwarded inside the access point, and two devices behind the same switch on the device port still talk directly."
+		peer.Fix = "To see two devices talk to each other, put one on Wi-Fi and the other on the device port."
 	}
 	return []Finding{
 		{ID: FindingIPv6, Title: "IPv6", Status: FindingOK,

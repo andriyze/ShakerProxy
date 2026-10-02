@@ -42,7 +42,7 @@ func TestInlineBridgeWithAccessPointHasNoWiFiBypass(t *testing.T) {
 			t.Fatalf("finding %s is %s: %s", finding.ID, finding.Status, finding.Detail)
 		}
 	}
-	if peer := byID[FindingPeerToPeer]; peer.Fix != "" || !containsText(peer.Detail, "Wi-Fi devices on ShakerProxy's access point reach each other") {
+	if peer := byID[FindingPeerToPeer]; !containsText(peer.Detail, "Wi-Fi devices on ShakerProxy's access point reach the wired device") || !containsText(peer.Detail, "forwarded inside the access point") || !containsText(peer.Fix, "one on Wi-Fi and the other on the device port") {
 		t.Fatalf("device-to-device finding = %+v", peer)
 	}
 	if dhcp := byID[FindingDHCP]; !containsText(dhcp.Detail, "Wi-Fi devices on ShakerProxy's access point") {
