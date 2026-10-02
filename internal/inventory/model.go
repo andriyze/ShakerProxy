@@ -204,6 +204,9 @@ type Device struct {
 	AttributionConfidence int                   `json:"attribution_confidence"`
 	AttributionWarnings   []string              `json:"attribution_warnings,omitempty"`
 	LastReconciled        time.Time             `json:"last_reconciled"`
+	// FormerIDs are the IDs of device records merged into this one, so
+	// traffic attributed to them before the merge can still be found.
+	FormerIDs []string `json:"former_ids,omitempty"`
 }
 
 // MarshalJSON always writes identities, addresses and hostnames as lists:
@@ -335,6 +338,14 @@ func ValidAddressAliasID(id string) bool { return addressAliasIDPattern.MatchStr
 func validateDevice(device Device) error {
 	if device.Schema != SchemaVersion || !ValidDeviceID(device.ID) || device.FirstSeen.IsZero() || device.LastSeen.Before(device.FirstSeen) || device.LastReconciled.IsZero() {
 		return errors.New("device identity or timestamps are invalid")
+	}
+	if len(device.FormerIDs) > MaxFormerIDs {
+		return errors.New("device former IDs exceed the limit")
+	}
+	for _, id := range device.FormerIDs {
+		if !ValidDeviceID(id) || id == device.ID {
+			return errors.New("device former ID is invalid")
+		}
 	}
 	if len(device.Identities) == 0 || len(device.Identities) > MaxIdentities || len(device.Addresses) > MaxAddresses || len(device.Hostnames) > MaxHostnames || len(device.AttributionWarnings) > MaxWarnings || len(device.AliasHistory) > MaxAliasHistory || len(device.SuggestedNames) != 0 {
 		return errors.New("device evidence exceeds bounds")

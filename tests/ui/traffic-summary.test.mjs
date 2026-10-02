@@ -130,3 +130,10 @@ test("devices say when they were last seen", async () => {
   assert.equal(timeAgo("2026-09-28T12:00:00Z", now), "3 days ago")
   assert.equal(timeAgo("not a date", now), "unknown")
 })
+
+test("a device's traffic includes records merged into it", () => {
+  const former = [`device-${"cd".repeat(16)}`, `device-${"ef".repeat(16)}`]
+  assert.equal(deviceQuery(DEVICE), `device.id:${DEVICE}`)
+  assert.equal(deviceQuery(DEVICE, "", former), `(device.id:${DEVICE} OR device.id:${former[0]} OR device.id:${former[1]})`)
+  assert.equal(deviceQuery(DEVICE, "last_1h", [...former, "not-a-device", DEVICE]), `time:last_1h AND ((device.id:${DEVICE} OR device.id:${former[0]} OR device.id:${former[1]}))`)
+})

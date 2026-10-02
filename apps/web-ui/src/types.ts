@@ -714,6 +714,7 @@ export type Device = {
   attribution_confidence: number
   attribution_warnings?: string[]
   last_reconciled: string
+  former_ids?: string[]
 }
 
 export type PCAPSelectionFileImpact = {

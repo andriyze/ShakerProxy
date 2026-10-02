@@ -79,7 +79,8 @@ export function DeviceInventory() {
     setFilters(defaultDeviceListFilters)
   }
   function viewDeviceTraffic(deviceID: string) {
-    navigate("traffic", { traffic_q: deviceQuery(deviceID), traffic_source: "" })
+    const formerIDs = snapshot?.devices.find((device) => device.id === deviceID)?.former_ids ?? []
+    navigate("traffic", { traffic_q: deviceQuery(deviceID, "", formerIDs), traffic_source: "" })
   }
   function selectDevice(deviceID: string) {
     window.history.replaceState({}, "", applySelectedDeviceToURL(new URL(window.location.href), deviceID))

@@ -116,6 +116,13 @@ func (s *Store) ReconcileNeighbors(observations []NeighborObservation) (Snapshot
 		}
 		touched[device.ID] = true
 	}
+	merged, err := consolidateRotatedMACDevices(&doc, now)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	for _, id := range merged {
+		touched[id] = true
+	}
 	for index := range doc.Devices {
 		device := &doc.Devices[index]
 		refreshNeighborActivity(device, now)
@@ -200,6 +207,11 @@ func upsertNeighborIdentity(device *Device, observation NeighborObservation) {
 			}
 		}
 		return
+	}
+	if len(device.Identities) >= MaxIdentities && locallyAdministeredMAC(observation.HardwareAddr) {
+		// A phone that rotates its private MAC on every connection would
+		// otherwise stop recording new MACs once the list is full.
+		dropOldestRandomizedMAC(device)
 	}
 	if len(device.Identities) < MaxIdentities {
 		device.Identities = append(device.Identities, Identity{Kind: IdentityMAC, Value: observation.HardwareAddr, Source: source, Confidence: confidence, FirstSeen: observation.SeenAt, LastSeen: observation.SeenAt})
@@ -304,59 +316,4 @@ func validAddressSelector(address netip.Addr, source EvidenceSource) bool {
 		return address.Is4()
 	}
 	return false
-}
-
-// locallyAdministeredMAC reports a randomized ("private") MAC address: the
-// locally administered bit of the first octet is set.
-func locallyAdministeredMAC(value string) bool {
-	mac, err := net.ParseMAC(value)
-	return err == nil && len(mac) == 6 && mac[0]&0x02 != 0
-}
-
-// rotatedMACDevice finds the device a phone that rotated its randomized MAC
-// was before: the one that last held the observed IPv4 address on the same lab
-// scope and only ever used randomized MACs. A globally unique MAC, or a
-// device with one, never matches, so a reused address does not merge two
-// real devices.
-func rotatedMACDevice(devices []Device, observation NeighborObservation) (int, bool) {
-	// IPv4 only: the ARP table maps an address to one MAC at a time, so a new
-	// MAC has replaced the old one. Two MACs claiming one IPv6 address (often
-	// derived from one of them) stay a conflict.
-	if !observation.Address.Is4() || !locallyAdministeredMAC(observation.HardwareAddr) {
-		return 0, false
-	}
-	address := observation.Address.String()
-	best, bestSeen := -1, time.Time{}
-	for index, device := range devices {
-		macs := 0
-		randomized := true
-		for _, identity := range device.Identities {
-			if identity.Kind != IdentityMAC {
-				continue
-			}
-			macs++
-			if !locallyAdministeredMAC(identity.Value) {
-				randomized = false
-			}
-		}
-		if macs == 0 || !randomized {
-			continue
-		}
-		for _, held := range device.Addresses {
-			if held.Address != address || held.Interface != observation.Interface || held.ScopePlanSHA256 != observation.ScopePlanSHA256 || !sameVLAN(held.VLANID, observation.VLANID) {
-				continue
-			}
-			if seen := held.ObservedAt; best < 0 || seen.After(bestSeen) {
-				best, bestSeen = index, seen
-			}
-		}
-	}
-	return best, best >= 0
-}
-
-func sameVLAN(a, b *int) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
 }
