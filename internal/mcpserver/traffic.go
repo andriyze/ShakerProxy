@@ -35,8 +35,11 @@ var (
 // forwarder lookups, Zeek and Suricata DNS logs, detected encrypted DNS, and
 // DNS over HTTPS (interception audit #9).
 const (
-	dnsBaseQuery = "kind:shakerproxy.dns OR kind:zeek.dns OR kind:suricata.dns OR kind:encrypted_dns_detected OR service:doh OR kind:shakerproxy.blocked"
+	dnsBaseQuery = "kind:shakerproxy.dns OR kind:zeek.dns OR kind:suricata.dns OR " + encryptedDNSQuery
 	tlsBaseQuery = "source:MITMPROXY AND (tls.state:FAILED OR tls.state:BYPASSED)"
+	// encryptedDNSQuery matches DNS over HTTPS, TLS and QUIC connections
+	// ShakerProxy identified and the encrypted-DNS attempts it blocked.
+	encryptedDNSQuery = "kind:encrypted_dns_detected OR service:doh OR app.protocol:doh OR app.protocol:dot OR app.protocol:doq OR kind:shakerproxy.blocked"
 )
 
 // pinningReasons are the exact interception failure reasons that indicate
@@ -110,6 +113,13 @@ type eventLine struct {
 	Owner         string `json:"owner,omitempty"`
 	BytesSent     *int64 `json:"bytes_sent,omitempty"`
 	BytesReceived *int64 `json:"bytes_received,omitempty"`
+	// EncryptedDNS is DoH, DoT or DoQ when the event is an encrypted DNS
+	// connection; its lookups are hidden inside it.
+	EncryptedDNS string `json:"encrypted_dns,omitempty"`
+	// Blocked is set when ShakerProxy refused the lookup or connection;
+	// BlockedReason says why in plain language.
+	Blocked       bool   `json:"blocked,omitempty"`
+	BlockedReason string `json:"blocked_reason,omitempty"`
 }
 
 type eventList struct {
@@ -118,6 +128,9 @@ type eventList struct {
 	CanonicalQuery string      `json:"canonical_query,omitempty"`
 	Events         []eventLine `json:"events"`
 	NextCursor     string      `json:"next_cursor,omitempty"`
+	// LiveCursor continues live after this search: pass it to
+	// follow_traffic with the same query.
+	LiveCursor string `json:"live_cursor,omitempty"`
 }
 
 func (s *Service) deviceActivity(ctx context.Context, _ *mcp.CallToolRequest, args DeviceActivityArgs) (*mcp.CallToolResult, any, error) {
@@ -176,6 +189,9 @@ func (s *Service) searchTraffic(ctx context.Context, _ *mcp.CallToolRequest, arg
 		return nil, nil, err
 	}
 	result := eventList{Query: query, CanonicalQuery: page.CanonicalQuery, Events: eventLines(page.Events), NextCursor: page.NextCursor}
+	if strings.TrimSpace(args.Cursor) == "" {
+		result.LiveCursor = page.LiveCursor
+	}
 	result.Summary = pageSummary(len(result.Events), "event", "events", "matched", page.NextCursor != "")
 	return textResult(result)
 }
@@ -226,18 +242,24 @@ func (s *Service) dnsLookups(ctx context.Context, _ *mcp.CallToolRequest, args D
 		return nil, nil, err
 	}
 	lines := make([]dnsLine, 0, len(page.Events))
-	encrypted := 0
+	encrypted, blocked := 0, 0
 	for _, event := range page.Events {
 		line := dnsLine{eventLine: newEventLine(event), Query: event.DNSQuery, RecordType: event.DNSRecordType, ResponseCode: event.DNSResponseCode, Answers: event.DNSAnswerCount}
-		if event.Kind == "encrypted_dns_detected" || event.Service == "doh" {
+		if line.EncryptedDNS != "" && !event.Blocked {
 			line.Encrypted = true
 			encrypted++
+		}
+		if event.Blocked {
+			blocked++
 		}
 		lines = append(lines, line)
 	}
 	summary := pageSummary(len(lines), "DNS lookup", "DNS lookups", scope, page.NextCursor != "")
 	if encrypted > 0 {
-		summary += fmt.Sprintf(" %d used encrypted DNS, which bypasses the lab resolver.", encrypted)
+		summary += fmt.Sprintf(" %d used encrypted DNS (DoH, DoT or DoQ), which hides the names looked up; encrypted_dns lists them.", encrypted)
+	}
+	if blocked > 0 {
+		summary += fmt.Sprintf(" ShakerProxy blocked %d.", blocked)
 	}
 	return textResult(struct {
 		Summary    string    `json:"summary"`
@@ -487,12 +509,44 @@ func eventLines(events []agentapi.Event) []eventLine {
 }
 
 func newEventLine(event agentapi.Event) eventLine {
-	return eventLine{
+	line := eventLine{
 		RecordID: event.RecordID, Time: event.OccurredAt, Device: event.DeviceFriendlyName, DeviceID: event.DeviceID,
 		Kind: event.Kind, Summary: recentEventSummary(event),
 		From: hostPort(event.SourceIP, event.SourcePort), To: hostPort(event.DestinationIP, event.DestinationPort),
 		Owner: destinationOwnerLabel(event.RecentEvent), BytesSent: event.BytesSent, BytesReceived: event.BytesReceived,
+		EncryptedDNS: encryptedDNSLabel(event.RecentEvent), Blocked: event.Blocked,
 	}
+	if event.Blocked {
+		line.BlockedReason = blockReasonLabel(event.BlockedReason)
+	}
+	return line
+}
+
+// encryptedDNSLabel names the encrypted DNS protocol of a connection, the
+// way the Live view's DoH/DoT/DoQ badges do.
+func encryptedDNSLabel(event ingest.RecentEvent) string {
+	switch {
+	case event.AppProtocol == "dot":
+		return "DoT"
+	case event.AppProtocol == "doq":
+		return "DoQ"
+	case event.AppProtocol == "doh" || event.Service == "doh" || event.Kind == "encrypted_dns_detected":
+		return "DoH"
+	}
+	return ""
+}
+
+// blockReasons mirror the Live view's labels for trafficpolicy block reasons.
+var blockReasons = map[string]string{
+	"dot": "DNS over TLS", "doq": "DNS over QUIC", "doh-ip": "DNS over HTTPS", "doh3-ip": "DNS over HTTP/3",
+	"doh-name": "encrypted DNS resolver", "canary": "encrypted DNS check", "device-domain": "blocked for this device",
+}
+
+func blockReasonLabel(reason string) string {
+	if label, ok := blockReasons[reason]; ok {
+		return label
+	}
+	return "encrypted DNS"
 }
 
 func hostPort(address string, port int) string {

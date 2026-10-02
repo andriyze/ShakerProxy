@@ -41,6 +41,10 @@ type fakeBackend struct {
 	httpPage     ingest.HTTPActivityPage
 	detail       ingest.EventDetail
 	coverage     coverage.Overview
+	exchange     agentapi.HTTPExchange
+	exchangeErr  error
+	followBatch  agentapi.FollowBatch
+	follows      []agentapi.FollowRequest
 
 	resolved        []string
 	reportRequest   agentapi.DeviceReportRequest
@@ -176,6 +180,23 @@ func (f *fakeBackend) EventMetadata(_ context.Context, recordID string) (ingest.
 		return ingest.EventDetail{}, errors.New("not found")
 	}
 	return f.detail, nil
+}
+
+func (f *fakeBackend) HTTPExchange(_ context.Context, recordID string) (agentapi.HTTPExchange, error) {
+	if f.exchangeErr != nil {
+		return agentapi.HTTPExchange{}, f.exchangeErr
+	}
+	if f.exchange.RecordID != recordID {
+		return agentapi.HTTPExchange{}, errors.New("not found")
+	}
+	return f.exchange, nil
+}
+
+func (f *fakeBackend) FollowTraffic(_ context.Context, request agentapi.FollowRequest) (agentapi.FollowBatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.follows = append(f.follows, request)
+	return f.followBatch, nil
 }
 
 func (f *fakeBackend) TrafficSummary(_ context.Context, request agentapi.TrafficSummaryRequest) (ingest.TrafficSummary, error) {

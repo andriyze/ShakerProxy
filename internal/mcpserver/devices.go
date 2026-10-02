@@ -32,6 +32,12 @@ type deviceLine struct {
 	Online    bool      `json:"online"`
 	LastSeen  time.Time `json:"last_seen"`
 	Summary   string    `json:"summary"`
+	// PinnedAddress is the IP address the device was named by: its traffic
+	// is attributed to it whatever (private, rotating) MAC it uses.
+	PinnedAddress string `json:"pinned_address,omitempty"`
+	// FormerIDs are older device records merged into this one; past events
+	// may carry them as device_id.
+	FormerIDs []string `json:"former_ids,omitempty"`
 }
 
 type deviceList struct {
@@ -82,10 +88,18 @@ func (s *Service) listDevices(ctx context.Context, _ *mcp.CallToolRequest, args 
 		if device.Online {
 			online++
 		}
-		result.Devices = append(result.Devices, deviceLine{
+		line := deviceLine{
 			DeviceID: device.ID, Name: device.DisplayName, Vendor: device.Vendor, Category: device.Category, Location: device.Location,
 			Addresses: addresses, Online: device.Online, LastSeen: device.LastSeen, Summary: deviceSummary(device.DisplayName, device.Vendor, addresses, device.Online),
-		})
+			PinnedAddress: device.PinnedAddress, FormerIDs: device.FormerIDs,
+		}
+		if device.PinnedAddress != "" {
+			line.Summary += fmt.Sprintf("; named by IP address %s, so traffic from it counts as this device whatever MAC it uses", device.PinnedAddress)
+		}
+		if len(device.FormerIDs) > 0 {
+			line.Summary += fmt.Sprintf("; %s merged into it", countNoun(len(device.FormerIDs), "earlier record", "earlier records"))
+		}
+		result.Devices = append(result.Devices, line)
 	}
 	result.Summary = fmt.Sprintf("%s (%d online).", countNoun(len(result.Devices), "device", "devices"), online)
 	if page.Truncated {

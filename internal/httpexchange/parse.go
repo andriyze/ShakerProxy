@@ -35,6 +35,8 @@ const (
 var sensitiveHeaders = map[string]bool{
 	"authorization": true, "proxy-authorization": true, "cookie": true, "set-cookie": true,
 	"x-api-key": true, "x-auth-token": true, "x-access-token": true,
+	"x-csrf-token": true, "x-xsrf-token": true, "x-amz-security-token": true, "x-goog-api-key": true,
+	"x-session-token": true, "x-refresh-token": true, "x-id-token": true,
 }
 
 var textualMarkers = []string{"text/", "json", "xml", "javascript", "x-www-form-urlencoded", "graphql", "yaml", "csv"}
