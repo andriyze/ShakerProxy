@@ -9,13 +9,21 @@ import {
   DEFAULT_LIVE_FILTERS,
   composeLiveQuery,
   eventsPerMinute,
+  pageFacets,
+  pageTimeline,
+  streamLine,
+  validFieldFilter,
+  MAX_FIELD_FILTERS,
   liveFiltersFromURL,
   writeLiveFiltersToURL,
   type LiveFilters,
 } from "../../lib/liveTraffic"
 import { useDeviceDirectory } from "../../shell/useDeviceDirectory"
+import { eventDeviceTitle, splitDeviceTitle } from "../../lib/deviceTitle"
 import { LiveFilterBar } from "./LiveFilterBar"
-import { TrafficStream } from "./TrafficStream"
+import { TrafficStream, type GroupBy, type RowAction } from "./TrafficStream"
+import { LiveFacetsPane } from "./LiveFacetsPane"
+import { LiveTimeline } from "./LiveTimeline"
 import { EventDetailDrawer } from "./EventDetailDrawer"
 import { TrafficOverview } from "./TrafficOverview"
 import { HTTPActivity } from "./HTTPActivity"
@@ -477,6 +485,61 @@ export function TrafficWorkspace() {
     return () => window.clearInterval(timer)
   }, [])
   const perMinute = page ? eventsPerMinute(page.events) : 0
+  const [groupBy, setGroupBy] = useState<GroupBy>("none")
+  const clientName = (event: RecentEvent) => splitDeviceTitle(eventDeviceTitle(event, directory))[0]
+  const facets = useMemo(() => pageFacets(page?.events ?? [], clientName), [page?.events, directory])
+  const timelineSpan = (() => {
+    const spans: Record<string, [number, string]> = { last_5m: [5 * 60_000, "5 min"], last_1h: [3_600_000, "1 hour"], last_24h: [86_400_000, "24 hours"], last_7d: [7 * 86_400_000, "7 days"] }
+    const [ms, label] = spans[filters.time] ?? [15 * 60_000, "15 min"]
+    return { ms, label }
+  })()
+  const timeline = pageTimeline(page?.events ?? [], 60, Date.now(), timelineSpan.ms)
+  // Right-click actions on a row: the Live view's "apply as filter".
+  const rowAction = (action: RowAction, event: RecentEvent) => {
+    const add = (list: "include" | "exclude", values: string[]) => {
+      const current = filters[list] ?? []
+      const next = Array.from(new Set([...current, ...values.filter(validFieldFilter)])).slice(0, MAX_FIELD_FILTERS)
+      applyFilters({ ...filters, [list]: next })
+    }
+    const host = streamLine(event).name
+    const deviceFilter = event.device_id ? `device.id:${event.device_id}` : event.source_ip ? `src.ip:${event.source_ip}` : ""
+    switch (action) {
+      case "only-device":
+        if (event.device_id) applyFilters({ ...filters, clients: [event.device_id] })
+        else add("include", [deviceFilter])
+        break
+      case "hide-device":
+        add("exclude", [deviceFilter])
+        break
+      case "only-domain":
+        add("include", [host])
+        break
+      case "hide-domain":
+        add("exclude", [host])
+        break
+      case "conversation":
+        add("include", [event.source_ip ? `src.ip:${event.source_ip}` : "", event.destination_ip ? `dst.ip:${event.destination_ip}` : "", event.destination_port ? `dst.port:${event.destination_port}` : ""].filter(Boolean))
+        break
+      case "copy": {
+        const line = streamLine(event)
+        void navigator.clipboard?.writeText(`${event.occurred_at} ${line.badge} ${event.source_ip ?? ""}:${event.source_port ?? ""} -> ${event.destination_ip ?? ""}:${event.destination_port ?? ""} ${line.name} ${line.detail}`.trim())
+        break
+      }
+    }
+  }
+  // Space pauses or resumes, outside text fields.
+  useEffect(() => {
+    if (!wide) return
+    const key = (keyboard: KeyboardEvent) => {
+      const target = keyboard.target as HTMLElement | null
+      if (keyboard.key !== " " || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.closest("[role=row]")) return
+      keyboard.preventDefault()
+      toggleLivePause()
+    }
+    document.addEventListener("keydown", key)
+    return () => document.removeEventListener("keydown", key)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wide, manualPaused])
   const ingestDegraded =
     status !== null &&
     (!status.database_connected ||
@@ -605,16 +668,62 @@ export function TrafficWorkspace() {
             page to keep it fast. They are still stored; use Load older events or Export to get them.
           </div>
         )}
-        {page && page.events.length > 0 && (
+        {page && wide && (
+          <div className={`live-shell${selectedEvent ? " inspecting" : ""}`}>
+            <LiveFacetsPane
+              facets={facets}
+              filters={filters}
+              sampled={`Counts from the newest ${page.events.length.toLocaleString()} events shown.`}
+              onChange={(next) => applyFilters(next)}
+            />
+            <div className="live-center">
+              <LiveTimeline buckets={timeline} spanLabel={timelineSpan.label} />
+              <div className="live-toolbar">
+                <label>
+                  Group
+                  <select value={groupBy} onChange={(change) => setGroupBy(change.target.value as GroupBy)}>
+                    <option value="none">Off</option>
+                    <option value="device">By device</option>
+                    <option value="domain">By device and destination</option>
+                  </select>
+                </label>
+                <span className="live-toolbar__hint">Right-click a row to filter or follow it · ↑↓ to move · Space to pause</span>
+              </div>
+              {page.events.length > 0 && (
+                <TrafficStream
+                  events={page.events}
+                  directory={directory}
+                  selectedRecordID={selectedRecordID}
+                  onSelect={setSelectedRecordID}
+                  onHoldChange={setHolding}
+                  groupBy={groupBy}
+                  onRowAction={rowAction}
+                />
+              )}
+            </div>
+            {selectedEvent && (
+              <EventDetailDrawer
+                docked
+                event={selectedEvent}
+                labelsAvailable={page.device_labels_available}
+                onClose={() => setSelectedRecordID("")}
+                onRenamed={applyAlias}
+                onFilterDevice={filterDevice}
+              />
+            )}
+          </div>
+        )}
+        {page && !wide && page.events.length > 0 && (
           <TrafficStream
             events={page.events}
             directory={directory}
             selectedRecordID={selectedRecordID}
             onSelect={setSelectedRecordID}
             onHoldChange={setHolding}
+            onRowAction={rowAction}
           />
         )}
-        {page && selectedEvent && (
+        {page && !wide && selectedEvent && (
           <EventDetailDrawer
             event={selectedEvent}
             labelsAvailable={page.device_labels_available}

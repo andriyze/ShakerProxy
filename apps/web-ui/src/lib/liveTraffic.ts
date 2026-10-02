@@ -119,9 +119,23 @@ export type LiveFilters = {
   clients: string[]
   time: string
   search: string
+  // Field filters added from facets and the row menu, e.g. "owner:google",
+  // "dst.port:443", "github.com": each one included, or excluded with NOT.
+  include?: string[]
+  exclude?: string[]
 }
 
-export const DEFAULT_LIVE_FILTERS: LiveFilters = { kinds: ALL_STREAM_KINDS, clients: [], time: "", search: "" }
+export const DEFAULT_LIVE_FILTERS: LiveFilters = { kinds: ALL_STREAM_KINDS, clients: [], time: "", search: "", include: [], exclude: [] }
+
+// A field filter is one predicate from a facet or the row menu: a field and a
+// plain value, or a bare host or address. Anything else is refused so the
+// address bar cannot inject query syntax.
+const FIELD_FILTER = /^(?:(?:device\.id|owner|category|dst\.port|src\.ip|dst\.ip|app\.protocol|kind|protocol):[A-Za-z0-9._:/-]{1,128}|[A-Za-z0-9.-]{1,128}|[0-9A-Fa-f:.]{2,45})$/
+export const MAX_FIELD_FILTERS = 8
+
+export function validFieldFilter(value: string): boolean {
+  return FIELD_FILTER.test(value)
+}
 
 const DEVICE_ID = /^device-[a-f0-9]{32}$/
 const MAX_CLIENT_IDS = 12
@@ -158,6 +172,8 @@ export function composeLiveQuery(filters: LiveFilters, advanced = "", formerIDs:
   else if (ids.length > 1) parts.push(`(${ids.map((id) => `device.id:${id}`).join(" OR ")})`)
   const term = searchTerm(filters.search)
   if (term) parts.push(term)
+  for (const value of (filters.include ?? []).filter(validFieldFilter).slice(0, MAX_FIELD_FILTERS)) parts.push(value)
+  for (const value of (filters.exclude ?? []).filter(validFieldFilter).slice(0, MAX_FIELD_FILTERS)) parts.push(`NOT ${value}`)
   if (advanced.trim()) parts.push(`(${advanced.trim()})`)
   return parts.join(" AND ")
 }
@@ -180,6 +196,8 @@ export function liveFiltersFromURL(search: string): LiveFilters {
     clients: (parameters.get("traffic_clients") ?? "").split(",").filter((value) => DEVICE_ID.test(value)),
     time: TIME.test(parameters.get("traffic_time") ?? "") ? (parameters.get("traffic_time") as string) : "",
     search: (parameters.get("traffic_search") ?? "").slice(0, 128),
+    include: (parameters.get("traffic_inc") ?? "").split(" ").filter(validFieldFilter).slice(0, MAX_FIELD_FILTERS),
+    exclude: (parameters.get("traffic_exc") ?? "").split(" ").filter(validFieldFilter).slice(0, MAX_FIELD_FILTERS),
   }
 }
 
@@ -190,6 +208,8 @@ export function writeLiveFiltersToURL(url: URL, filters: LiveFilters) {
   set("traffic_clients", filters.clients.join(","))
   set("traffic_time", filters.time)
   set("traffic_search", filters.search)
+  set("traffic_inc", (filters.include ?? []).join(" "))
+  set("traffic_exc", (filters.exclude ?? []).join(" "))
 }
 
 // INSTANT_CONNECTION is a connection the gateway reported as it opened.
@@ -497,3 +517,71 @@ export function transferLine(event: RecentEvent): string {
   if (sent !== undefined || received !== undefined) return `↑ ${compactBytes(sent ?? 0)} ↓ ${compactBytes(received ?? 0)}`
   return event.network_bytes ? compactBytes(event.network_bytes) : ""
 }
+
+// Facets and the timeline are first computed from the events on the page
+// (newest first, at most 1,000), so the sidebar works before and without
+// the server summary.
+
+export type FacetValue = { key: string; label: string; count: number; filter: string }
+export type LiveFacets = { clients: FacetValue[]; kinds: FacetValue[]; owners: FacetValue[]; domains: FacetValue[]; ports: FacetValue[] }
+
+function topValues(counts: Map<string, FacetValue>, limit: number): FacetValue[] {
+  return Array.from(counts.values())
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, limit)
+}
+
+function bump(counts: Map<string, FacetValue>, key: string, label: string, filter: string) {
+  if (!key) return
+  const current = counts.get(key)
+  if (current) current.count++
+  else counts.set(key, { key, label, count: 1, filter })
+}
+
+function registrableDomain(host: string): string {
+  const labels = host.toLowerCase().replace(/\.$/, "").split(".")
+  if (labels.length <= 2) return labels.join(".")
+  const secondLevel = new Set(["co", "com", "net", "org", "gov", "ac", "edu"])
+  return secondLevel.has(labels[labels.length - 2]) && labels[labels.length - 1].length === 2 ? labels.slice(-3).join(".") : labels.slice(-2).join(".")
+}
+
+export function pageFacets(events: readonly RecentEvent[], clientName: (event: RecentEvent) => string): LiveFacets {
+  const clients = new Map<string, FacetValue>()
+  const kinds = new Map<string, FacetValue>()
+  const owners = new Map<string, FacetValue>()
+  const domains = new Map<string, FacetValue>()
+  const ports = new Map<string, FacetValue>()
+  for (const event of events) {
+    const line = streamLine(event)
+    if (event.device_id) bump(clients, event.device_id, clientName(event) || event.device_id, `device.id:${event.device_id}`)
+    else if (event.source_ip) bump(clients, `ip:${event.source_ip}`, event.source_ip, `src.ip:${event.source_ip}`)
+    bump(kinds, line.kind, STREAM_KINDS.find((kind) => kind.id === line.kind)?.label ?? line.kind, "")
+    if (event.destination_organization) bump(owners, event.destination_organization.toLowerCase(), event.destination_organization, `owner:${event.destination_organization.toLowerCase().replace(/[^a-z0-9.-]/g, "")}`)
+    const host = event.tls_server_name || event.http_host || event.dns_query || event.dns_name
+    if (host && !host.endsWith(".local") && !host.endsWith(".arpa")) {
+      const domain = registrableDomain(host)
+      bump(domains, domain, domain, domain)
+    }
+    if (event.destination_port) bump(ports, String(event.destination_port), `${event.destination_port}/${(event.protocol ?? "").toLowerCase()}`, `dst.port:${event.destination_port}`)
+  }
+  return { clients: topValues(clients, 12), kinds: topValues(kinds, 8), owners: topValues(owners, 10), domains: topValues(domains, 12), ports: topValues(ports, 10) }
+}
+
+export type TimelineBucket = { start: number; counts: Partial<Record<StreamKind, number>>; total: number }
+
+// pageTimeline counts the page's events per bucket and kind, newest bucket last.
+export function pageTimeline(events: readonly RecentEvent[], buckets: number, now: number, spanMs: number): TimelineBucket[] {
+  const width = spanMs / buckets
+  const start = now - spanMs
+  const out: TimelineBucket[] = Array.from({ length: buckets }, (_, index) => ({ start: start + index * width, counts: {}, total: 0 }))
+  for (const event of events) {
+    const at = Date.parse(event.occurred_at)
+    if (!(at >= start && at <= now)) continue
+    const bucket = out[Math.min(buckets - 1, Math.floor((at - start) / width))]
+    const kind = streamKind(event)
+    bucket.counts[kind] = (bucket.counts[kind] ?? 0) + 1
+    bucket.total++
+  }
+  return out
+}
+
