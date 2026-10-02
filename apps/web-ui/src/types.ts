@@ -906,6 +906,8 @@ export type RecentEvent = {
   dns_record_type?: string
   dns_response_code?: string
   dns_answer_count?: number
+  // What the lookup resolved to (IP addresses and CNAME targets), at most 8.
+  dns_answers?: string[]
   detection_type?: string
   detection_severity?: string
   detection_state?: string

@@ -60,6 +60,7 @@ func projectionColumns(projection EventProjection) insertColumns {
 		exotic = protocol.Exotic
 	}
 	return insertColumns{
+		{"dns_answers", "%s::text[]", dnsAnswersArgument(dns.Answers)},
 		{"source_ip", "NULLIF(%s,'')::inet", network.SourceIP},
 		{"destination_ip", "NULLIF(%s,'')::inet", network.DestinationIP},
 		{"source_port", "NULLIF(%s,0)", network.SourcePort},
@@ -120,4 +121,13 @@ func normalizedEventColumns(pending PendingRecord, envelope Envelope, projection
 		insertColumn{"attribution_evidence", "NULLIF(%s,'')::jsonb", attributionJSON},
 		insertColumn{"payload", "%s", string(envelope.Payload)},
 	)
+}
+
+// dnsAnswersArgument binds answers as a text[] parameter, or NULL when the
+// lookup had none.
+func dnsAnswersArgument(answers []string) any {
+	if len(answers) == 0 {
+		return nil
+	}
+	return answers
 }

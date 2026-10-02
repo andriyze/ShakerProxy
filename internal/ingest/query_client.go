@@ -289,6 +289,9 @@ func validateRecentEventPage(page RecentEventPage, query RecentEventQuery) error
 		if event.DetectionType != "" && !validDetectionType(event.DetectionType) || event.DetectionSeverity != "" && !validDetectionSeverity(event.DetectionSeverity) || event.DetectionState != "" && !validDetectionState(event.DetectionState) || event.DetectionSummary != "" && !validText(event.DetectionSummary, 1, 256) || event.DetectionScope != "" && !detectionScopePattern.MatchString(event.DetectionScope) {
 			return errors.New("event query service returned an invalid detection projection")
 		}
+		if !validEventDNSAnswers(event.DNSAnswers) {
+			return errors.New("event query service returned invalid DNS answers")
+		}
 		if !validTLSProjection(event) {
 			return errors.New("event query service returned an invalid TLS projection")
 		}

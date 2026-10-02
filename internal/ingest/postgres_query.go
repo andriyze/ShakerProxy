@@ -279,6 +279,7 @@ COALESCE(capture_session_id, ''), COALESCE(flow_id, ''), COALESCE(device_id, '')
 COALESCE(host(source_ip), ''), COALESCE(host(destination_ip), ''), COALESCE(source_port, 0),
 COALESCE(destination_port, 0), COALESCE(protocol, ''), COALESCE(service, ''), COALESCE(network_bytes, 0),
 COALESCE(dns_query, ''), COALESCE(dns_record_type, ''), COALESCE(dns_response_code, ''), dns_answer_count,
+COALESCE(array_to_json(dns_answers)::text, ''),
 COALESCE(detection_type, ''), COALESCE(detection_severity, ''), COALESCE(detection_state, ''),
 COALESCE(detection_summary, ''), COALESCE(detection_scope, ''),
 COALESCE(tls_server_name, ''), COALESCE(tls_interception_state, ''), COALESCE(tls_failure_reason, ''),
@@ -305,9 +306,10 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 	for rows.Next() {
 		var event RecentEvent
 		var dnsAnswerCount sql.NullInt64
+		var dnsAnswersJSON string
 		var tlsClientRecentSuccess sql.NullBool
 		var attributionJSON string
-		if err := rows.Scan(&event.RecordID, &event.Source, &event.Kind, &event.OccurredAt, &event.ReceivedAt, &event.SourceVersion, &event.ParserVersion, &event.CaptureSessionID, &event.FlowID, &event.DeviceID, &event.Confidence, &event.SourceIP, &event.DestinationIP, &event.SourcePort, &event.DestinationPort, &event.Protocol, &event.Service, &event.NetworkBytes, &event.DNSQuery, &event.DNSRecordType, &event.DNSResponseCode, &dnsAnswerCount, &event.DetectionType, &event.DetectionSeverity, &event.DetectionState, &event.DetectionSummary, &event.DetectionScope, &event.TLSServerName, &event.TLSInterceptionState, &event.TLSFailureReason, &event.TLSPinningSuspected, &tlsClientRecentSuccess, &event.TLSBypassActivated, &event.TLSPlatform, &attributionJSON,
+		if err := rows.Scan(&event.RecordID, &event.Source, &event.Kind, &event.OccurredAt, &event.ReceivedAt, &event.SourceVersion, &event.ParserVersion, &event.CaptureSessionID, &event.FlowID, &event.DeviceID, &event.Confidence, &event.SourceIP, &event.DestinationIP, &event.SourcePort, &event.DestinationPort, &event.Protocol, &event.Service, &event.NetworkBytes, &event.DNSQuery, &event.DNSRecordType, &event.DNSResponseCode, &dnsAnswerCount, &dnsAnswersJSON, &event.DetectionType, &event.DetectionSeverity, &event.DetectionState, &event.DetectionSummary, &event.DetectionScope, &event.TLSServerName, &event.TLSInterceptionState, &event.TLSFailureReason, &event.TLSPinningSuspected, &tlsClientRecentSuccess, &event.TLSBypassActivated, &event.TLSPlatform, &attributionJSON,
 			&event.AppProtocol, &event.ProtocolCategory, &event.ProtocolVisibility, &event.ProtocolEvidence, &event.ProtocolExotic,
 			&event.HTTPMethod, &event.HTTPHost, &event.HTTPPath, &event.HTTPStatus,
 			&event.AlertSignature, &event.AlertSeverity, &event.AlertCategory); err != nil {
@@ -316,6 +318,11 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 		if dnsAnswerCount.Valid {
 			count := int(dnsAnswerCount.Int64)
 			event.DNSAnswerCount = &count
+		}
+		if dnsAnswersJSON != "" {
+			if json.Unmarshal([]byte(dnsAnswersJSON), &event.DNSAnswers) != nil || !validEventDNSAnswers(event.DNSAnswers) {
+				return nil, fmt.Errorf("decode %s normalized event DNS answers", queryKind)
+			}
 		}
 		if tlsClientRecentSuccess.Valid {
 			value := tlsClientRecentSuccess.Bool
