@@ -4,9 +4,9 @@ import {webUISource} from "./web-ui-source.mjs";
 
 const source=webUISource();
 
-test("topology editor exposes supported shapes and marks the bridge as unavailable",()=>{
-  for(const topology of ["TWO_NIC","SINGLE_ARM","THREE_INTERFACE","VLAN_TRUNK","EXISTING_ROUTED_VLAN","PASSIVE_SENSOR","ADVANCED_CUSTOM"])assert.match(source,new RegExp(`value="${topology}"`));
-  assert.match(source,/Transparent inline bridge · post-v1/);
+test("topology editor exposes supported shapes, including the inline bridge",()=>{
+  for(const topology of ["TWO_NIC","SINGLE_ARM","THREE_INTERFACE","VLAN_TRUNK","EXISTING_ROUTED_VLAN","PASSIVE_SENSOR","ADVANCED_CUSTOM","TRANSPARENT_BRIDGE"])assert.match(source,new RegExp(`value="${topology}"`));
+  assert.match(source,/aria-label="Inline bridge topology"/);
   assert.match(source,/aria-label="Proposed routed topology"/);
   assert.match(source,/aria-label="Passive sensor topology"/);
   assert.match(source,/aria-label="Single-arm manual gateway topology"/);

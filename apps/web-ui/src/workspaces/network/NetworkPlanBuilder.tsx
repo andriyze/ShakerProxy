@@ -11,6 +11,7 @@ import {
   shellRoles,
   type PlannedInterface,
 } from "../../lib/planExtensions"
+import { inlineBridgeFields, routerGuess } from "../../lib/inlineBridgePlan"
 import { ipv4NetworkCIDR, isFinal, isTransactionActive } from "../../lib/networkTransaction"
 import { useAppState } from "../../shell/AppContext"
 import { NetworkChange, type Transaction } from "./NetworkChange"
@@ -301,7 +302,16 @@ export function NetworkPlanBuilder({
               },
               ipv6: { strategy: String(data.get("lab_ipv6_strategy") ?? "DISABLED") },
             }
-    let finalPlan: Record<string, unknown> = nextPlan
+    let finalPlan: Record<string, unknown> =
+      topology === "TRANSPARENT_BRIDGE"
+        ? {
+            ...common,
+            ...inlineBridgeFields(String(data.get("bridge_address")), String(data.get("bridge_router")), {
+              workingConnection: data.get("allow_working_wan_change") === "on",
+              cloudInit: data.get("allow_cloud_init_override") === "on",
+            }),
+          }
+        : nextPlan
     if (useExtensions) {
       finalPlan = mergePlanExtensions(nextPlan, extensionValues, claimedKeys)
       finalPlan.interfaces = applyExtensionRoles(plannedInterfaces as PlannedInterface[], extensionRoles, interfaces)
@@ -415,7 +425,7 @@ export function NetworkPlanBuilder({
               <option value="EXISTING_ROUTED_VLAN">Existing routed VLAN</option>
               <option value="PASSIVE_SENSOR">Passive mirror / TAP</option>
               <option value="ADVANCED_CUSTOM">Advanced routed plan</option>
-              <option disabled>Transparent inline bridge · post-v1</option>
+              <option value="TRANSPARENT_BRIDGE">Inline bridge between a device and your router (no device setup)</option>
             </select>
           </label>
           {topology === "VLAN_TRUNK" ? (
@@ -465,7 +475,7 @@ export function NetworkPlanBuilder({
           ) : (
             <>
               <label>
-                WAN interface
+                {topology === "TRANSPARENT_BRIDGE" ? "Port toward your router" : "WAN interface"}
                 <select name="wan" value={selectedWAN} onChange={(event) => setSelectedWAN(event.target.value)}>
                   {interfaces.map((item) => (
                     <option key={item.name} value={item.name}>
@@ -476,7 +486,7 @@ export function NetworkPlanBuilder({
                 </select>
               </label>
               <label>
-                Lab interface
+                {topology === "TRANSPARENT_BRIDGE" ? "Port toward the test device" : "Lab interface"}
                 <select name="lab" value={selectedLab} onChange={(event) => setSelectedLab(event.target.value)}>
                   {interfaces.map((item) => (
                     <option key={item.name} value={item.name}>
@@ -517,6 +527,54 @@ export function NetworkPlanBuilder({
                   NAT44. Configure each test client with the ShakerProxy address as both gateway and DNS. Same-LAN client
                   isolation and IPv6 enforcement are not available in this mode.
                 </div>
+              ) : topology === "TRANSPARENT_BRIDGE" ? (
+                <fieldset className="plan-section">
+                  <legend>Inline bridge</legend>
+                  <p className="field-help">
+                    Use this for TVs, consoles and smart-home devices you cannot point at a gateway: cable the device (or
+                    its switch) to the device port and the other port to your router. The device keeps getting its address,
+                    gateway and DNS from your router and needs no setup, and every frame between it and the rest of the
+                    network crosses ShakerProxy and is recorded, including DHCP, IPv6 and traffic to other devices.
+                  </p>
+                  <label>
+                    ShakerProxy&apos;s address on your network (it moves to the bridge)
+                    <input
+                      key={`bridge-${selectedWAN}`}
+                      name="bridge_address"
+                      defaultValue={selectedIPv4HostCIDR}
+                      placeholder="192.168.1.20/24"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Your router
+                    <input
+                      key={`bridge-${selectedWAN}-router`}
+                      name="bridge_router"
+                      defaultValue={routerGuess(selectedIPv4HostCIDR)}
+                      placeholder="192.168.1.1"
+                      required
+                    />
+                  </label>
+                  <label className="check">
+                    <input name="allow_working_wan_change" type="checkbox" required />
+                    <span>
+                      I understand ShakerProxy&apos;s address moves from {selectedWAN || "the router port"} to the bridge
+                      with the same MAC, so this session may pause for a few seconds.
+                    </span>
+                  </label>
+                  {networkConfig.cloud_init_managed && (
+                    <label className="check">
+                      <input name="allow_cloud_init_override" type="checkbox" />
+                      <span>I reviewed cloud-init ownership and explicitly authorize the ShakerProxy override.</span>
+                    </label>
+                  )}
+                  <p className="danger-note">
+                    Not available on a bridge yet: ShakerProxy&apos;s Wi-Fi access point, and redirecting or blocking IPv6
+                    (IPv6 is recorded). DNS forcing and device rules apply to IPv4. While ShakerProxy is off the device has
+                    no network; emergency bypass keeps it online without inspection.
+                  </p>
+                </fieldset>
               ) : (
                 <fieldset className="plan-section">
                   <legend>WAN configuration</legend>
@@ -624,6 +682,7 @@ export function NetworkPlanBuilder({
                   )}
                 </fieldset>
               )}
+              {topology !== "TRANSPARENT_BRIDGE" && (
               <fieldset className="plan-section">
                 <legend>{topology === "SINGLE_ARM" ? "Existing LAN" : "Lab network"}</legend>
                 <label>
@@ -700,6 +759,7 @@ export function NetworkPlanBuilder({
                   </>
                 )}
               </fieldset>
+              )}
               {useExtensions &&
                 extensions.map((extension) => (
                   // Extensions render their own titled fieldset; a second
@@ -796,6 +856,21 @@ export function TopologyDiagram({
         <strong>ShakerProxy observe only</strong>
         <b>→</b>
         <span>No routing changes</span>
+      </div>
+    )
+  if (topology === "TRANSPARENT_BRIDGE")
+    return (
+      <div className="topology-diagram" aria-label="Inline bridge topology">
+        <span>Test device</span>
+        <b>↔</b>
+        <span>{lab?.name ?? "device port"}</span>
+        <b>↔</b>
+        <strong>ShakerProxy bridge</strong>
+        <b>↔</b>
+        <span>{wan?.name ?? "router port"}</span>
+        <b>↔</b>
+        <span>Your router + internet</span>
+        <small>The device keeps your router&apos;s DHCP, gateway and DNS; every frame between them is recorded.</small>
       </div>
     )
   if (topology === "SINGLE_ARM")
