@@ -93,7 +93,9 @@ export function DeviceInventory() {
           <p className="eyebrow">Devices</p>
           <h2>Everything ShakerProxy has seen</h2>
           <p>
-            ShakerProxy recognises devices from the lab network's address assignments (DHCP). The confidence shows how sure
+            ShakerProxy recognises devices from the lab network's address assignments (DHCP) and from the addresses it
+            sees them use (ARP and IPv6 neighbors), so devices with a fixed IP appear too. Each device is shown by name
+            and IP; until you name it, the name says what it is when its traffic shows that. The confidence shows how sure
             it is about which device is which. Corrections need your password and are recorded in the change history.
           </p>
         </div>
@@ -217,6 +219,7 @@ export function DeviceInventory() {
           onChanged={refresh}
           onInspect={() => selectDevice(device.id)}
           onViewTraffic={() => viewDeviceTraffic(device.id)}
+          platformHint={snapshot.platform_hints?.[device.id]}
         />
       ))}
       {snapshot && (
@@ -240,6 +243,7 @@ export function DeviceInventory() {
           onChanged={refresh}
           onClose={() => selectDevice("")}
           onViewTraffic={() => viewDeviceTraffic(selectedDeviceID)}
+          platformHint={snapshot?.platform_hints?.[selectedDeviceID]}
         />
       )}
     </section>

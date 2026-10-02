@@ -95,6 +95,7 @@ type Server struct {
 	leaseReadProblem            sync.Mutex
 	lastLeaseReadProblem        string
 	eventReader                 ingest.RecentEventReader
+	devicePlatforms             devicePlatformCache
 	liveEventReader             ingest.LiveEventReader
 	ingestStatus                ingest.StatusReader
 	eventSnapshots              ingest.EventQuerySnapshotRepository
@@ -1580,7 +1581,11 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot.Devices = filterAndSortDevices(snapshot.Devices, query, snapshot.GeneratedAt)
-	writeJSON(w, http.StatusOK, snapshot)
+	response := deviceListResponse{Snapshot: snapshot}
+	if mayReadTraffic(r) {
+		response.PlatformHints = platformHintsFor(snapshot.Devices, s.devicePlatformHints(r.Context()))
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) exportDeviceAliases(w http.ResponseWriter, r *http.Request) {
