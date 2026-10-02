@@ -730,7 +730,7 @@ export type Device = {
   attribution_warnings?: string[]
   last_reconciled: string
   former_ids?: string[]
-  // An IPv4 address the administrator pinned to this device.
+  // The IP address an administrator named this device by.
   pinned_address?: string
 }
 

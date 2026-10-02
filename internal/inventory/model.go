@@ -207,6 +207,10 @@ type Device struct {
 	// FormerIDs are the IDs of device records merged into this one, so
 	// traffic attributed to them before the merge can still be found.
 	FormerIDs []string `json:"former_ids,omitempty"`
+	// PinnedAddress is an IP address an administrator named this device by.
+	// Whatever MAC appears at it (a phone rotating its private MAC) joins
+	// this device.
+	PinnedAddress string `json:"pinned_address,omitempty"`
 }
 
 // MarshalJSON always writes identities, addresses and hostnames as lists:
@@ -264,6 +268,7 @@ const (
 	AuditAddressAliasUpdated AuditAction = "ADDRESS_ALIAS_UPDATED"
 	AuditAliasTagsImported   AuditAction = "DEVICE_ALIAS_TAGS_IMPORTED"
 	AuditAddressAliasDeleted AuditAction = "ADDRESS_ALIAS_DELETED"
+	AuditDeviceAddressPinned AuditAction = "DEVICE_ADDRESS_PINNED"
 )
 
 type AuditEvent struct {
@@ -347,7 +352,13 @@ func validateDevice(device Device) error {
 			return errors.New("device former ID is invalid")
 		}
 	}
-	if len(device.Identities) == 0 || len(device.Identities) > MaxIdentities || len(device.Addresses) > MaxAddresses || len(device.Hostnames) > MaxHostnames || len(device.AttributionWarnings) > MaxWarnings || len(device.AliasHistory) > MaxAliasHistory || len(device.SuggestedNames) != 0 {
+	if device.PinnedAddress != "" {
+		if address, err := netip.ParseAddr(device.PinnedAddress); err != nil || !pinnableAddress(address) || address.String() != device.PinnedAddress {
+			return errors.New("device pinned address is invalid")
+		}
+	}
+	// A device named by its address before it was ever seen has no identity yet.
+	if len(device.Identities) == 0 && device.PinnedAddress == "" || len(device.Identities) > MaxIdentities || len(device.Addresses) > MaxAddresses || len(device.Hostnames) > MaxHostnames || len(device.AttributionWarnings) > MaxWarnings || len(device.AliasHistory) > MaxAliasHistory || len(device.SuggestedNames) != 0 {
 		return errors.New("device evidence exceeds bounds")
 	}
 	normalizedMetadata, err := normalizeMetadata(DeviceMetadata{FriendlyName: device.FriendlyName, Owner: device.Owner, Location: device.Location, Category: device.Category, Icon: device.Icon, Tags: device.Tags, Notes: device.Notes})
@@ -426,6 +437,12 @@ func validateAuditEvent(event AuditEvent) error {
 	case AuditMetadataUpdated, AuditAliasUpdated, AuditDevicesMerged, AuditDeviceSplit, AuditCATrustUpdated:
 		if len(event.SourceDeviceIDs) < 1 || len(event.SourceDeviceIDs) > 2 || len(event.ResultDeviceIDs) < 1 || len(event.ResultDeviceIDs) > 2 || len(event.SourceAddressAliasIDs) != 0 || len(event.ResultAddressAliasIDs) != 0 {
 			return errors.New("device audit evidence exceeds bounds")
+		}
+	case AuditDeviceAddressPinned:
+		// Naming an address creates a device, names an existing one or
+		// removes a named device that was never seen.
+		if len(event.SourceDeviceIDs) > 1 || len(event.ResultDeviceIDs) > 1 || len(event.SourceDeviceIDs)+len(event.ResultDeviceIDs) == 0 || len(event.SourceAddressAliasIDs) != 0 || len(event.ResultAddressAliasIDs) != 0 {
+			return errors.New("device address pin audit evidence is invalid")
 		}
 	case AuditAddressAliasCreated:
 		if len(event.SourceDeviceIDs) != 0 || len(event.ResultDeviceIDs) != 0 || len(event.SourceAddressAliasIDs) != 0 || len(event.ResultAddressAliasIDs) != 1 {

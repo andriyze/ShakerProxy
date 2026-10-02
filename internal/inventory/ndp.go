@@ -85,7 +85,10 @@ func (s *Store) ReconcileNeighbors(observations []NeighborObservation) (Snapshot
 			// they reconnect. The same address taken over by a randomized
 			// MAC, from a device that also used randomized MACs, is that
 			// device reconnecting, not a new one.
-			if index, ok := rotatedMACDevice(doc.Devices, observation); ok {
+			if index, ok := pinnedDevice(doc.Devices, observation.Address); ok {
+				deviceIndex, known = index, true
+				macIndex[observation.HardwareAddr] = index
+			} else if index, ok := rotatedMACDevice(doc.Devices, observation); ok {
 				deviceIndex, known = index, true
 				macIndex[observation.HardwareAddr] = index
 			}

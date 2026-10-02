@@ -171,7 +171,12 @@ export function DeviceRow({
           )}
           <code>{device.id}</code>
           <small className={device.online ? "device-seen online" : "device-seen"}>
-            {device.online ? "Online now" : `Offline · last seen ${timeAgo(device.last_seen)}`}
+            {device.online
+              ? "Online now"
+              : device.identities.length === 0
+                ? "Not seen yet"
+                : `Offline · last seen ${timeAgo(device.last_seen)}`}
+            {device.pinned_address ? ` · named by IP ${device.pinned_address}` : ""}
           </small>
           <span className="device-row-actions">
             <button type="button" className="quiet device-inspect" onClick={onInspect}>
