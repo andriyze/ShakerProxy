@@ -116,3 +116,16 @@ func TestBroadcastChatterIsLocalDiscovery(t *testing.T) {
 		t.Fatalf("unicast to an unknown port = %+v", unicast)
 	}
 }
+
+func TestLooseTunnelAnalyzersYieldToWellKnownPorts(t *testing.T) {
+	quic := Classify(Observation{Transport: "udp", Service: "ayiya", ServerPort: 443})
+	if quic.Protocol != "quic" || quic.Evidence != EvidencePort {
+		t.Fatalf("AYIYA on UDP/443 = %+v, want QUIC by port", quic)
+	}
+	if got := Classify(Observation{Transport: "udp", Service: "teredo", ServerPort: 3544}); got.Protocol != "ipv6-tunnel" || got.Evidence != EvidenceAnalyzer {
+		t.Fatalf("Teredo on its own port = %+v", got)
+	}
+	if got := Classify(Observation{Transport: "udp", Service: "teredo", ServerPort: 40000}); got.Protocol != "ipv6-tunnel" {
+		t.Fatalf("Teredo on an unknown port = %+v, want the analyzer's answer", got)
+	}
+}

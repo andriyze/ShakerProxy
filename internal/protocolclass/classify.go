@@ -50,6 +50,10 @@ var analyzerAliases = map[string]string{
 	"ntp": "ntp", "dns": "dns", "mdns": "mdns", "llmnr": "llmnr", "ssdp": "ssdp",
 }
 
+// guessy analyzers match loosely on payload shape; a well-known port of a
+// different protocol outranks them.
+var guessy = map[string]bool{"ipv6-tunnel": true}
+
 // generic analyzer names describe a transport wrapper rather than the
 // application. When a Zeek service lists several analyzers, a specific one
 // wins over these.
@@ -108,8 +112,15 @@ var carriers = map[string]string{
 func Classify(observation Observation) Classification {
 	transport := strings.ToLower(strings.TrimSpace(observation.Transport))
 	if id := NormalizeService(observation.Service); id != "" {
-		if specific := portProtocol(transport, observation.ServerPort); specific != "" && carriers[specific] == id {
+		specific := portProtocol(transport, observation.ServerPort)
+		if specific != "" && carriers[specific] == id {
 			return classification(specific, EvidenceAnalyzer, observation.Intercepted)
+		}
+		// Zeek's Teredo and AYIYA analyzers accept almost any UDP payload, so
+		// on another protocol's well-known port (QUIC on UDP/443) the port is
+		// the better evidence.
+		if guessy[id] && specific != "" && specific != id {
+			return classification(specific, EvidencePort, observation.Intercepted)
 		}
 		return classification(id, EvidenceAnalyzer, observation.Intercepted)
 	}
