@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"shakerproxy.dev/shakerproxy/internal/firewall"
 	"shakerproxy.dev/shakerproxy/internal/gatewayprotocol"
+	"shakerproxy.dev/shakerproxy/internal/networkplan"
 )
 
 func TestDiagnosticsAreBoundedOrderedAndReadOnly(t *testing.T) {
@@ -68,5 +70,35 @@ func TestCountInterfacesIgnoresIdleUnmanagedVirtualLinks(t *testing.T) {
 	up, down, idle := countInterfaces(interfaces, map[string]bool{"lgbr0": true})
 	if up != 1 || down != 2 || idle != 1 {
 		t.Fatalf("up=%d down=%d idle=%d; want a down physical port and the managed lab bridge counted, the Docker bridge ignored", up, down, idle)
+	}
+}
+
+// A healthy single-arm lab failed `shakerproxy doctor` twice: DHCPv4 was
+// "required" although single-arm leaves DHCP to the router, and the running
+// lab's own firewall chains counted as a conflict.
+func TestDoctorDoesNotFailAHealthySingleArmLab(t *testing.T) {
+	singleArm := &networkplan.StagedPlan{Plan: networkplan.Plan{Topology: networkplan.TopologySingleArm, IPv4: networkplan.IPv4Configuration{Enabled: true}}}
+	if managedDHCPRequired(gatewayprotocol.ModeRouted, singleArm) {
+		t.Fatal("single-arm requires ShakerProxy's DHCPv4")
+	}
+	bridge := &networkplan.StagedPlan{Plan: networkplan.Plan{Topology: networkplan.TopologyTransparentBridge, IPv4: networkplan.IPv4Configuration{Enabled: true}}}
+	if managedDHCPRequired(gatewayprotocol.ModeRouted, bridge) {
+		t.Fatal("an inline bridge requires ShakerProxy's DHCPv4")
+	}
+	routed := &networkplan.StagedPlan{Plan: networkplan.Plan{Topology: networkplan.TopologyTwoNIC, IPv4: networkplan.IPv4Configuration{Enabled: true}}}
+	if !managedDHCPRequired(gatewayprotocol.ModeRouted, routed) || managedDHCPRequired(gatewayprotocol.ModeSetupSafe, routed) {
+		t.Fatal("a routed lab's DHCPv4 requirement is wrong")
+	}
+
+	own := firewall.Inspection{SelectedBackend: "iptables-nft", Issues: []firewall.Issue{{Code: "SHAKERPROXY_CHAIN_CONFLICT", Blocking: true}}}
+	if status, notes := firewallDiagnostic(own, true, true); status != gatewayprotocol.DiagnosticPass || notes[1] != "blocking issues: none" {
+		t.Fatalf("the running lab's own chains: %s %v", status, notes)
+	}
+	if status, _ := firewallDiagnostic(own, false, false); status != gatewayprotocol.DiagnosticWarning {
+		t.Fatalf("leftover ShakerProxy chains outside routed mode: %s", status)
+	}
+	foreign := firewall.Inspection{SelectedBackend: "iptables-nft", Issues: []firewall.Issue{{Code: "SHAKERPROXY_CHAIN_CONFLICT", Blocking: true}, {Code: "DOCKER_USER_CHAIN_MISSING", Blocking: true}, {Code: "UFW_ACTIVE", Blocking: false}}}
+	if status, notes := firewallDiagnostic(foreign, true, true); status != gatewayprotocol.DiagnosticFail || notes[1] != "blocking issues: DOCKER_USER_CHAIN_MISSING" {
+		t.Fatalf("a real blocking issue: %s %v", status, notes)
 	}
 }
