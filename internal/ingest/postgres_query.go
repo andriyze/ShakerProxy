@@ -170,10 +170,12 @@ ORDER BY 1, 4, 2`, MaxEventFacetInput+1, MaxEventFacetInput, MaxEventFacetValues
 // events as the other facets. An observation is the connection's addresses
 // and ports (Zeek's ssl.log has no transport field), so the same connection
 // reported by several analyzers, or split across capture segments, counts
-// once; rows without addresses count individually.
+// once; rows without addresses count individually. A connection the gateway
+// reported counts under the name its client looked up until the analysis
+// adds the server name for the same addresses and ports.
 func readEventDomains(ctx context.Context, queryer eventQueryer, clauses []string, args []any) (EventDomainFacet, error) {
 	statement := fmt.Sprintf(`WITH facet_input AS MATERIALIZED (
-SELECT lower(rtrim(COALESCE(tls_server_name, http_host, dns_query), '.')) AS host,
+SELECT lower(rtrim(COALESCE(tls_server_name, http_host, dns_query, dns_name), '.')) AS host,
 COALESCE(host(source_ip) || ' ' || source_port || ' ' || host(destination_ip) || ' ' || destination_port, record_id) AS observation
 FROM normalized_events WHERE `+strings.Join(clauses, " AND ")+`
 ORDER BY occurred_at DESC, record_id DESC LIMIT %d
@@ -279,6 +281,7 @@ COALESCE(capture_session_id, ''), COALESCE(flow_id, ''), COALESCE(device_id, '')
 COALESCE(host(source_ip), ''), COALESCE(host(destination_ip), ''), COALESCE(source_port, 0),
 COALESCE(destination_port, 0), COALESCE(protocol, ''), COALESCE(service, ''), COALESCE(network_bytes, 0),
 COALESCE(dns_query, ''), COALESCE(dns_record_type, ''), COALESCE(dns_response_code, ''), dns_answer_count,
+COALESCE(array_to_json(dns_answers)::text, ''), COALESCE(dns_name, ''),
 COALESCE(detection_type, ''), COALESCE(detection_severity, ''), COALESCE(detection_state, ''),
 COALESCE(detection_summary, ''), COALESCE(detection_scope, ''),
 COALESCE(tls_server_name, ''), COALESCE(tls_interception_state, ''), COALESCE(tls_failure_reason, ''),
@@ -288,8 +291,18 @@ COALESCE(attribution_evidence::text, ''),
 COALESCE(app_protocol, ''), COALESCE(protocol_category, ''), COALESCE(protocol_visibility, ''),
 COALESCE(protocol_evidence, ''), COALESCE(protocol_exotic, false),
 COALESCE(http_method, ''), COALESCE(http_host, ''), COALESCE(http_path, ''), COALESCE(http_status, 0),
-COALESCE(alert_signature, ''), COALESCE(alert_severity, 0), COALESCE(alert_category, '')
+COALESCE(alert_signature, ''), COALESCE(alert_severity, 0), COALESCE(alert_category, ''),
+` + blockedProjection + `
 FROM normalized_events`
+
+// blockedProjection reads whether ShakerProxy refused the lookup or
+// connection, and why, from the HOST payload (dnsd lookups and the gateway's
+// blocked attempts); it needs no stored column.
+const blockedProjection = `COALESCE(source = 'HOST' AND (kind = '` + HostBlockedKind + `' OR (kind = '` + HostDNSKind + `' AND payload->>'blocked' = 'true')), false),
+CASE WHEN source <> 'HOST' THEN ''
+     WHEN kind = '` + HostBlockedKind + `' THEN COALESCE(payload->>'reason', '')
+     WHEN kind = '` + HostDNSKind + `' AND payload->>'blocked' = 'true' THEN COALESCE(NULLIF(payload->>'blocked_reason', ''), 'device-domain')
+     ELSE '' END`
 
 type eventQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -305,17 +318,23 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 	for rows.Next() {
 		var event RecentEvent
 		var dnsAnswerCount sql.NullInt64
+		var dnsAnswersJSON string
 		var tlsClientRecentSuccess sql.NullBool
 		var attributionJSON string
-		if err := rows.Scan(&event.RecordID, &event.Source, &event.Kind, &event.OccurredAt, &event.ReceivedAt, &event.SourceVersion, &event.ParserVersion, &event.CaptureSessionID, &event.FlowID, &event.DeviceID, &event.Confidence, &event.SourceIP, &event.DestinationIP, &event.SourcePort, &event.DestinationPort, &event.Protocol, &event.Service, &event.NetworkBytes, &event.DNSQuery, &event.DNSRecordType, &event.DNSResponseCode, &dnsAnswerCount, &event.DetectionType, &event.DetectionSeverity, &event.DetectionState, &event.DetectionSummary, &event.DetectionScope, &event.TLSServerName, &event.TLSInterceptionState, &event.TLSFailureReason, &event.TLSPinningSuspected, &tlsClientRecentSuccess, &event.TLSBypassActivated, &event.TLSPlatform, &attributionJSON,
+		if err := rows.Scan(&event.RecordID, &event.Source, &event.Kind, &event.OccurredAt, &event.ReceivedAt, &event.SourceVersion, &event.ParserVersion, &event.CaptureSessionID, &event.FlowID, &event.DeviceID, &event.Confidence, &event.SourceIP, &event.DestinationIP, &event.SourcePort, &event.DestinationPort, &event.Protocol, &event.Service, &event.NetworkBytes, &event.DNSQuery, &event.DNSRecordType, &event.DNSResponseCode, &dnsAnswerCount, &dnsAnswersJSON, &event.DNSName, &event.DetectionType, &event.DetectionSeverity, &event.DetectionState, &event.DetectionSummary, &event.DetectionScope, &event.TLSServerName, &event.TLSInterceptionState, &event.TLSFailureReason, &event.TLSPinningSuspected, &tlsClientRecentSuccess, &event.TLSBypassActivated, &event.TLSPlatform, &attributionJSON,
 			&event.AppProtocol, &event.ProtocolCategory, &event.ProtocolVisibility, &event.ProtocolEvidence, &event.ProtocolExotic,
 			&event.HTTPMethod, &event.HTTPHost, &event.HTTPPath, &event.HTTPStatus,
-			&event.AlertSignature, &event.AlertSeverity, &event.AlertCategory); err != nil {
+			&event.AlertSignature, &event.AlertSeverity, &event.AlertCategory, &event.Blocked, &event.BlockedReason); err != nil {
 			return nil, fmt.Errorf("decode %s normalized event: %w", queryKind, err)
 		}
 		if dnsAnswerCount.Valid {
 			count := int(dnsAnswerCount.Int64)
 			event.DNSAnswerCount = &count
+		}
+		if dnsAnswersJSON != "" {
+			if json.Unmarshal([]byte(dnsAnswersJSON), &event.DNSAnswers) != nil || !validEventDNSAnswers(event.DNSAnswers) {
+				return nil, fmt.Errorf("decode %s normalized event DNS answers", queryKind)
+			}
 		}
 		if tlsClientRecentSuccess.Valid {
 			value := tlsClientRecentSuccess.Bool
@@ -330,6 +349,7 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 			}
 			event.AttributionEvidence = &evidence
 		}
+		event.BlockedReason = knownBlockReason(event.Blocked, event.BlockedReason)
 		event.Summary = EventSummary(event)
 		events = append(events, event)
 	}

@@ -192,7 +192,18 @@ The defaults are a 30 s rotation with a 64 × 8 MiB ring (≈32 minutes of
 low-rate capture within 512 MiB) and a 2 s analyzer poll
 (`SHAKERPROXY_ANALYZER_POLL_INTERVAL`). A capture started with an explicit
 `segment_seconds` keeps that value; larger values trade latency for fewer,
-larger files.
+larger files. The automatic lab recording rotates every 10 s (120 × 4 MiB,
+≈20 minutes within 480 MiB), so its connection details reach Traffic about
+10 s after the traffic.
+
+Analyzers deliver a segment's events in batches (`POST
+/v1/adapters/{zeek,suricata}/batch`, NDJSON, up to 256 events), and ingest
+stores each batch with one round of disk syncs instead of two syncs per event.
+On a virtual machine whose disk takes tens of milliseconds per sync, per-event
+delivery managed about 2 events per second per analyzer (a busy segment's 124
+Zeek and 192 Suricata records took 80 s and 105 s); batched, a segment's
+events are stored in well under a second. The database drain wakes as soon as
+the spool accepts events instead of polling once a second.
 
 ## Zeek coverage
 

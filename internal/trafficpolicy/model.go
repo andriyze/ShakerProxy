@@ -4,7 +4,11 @@ import "time"
 
 const SchemaVersion = 1
 
-const BuiltinCatalogRevision = "2026-09-02.1"
+const BuiltinCatalogRevision = "2026-10-02.1"
+
+// EncryptedDNSLogGroup is the NFLOG group the encrypted DNS block rules log
+// to; the gateway turns each logged attempt into a Traffic event.
+const EncryptedDNSLogGroup = 853
 
 type EncryptedDNSMode string
 
@@ -41,15 +45,23 @@ type DeviceControl struct {
 }
 
 type EncryptedDNSPolicy struct {
-	Mode               EncryptedDNSMode `json:"mode"`
-	BlockDoT           bool             `json:"block_dot"`
-	BlockDoQ           bool             `json:"block_doq"`
-	BlockKnownDoH      bool             `json:"block_known_doh"`
-	BlockKnownDoH3     bool             `json:"block_known_doh3"`
-	RedirectPlainDNS   bool             `json:"redirect_plain_dns"`
-	LocalListenPort    int              `json:"local_listen_port"`
-	UpstreamServers    []string         `json:"upstream_servers"`
-	ResolverExclusions []string         `json:"resolver_exclusions,omitempty"`
+	Mode           EncryptedDNSMode `json:"mode"`
+	BlockDoT       bool             `json:"block_dot"`
+	BlockDoQ       bool             `json:"block_doq"`
+	BlockKnownDoH  bool             `json:"block_known_doh"`
+	BlockKnownDoH3 bool             `json:"block_known_doh3"`
+	// RedirectPlainDNS is the "Force plain DNS through ShakerProxy" switch:
+	// every lab client's port-53 DNS, to any resolver, is answered by the
+	// local forwarder. It applies in any mode once a lab is confirmed.
+	RedirectPlainDNS bool `json:"redirect_plain_dns"`
+	// BlockDoHNames makes the forwarder answer NXDOMAIN for the catalog's
+	// DNS-over-HTTPS hostnames and the encrypted-DNS canary names, so
+	// browsers and phones fall back to plain DNS. Omitted when false so
+	// documents written before it existed keep their digest.
+	BlockDoHNames      bool     `json:"block_doh_names,omitempty"`
+	LocalListenPort    int      `json:"local_listen_port"`
+	UpstreamServers    []string `json:"upstream_servers"`
+	ResolverExclusions []string `json:"resolver_exclusions,omitempty"`
 }
 
 type TLSInterception struct {

@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -26,6 +27,22 @@ import (
 type Sender interface {
 	Send(context.Context, Engine, string, []byte) error
 }
+
+// BatchSender delivers several events of one capture in one request, so ingest
+// can store them with one round of disk syncs instead of one per event. It
+// reports how many events ingest quarantined; like ErrEventRejected on the
+// one-event path, those are skipped rather than failing the artifact.
+type BatchSender interface {
+	SendBatch(context.Context, Engine, string, [][]byte) (rejected int, err error)
+}
+
+const (
+	// A 30 s segment of phone traffic yields a few hundred events; one batch
+	// usually carries all of them.
+	MaxDeliveryBatchEvents = 256
+	MaxDeliveryBatchBytes  = 4 << 20
+	maxBatchResponseBytes  = 1 << 20
+)
 
 // ErrEventRejected reports that ingest quarantined one analyzer event (HTTP
 // 422). The event can never be accepted, so delivery skips it and continues
@@ -37,6 +54,9 @@ type HTTPSender struct {
 	Token         []byte
 	SourceVersion string
 	Client        *http.Client
+	// batchUnsupported is set when ingest predates the batch route, so the
+	// sender stops trying it and sends one event per request.
+	batchUnsupported atomic.Bool
 }
 
 func NewHTTPSender(config Config) (*HTTPSender, error) {
@@ -53,26 +73,126 @@ func NewHTTPSender(config Config) (*HTTPSender, error) {
 	return &HTTPSender{Origin: origin, Token: append([]byte(nil), config.Token...), SourceVersion: config.SourceVersion, Client: client}, nil
 }
 
+func adapterPath(engine Engine) (string, error) {
+	switch engine {
+	case EngineZeek:
+		return "/v1/adapters/zeek", nil
+	case EngineSuricata:
+		return "/v1/adapters/suricata", nil
+	default:
+		return "", errors.New("unsupported analyzer delivery engine")
+	}
+}
+
+func (s *HTTPSender) newRequest(ctx context.Context, path, contentType, captureSessionID string, body []byte) (*http.Request, error) {
+	endpoint := *s.Origin
+	endpoint.Path = path
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+string(s.Token))
+	request.Header.Set("Content-Type", contentType)
+	request.Header.Set("X-ShakerProxy-Source-Version", s.SourceVersion)
+	request.Header.Set("X-ShakerProxy-Capture-Session-ID", captureSessionID)
+	return request, nil
+}
+
+// SendBatch posts events as NDJSON to the adapter's batch route.
+func (s *HTTPSender) SendBatch(ctx context.Context, engine Engine, captureSessionID string, events [][]byte) (int, error) {
+	if s == nil || s.Origin == nil || s.Client == nil || len(events) == 0 || len(events) > MaxDeliveryBatchEvents {
+		return 0, errors.New("analyzer batch delivery input is invalid")
+	}
+	if s.batchUnsupported.Load() {
+		return s.sendEach(ctx, engine, captureSessionID, events)
+	}
+	path, err := adapterPath(engine)
+	if err != nil {
+		return 0, err
+	}
+	size := 0
+	for _, event := range events {
+		if len(event) == 0 || len(event) > ingest.MaxPayloadBytes || bytes.IndexByte(event, '\n') >= 0 {
+			return 0, errors.New("analyzer batch event is invalid")
+		}
+		size += len(event) + 1
+	}
+	if size > ingest.MaxAdapterBatchBytes {
+		return 0, errors.New("analyzer batch exceeds its byte limit")
+	}
+	body := make([]byte, 0, size)
+	for _, event := range events {
+		body = append(append(body, event...), '\n')
+	}
+	request, err := s.newRequest(ctx, path+"/batch", "application/x-ndjson", captureSessionID, body)
+	if err != nil {
+		return 0, err
+	}
+	response, err := s.Client.Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	raw, readErr := io.ReadAll(io.LimitReader(response.Body, maxBatchResponseBytes+1))
+	if readErr != nil || len(raw) > maxBatchResponseBytes {
+		return 0, errors.New("analyzer ingest batch response exceeded its byte limit")
+	}
+	if response.StatusCode == http.StatusNotFound {
+		// An ingest service from before batching: send one event at a time.
+		s.batchUnsupported.Store(true)
+		return s.sendEach(ctx, engine, captureSessionID, events)
+	}
+	if response.StatusCode != http.StatusOK {
+		if len(raw) > 16<<10 {
+			raw = raw[:16<<10]
+		}
+		return 0, fmt.Errorf("analyzer ingest returned HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var result struct {
+		Schema  int                   `json:"schema"`
+		Results []ingest.AcceptResult `json:"results"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil || len(result.Results) != len(events) {
+		return 0, errors.New("analyzer ingest batch response is invalid")
+	}
+	rejected := 0
+	for _, accepted := range result.Results {
+		switch {
+		case accepted.Quarantined:
+			rejected++
+		case !accepted.Accepted:
+			return 0, errors.New("analyzer ingest batch response is invalid")
+		}
+	}
+	return rejected, nil
+}
+
+func (s *HTTPSender) sendEach(ctx context.Context, engine Engine, captureSessionID string, events [][]byte) (int, error) {
+	rejected := 0
+	for _, event := range events {
+		if err := s.Send(ctx, engine, captureSessionID, event); err != nil {
+			if errors.Is(err, ErrEventRejected) {
+				rejected++
+				continue
+			}
+			return 0, err
+		}
+	}
+	return rejected, nil
+}
+
 func (s *HTTPSender) Send(ctx context.Context, engine Engine, captureSessionID string, event []byte) error {
 	if s == nil || s.Origin == nil || s.Client == nil || len(event) == 0 || len(event) > ingest.MaxPayloadBytes {
 		return errors.New("analyzer delivery input is invalid")
 	}
-	path := "/v1/adapters/zeek"
-	if engine == EngineSuricata {
-		path = "/v1/adapters/suricata"
-	} else if engine != EngineZeek {
-		return errors.New("unsupported analyzer delivery engine")
-	}
-	endpoint := *s.Origin
-	endpoint.Path = path
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(event))
+	path, err := adapterPath(engine)
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Authorization", "Bearer "+string(s.Token))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-ShakerProxy-Source-Version", s.SourceVersion)
-	request.Header.Set("X-ShakerProxy-Capture-Session-ID", captureSessionID)
+	request, err := s.newRequest(ctx, path, "application/json", captureSessionID, event)
+	if err != nil {
+		return err
+	}
 	response, err := s.Client.Do(request)
 	if err != nil {
 		return err
@@ -112,6 +232,21 @@ func deliverEventFiles(ctx context.Context, sender Sender, engine Engine, sessio
 		validated[eventFile.Path] = info
 	}
 	delivered := 0
+	batchSender, batching := sender.(BatchSender)
+	var batch [][]byte
+	batchBytes := 0
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		rejected, err := batchSender.SendBatch(ctx, engine, sessionID, batch)
+		if err != nil {
+			return err
+		}
+		delivered += len(batch) - rejected
+		batch, batchBytes = nil, 0
+		return nil
+	}
 	for _, eventFile := range files {
 		var flowIDs map[uint64]uint64
 		if engine == EngineSuricata {
@@ -123,7 +258,7 @@ func deliverEventFiles(ctx context.Context, sender Sender, engine Engine, sessio
 		}
 		_, err := withEventFile(eventFile, validated[eventFile.Path], func(file *os.File) (struct{}, error) {
 			return struct{}{}, scanEventLines(file, func(line []byte) error {
-				if delivered >= maxEvents {
+				if delivered+len(batch) >= maxEvents {
 					return errors.New("analyzer event count exceeds its safety limit")
 				}
 				event := append([]byte(nil), line...)
@@ -140,6 +275,19 @@ func deliverEventFiles(ctx context.Context, sender Sender, engine Engine, sessio
 				if event == nil {
 					return nil
 				}
+				if batching {
+					if batchBytes+len(event)+1 > MaxDeliveryBatchBytes {
+						if err := flush(); err != nil {
+							return err
+						}
+					}
+					batch = append(batch, event)
+					batchBytes += len(event) + 1
+					if len(batch) == MaxDeliveryBatchEvents {
+						return flush()
+					}
+					return nil
+				}
 				if err := sender.Send(ctx, engine, sessionID, event); err != nil {
 					if errors.Is(err, ErrEventRejected) {
 						return nil
@@ -153,6 +301,9 @@ func deliverEventFiles(ctx context.Context, sender Sender, engine Engine, sessio
 		if err != nil {
 			return delivered, totalBytes, err
 		}
+	}
+	if err := flush(); err != nil {
+		return delivered, totalBytes, err
 	}
 	return delivered, totalBytes, nil
 }

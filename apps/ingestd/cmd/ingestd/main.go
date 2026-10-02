@@ -147,6 +147,7 @@ func runDatabaseDrain(ctx context.Context, logger *slog.Logger, spool *ingest.Sp
 	backoff := 250 * time.Millisecond
 	migrated := false
 	backfillDone := false
+	changed := spool.Changed()
 	for ctx.Err() == nil {
 		if !migrated {
 			// Schema upgrades may build indexes over existing history.
@@ -193,9 +194,12 @@ func runDatabaseDrain(ctx context.Context, logger *slog.Logger, spool *ingest.Sp
 		if !backfillDone {
 			backfillDone = runProjectionBackfill(ctx, logger, sink)
 		}
+		// Store new events as soon as the spool accepts them; the timer only
+		// covers records another process wrote.
 		select {
 		case <-ctx.Done():
 			return
+		case <-changed:
 		case <-time.After(time.Second):
 		}
 	}

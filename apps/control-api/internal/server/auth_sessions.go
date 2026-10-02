@@ -3,9 +3,13 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -34,12 +38,97 @@ const (
 type sessionTokenContextKey struct{}
 
 type sessionRecord struct {
-	Username           string
-	CreatedAt          time.Time
-	LastUsedAt         time.Time
-	ExpiresAt          time.Time
-	AbsoluteExpiresAt  time.Time
-	PasswordVerifiedAt time.Time
+	Username           string    `json:"username"`
+	CreatedAt          time.Time `json:"created_at"`
+	LastUsedAt         time.Time `json:"last_used_at"`
+	ExpiresAt          time.Time `json:"expires_at"`
+	AbsoluteExpiresAt  time.Time `json:"absolute_expires_at"`
+	PasswordVerifiedAt time.Time `json:"password_verified_at,omitzero"`
+}
+
+// Sessions survive a control-api restart (every upgrade restarts it), so an
+// upgrade does not sign the administrator out. Only a SHA-256 digest of each
+// token is kept, in memory and on disk; the token itself exists only in the
+// browser.
+const (
+	sessionStoreSchema    = 1
+	sessionSlidePersistAt = time.Minute
+)
+
+type sessionFile struct {
+	Schema   int                      `json:"schema"`
+	Sessions map[string]sessionRecord `json:"sessions"`
+}
+
+func sessionKey(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(digest[:])
+}
+
+// loadSessions restores unexpired sessions saved by a previous run. A missing
+// or unreadable file starts with no sessions, as before.
+func (s *Server) loadSessions() {
+	if s.sessionsPath == "" {
+		return
+	}
+	raw, err := os.ReadFile(s.sessionsPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) && s.logger != nil {
+			s.logger.Warn("saved sign-in sessions could not be read; administrators sign in again", "error", err)
+		}
+		return
+	}
+	var saved sessionFile
+	if err := json.Unmarshal(raw, &saved); err != nil || saved.Schema != sessionStoreSchema {
+		if s.logger != nil {
+			s.logger.Warn("saved sign-in sessions are invalid; administrators sign in again")
+		}
+		return
+	}
+	now := s.now()
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	for key, record := range saved.Sessions {
+		if len(key) != sha256.Size*2 || record.Username == "" || !now.Before(record.ExpiresAt) || record.ExpiresAt.After(record.AbsoluteExpiresAt) {
+			continue
+		}
+		if _, err := hex.DecodeString(key); err != nil {
+			continue
+		}
+		s.sessions[key] = record
+	}
+	if len(s.sessions) > maxSessions {
+		s.evictSessionsLocked(now)
+	}
+}
+
+// persistSessionsLocked saves the sessions. Sliding expiry alone is saved at
+// most once a minute; a restart then ends an idle session up to a minute early.
+func (s *Server) persistSessionsLocked(force bool) {
+	if s.sessionsPath == "" {
+		return
+	}
+	now := s.now()
+	if !force && now.Sub(s.sessionsSavedAt) < sessionSlidePersistAt {
+		return
+	}
+	current := make(map[string]sessionRecord, len(s.sessions))
+	for key, record := range s.sessions {
+		if now.Before(record.ExpiresAt) {
+			current[key] = record
+		}
+	}
+	encoded, err := json.Marshal(sessionFile{Schema: sessionStoreSchema, Sessions: current})
+	if err == nil {
+		err = atomicWrite(s.sessionsPath, encoded, 0o600)
+	}
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("sign-in sessions could not be saved; a restart will sign administrators out", "error", err)
+		}
+		return
+	}
+	s.sessionsSavedAt = now
 }
 
 type authFailureCounter struct {
@@ -91,14 +180,15 @@ func (s *Server) createSession(username string, passwordVerified bool) (string, 
 	if len(s.sessions) >= maxSessions {
 		s.evictSessionsLocked(now)
 	}
-	s.sessions[token] = record
+	s.sessions[sessionKey(token)] = record
+	s.persistSessionsLocked(true)
 	return token, record, nil
 }
 
 func (s *Server) evictSessionsLocked(now time.Time) {
-	for token, record := range s.sessions {
+	for key, record := range s.sessions {
 		if !now.Before(record.ExpiresAt) {
-			delete(s.sessions, token)
+			delete(s.sessions, key)
 		}
 	}
 	for len(s.sessions) >= maxSessions {
@@ -117,25 +207,30 @@ func (s *Server) authenticateSession(token string) (sessionRecord, bool) {
 	now := s.now()
 	s.sessionsMu.Lock()
 	defer s.sessionsMu.Unlock()
-	session, ok := s.sessions[token]
+	key := sessionKey(token)
+	session, ok := s.sessions[key]
 	if !ok {
 		return sessionRecord{}, false
 	}
 	if !now.Before(session.ExpiresAt) {
-		delete(s.sessions, token)
+		delete(s.sessions, key)
+		s.persistSessionsLocked(true)
 		return sessionRecord{}, false
 	}
 	session.LastUsedAt = now
 	session.ExpiresAt = earliest(now.Add(sessionIdleTimeout), session.AbsoluteExpiresAt)
-	s.sessions[token] = session
+	s.sessions[key] = session
+	s.persistSessionsLocked(false)
 	return session, true
 }
 
 func (s *Server) revokeSession(token string) bool {
 	s.sessionsMu.Lock()
 	defer s.sessionsMu.Unlock()
-	_, existed := s.sessions[token]
-	delete(s.sessions, token)
+	key := sessionKey(token)
+	_, existed := s.sessions[key]
+	delete(s.sessions, key)
+	s.persistSessionsLocked(true)
 	return existed
 }
 
@@ -144,6 +239,7 @@ func (s *Server) revokeAllSessions() int {
 	defer s.sessionsMu.Unlock()
 	count := len(s.sessions)
 	s.sessions = make(map[string]sessionRecord)
+	s.persistSessionsLocked(true)
 	return count
 }
 
@@ -151,9 +247,10 @@ func (s *Server) markPasswordVerified(token string) {
 	now := s.now()
 	s.sessionsMu.Lock()
 	defer s.sessionsMu.Unlock()
-	if session, ok := s.sessions[token]; ok {
+	if session, ok := s.sessions[sessionKey(token)]; ok {
 		session.PasswordVerifiedAt = now
-		s.sessions[token] = session
+		s.sessions[sessionKey(token)] = session
+		s.persistSessionsLocked(true)
 	}
 }
 
@@ -161,7 +258,7 @@ func (s *Server) recentlyAuthenticated(token string) bool {
 	now := s.now()
 	s.sessionsMu.Lock()
 	defer s.sessionsMu.Unlock()
-	session, ok := s.sessions[token]
+	session, ok := s.sessions[sessionKey(token)]
 	return ok && !session.PasswordVerifiedAt.IsZero() && now.Sub(session.PasswordVerifiedAt) < recentAuthenticationWindow && now.Before(session.ExpiresAt)
 }
 

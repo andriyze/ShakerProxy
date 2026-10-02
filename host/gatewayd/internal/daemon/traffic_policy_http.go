@@ -59,6 +59,9 @@ func (m *TrafficPolicyManager) Serve(ctx context.Context, socketPath, groupName 
 	}
 	go m.reconcileLoop(ctx)
 	go m.ownershipLoop(ctx)
+	if m.BlockEvents != nil {
+		go m.BlockEvents.Run(ctx)
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

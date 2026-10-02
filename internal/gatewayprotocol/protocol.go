@@ -199,6 +199,10 @@ type RecordCaptureRetentionItemOutcomeParams struct {
 	Request capture.RecordRetentionItemOutcomeRequest `json:"request"`
 }
 
+type ReadCaptureFlowParams struct {
+	Request capture.FlowRequest `json:"request"`
+}
+
 type ReadCaptureArtifactParams struct {
 	SessionID string `json:"session_id"`
 	FileName  string `json:"file_name"`
@@ -224,6 +228,8 @@ type Status struct {
 	LabInterface         string                    `json:"lab_interface,omitempty"`
 	LabVLANID            *int                      `json:"lab_vlan_id,omitempty"`
 	LabScopePlanHash     string                    `json:"lab_scope_plan_hash,omitempty"`
+	LabTopology          string                    `json:"lab_topology,omitempty"`
+	LabWiFi              bool                      `json:"lab_wifi,omitempty"`
 	LabIPv6Strategy      string                    `json:"lab_ipv6_strategy,omitempty"`
 	LabIPv6Prefix        string                    `json:"lab_ipv6_prefix,omitempty"`
 	LabIPv6Gateway       string                    `json:"lab_ipv6_gateway,omitempty"`

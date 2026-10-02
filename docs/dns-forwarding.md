@@ -12,6 +12,42 @@ ShakerProxy can answer lab devices' DNS itself. That serves two purposes:
 Both are installed-host capabilities. They need a confirmed routed or
 single-arm network plan and are absent from the safe development profile.
 
+## See every lookup (the default)
+
+Two switches, both **on by default** once a lab is confirmed (DNS & HTTPS page,
+`shakerproxy dns`, `GET/PUT /api/v1/dns-visibility`, MCP `dns_visibility`):
+
+- **Force plain DNS through ShakerProxy**: every lab client's UDP/TCP port-53
+  DNS, to any resolver (8.8.8.8 included), is answered by `shakerproxy-dnsd`.
+  Plain DNS is never blocked. Without policy upstreams the host's resolvers
+  are used.
+- **Block encrypted DNS**: DNS over TLS/QUIC (port 853, any destination) and
+  TCP/UDP 443 to the catalog's DNS-over-HTTPS resolver addresses (Cloudflare,
+  Google, Quad9, OpenDNS, AdGuard, NextDNS, CleanBrowsing, Mullvad, Control D,
+  DNS.SB, AliDNS, DNSPod, Yandex) are rejected, and `shakerproxy-dnsd` answers
+  NXDOMAIN for their hostnames (with subdomains) and for the opt-out canaries
+  `use-application-dns.net` (Firefox) and `mask.icloud.com`,
+  `mask-h2.icloud.com` (iCloud Private Relay). Devices fall back to plain DNS.
+  Android Private DNS set to a specific provider loses internet while this is
+  on: set it to Automatic or Off.
+
+Every blocked attempt appears in Traffic: refused names as `shakerproxy.dns`
+lookups, refused connections as `shakerproxy.blocked` events (gatewayd reads
+the block rules' NFLOG group 853, at most one event per client, destination
+and reason a minute). Both carry `blocked` and `blocked_reason`.
+DNS-over-HTTPS connections that are not blocked are classified as
+`app.protocol:doh` (catalog hostname by TLS server name or looked-up name, or
+a catalog resolver address on 443).
+
+Migration: an installation still on the untouched observe-only default
+(revision 1, never changed) moves to these defaults when gatewayd starts. A
+policy an administrator applied is never changed.
+
+The resolver list is `BuiltinCatalog` in `internal/trafficpolicy/catalog.go`:
+add a provider there with its documented addresses, hostnames and source URL,
+bump `BuiltinCatalogRevision`, and keep `apps/mitmproxy/resolvers.json` (the
+interception proxy's DoH hostnames) in step.
+
 ## Packet path
 
 `shakerproxy-gatewayd` owns the revisioned policy and its fixed `iptables` and
@@ -73,6 +109,21 @@ Set `SHAKERPROXY_DNS_EVENT_SPOOL=off` to stop recording.
 When a capture records the same lookup through Zeek, Traffic shows the
 forwarder's row and hides Zeek's copy with the other analyzer duplicates; the
 device report counts each name once.
+
+### Connections as they open
+
+`shakerproxy-gatewayd` also reports every connection a lab device opens through
+the gateway (kind `shakerproxy.conn`) within about a second, from the kernel's
+connection tracking, without waiting for the packet recording to be analyzed.
+It writes them to the same spool, and the same forwarder delivers them. Only
+connections from the confirmed lab network to somewhere other than the gateway
+are reported; lookups to the gateway are the forwarder's own rows. Ingest names
+each connection from the same client's DNS answers of the previous 30 minutes
+(`dns_name`), so Traffic shows `github.com · 140.82.121.4:443` at once. When the
+recording's analysis of that connection arrives, its server name and size fill
+in the same Traffic row instead of adding another. Set
+`SHAKERPROXY_CONNECTION_EVENT_SPOOL=off` in gatewayd's environment to stop
+reporting connections.
 
 Earlier releases decoded that document with the wrong schema and answered
 every query with SERVFAIL as soon as "Force plain DNS" was applied; a

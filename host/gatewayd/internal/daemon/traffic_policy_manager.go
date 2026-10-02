@@ -37,7 +37,10 @@ type TrafficPolicyManager struct {
 	// IPv6Available reports whether the host kernel has IPv6; nil means no.
 	IPv6Available func() bool
 	// OnboardingPath receives the lab-side CA onboarding endpoints.
-	OnboardingPath      string
+	OnboardingPath string
+	// BlockEvents reports blocked encrypted-DNS attempts in Traffic; nil
+	// disables it.
+	BlockEvents         *EncryptedDNSBlockMonitor
 	onboardingMu        sync.Mutex
 	onboardingPublished bool
 	onboardingLast      []byte
@@ -64,6 +67,7 @@ func NewProductionTrafficPolicyManager(networkState *StateStore, policyPath, run
 		Neighbors:             labNeighbors,
 		IPv6Available:         hostIPv6Available,
 		OnboardingPath:        DefaultOnboardingEndpointsPath,
+		BlockEvents:           NewEncryptedDNSBlockMonitor(DefaultHostEventSpool, logger),
 	}
 }
 
@@ -85,6 +89,16 @@ func (m *TrafficPolicyManager) Ensure(ctx context.Context) error {
 	}
 	if err != nil {
 		return err
+	}
+	// An installation nobody configured moves from the old observe-only
+	// default to maximum visibility; an administrator's policy is kept.
+	if migrated, ok := trafficpolicy.MigrateUntouchedDefault(document); ok {
+		if next, migrateErr := m.PolicyStore.Apply(migrated, document.Policy.Revision); migrateErr != nil {
+			m.warn("the untouched observe-only DNS policy could not move to the visibility default", migrateErr)
+		} else {
+			document = next
+			m.log("traffic policy moved to the visibility default: plain DNS forced through ShakerProxy, encrypted DNS blocked", document)
+		}
 	}
 	cloudOwned, ownershipErr := m.cloudPolicyOwnership()
 	if cloudOwned || ownershipErr != nil {

@@ -3,6 +3,7 @@ package ingest
 import (
 	"bytes"
 	"encoding/json"
+	"net/netip"
 	"regexp"
 	"strings"
 )
@@ -12,11 +13,18 @@ var (
 	dnsCodePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 )
 
+// MaxDNSAnswers bounds the answers stored with a DNS event: enough to show
+// what a name resolved to on one line, never the whole response.
+const MaxDNSAnswers = 8
+
 type DNSProjection struct {
 	Query        string
 	RecordType   string
 	ResponseCode string
 	AnswerCount  *int
+	// Answers are the addresses and names a lookup resolved to, in answer
+	// order: IP addresses in canonical form and lower-case DNS names.
+	Answers []string
 }
 
 // ProjectDNSFields extracts a bounded observation from known Zeek/Suricata DNS
@@ -45,6 +53,9 @@ func ProjectDNSFields(envelope Envelope) DNSProjection {
 				result.AnswerCount = &answers
 			}
 		}
+		if answers, ok := raw["answers"].([]any); ok {
+			result.Answers = dnsAnswers(answers, "data")
+		}
 		return result
 	}
 	if doh {
@@ -63,6 +74,7 @@ func ProjectDNSFields(envelope Envelope) DNSProjection {
 		if answers, ok := raw["answers"].([]any); ok && len(answers) <= 10000 {
 			count := len(answers)
 			result.AnswerCount = &count
+			result.Answers = dnsAnswers(answers, "")
 		}
 		return result
 	}
@@ -80,6 +92,18 @@ func ProjectDNSFields(envelope Envelope) DNSProjection {
 	if answers, ok := dns["answers"].([]any); ok && len(answers) <= 10000 {
 		count := len(answers)
 		result.AnswerCount = &count
+		result.Answers = dnsAnswers(answers, "rdata")
+	}
+	if len(result.Answers) == 0 {
+		// EVE "grouped" answers: {"A": [...], "CNAME": [...]}.
+		if grouped, ok := dns["grouped"].(map[string]any); ok {
+			for _, recordType := range []string{"CNAME", "A", "AAAA"} {
+				if values, ok := grouped[recordType].([]any); ok {
+					result.Answers = append(result.Answers, dnsAnswers(values, "")...)
+				}
+			}
+			result.Answers = boundDNSAnswers(result.Answers)
+		}
 	}
 	if result.Query == "" {
 		if queries, ok := dns["queries"].([]any); ok && len(queries) > 0 {
@@ -117,4 +141,85 @@ func dnsCode(value any) string {
 		return ""
 	}
 	return text
+}
+
+// dnsAnswers reads answer values: plain strings, or objects whose field
+// holds the value (dnsd "data", Suricata "rdata").
+func dnsAnswers(values []any, field string) []string {
+	answers := make([]string, 0, min(len(values), MaxDNSAnswers))
+	for _, value := range values {
+		if object, ok := value.(map[string]any); ok && field != "" {
+			value = object[field]
+		}
+		if answer := DNSAnswer(value); answer != "" {
+			answers = append(answers, answer)
+		}
+	}
+	return boundDNSAnswers(answers)
+}
+
+// DNSAnswer normalizes one answer: an IP address in canonical form or a
+// lower-case DNS name. Anything else (TXT data, malformed values) is dropped.
+func DNSAnswer(value any) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	text = strings.TrimSpace(text)
+	if address, err := netip.ParseAddr(text); err == nil && address.Zone() == "" {
+		return address.Unmap().String()
+	}
+	text = strings.TrimSuffix(text, ".")
+	if text == "" || !dnsNamePattern.MatchString(text) {
+		return ""
+	}
+	return strings.ToLower(text)
+}
+
+func boundDNSAnswers(answers []string) []string {
+	seen := make(map[string]bool, len(answers))
+	bounded := make([]string, 0, min(len(answers), MaxDNSAnswers))
+	for _, answer := range answers {
+		if answer == "" || seen[answer] {
+			continue
+		}
+		seen[answer] = true
+		bounded = append(bounded, answer)
+		if len(bounded) == MaxDNSAnswers {
+			break
+		}
+	}
+	if len(bounded) == 0 {
+		return nil
+	}
+	return bounded
+}
+
+// validEventDNSAnswers checks answers read back from the event store.
+func validEventDNSAnswers(answers []string) bool {
+	if len(answers) > MaxDNSAnswers {
+		return false
+	}
+	for _, answer := range answers {
+		if answer == "" || len(answer) > 255 || DNSAnswer(answer) != answer {
+			return false
+		}
+	}
+	return true
+}
+
+// validBlockReasons are the reasons ShakerProxy records for a refused lookup
+// or connection (trafficpolicy.BlockReason*).
+var validBlockReasons = map[string]bool{
+	"device-domain": true, "doh-name": true, "canary": true,
+	"dot": true, "doq": true, "doh-ip": true, "doh3-ip": true,
+}
+
+// knownBlockReason keeps a stored reason only when it is one ShakerProxy
+// writes, so an unexpected payload value never reaches clients.
+func knownBlockReason(blocked bool, reason string) string {
+	if !blocked || !validBlockReasons[reason] {
+		return ""
+	}
+	return reason
 }

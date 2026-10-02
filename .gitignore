@@ -24,6 +24,8 @@ node_modules/
 apps/web-ui/dist/
 *.tsbuildinfo
 coverage/
+# The visibility coverage check's Go package, not a coverage report.
+!internal/coverage/
 playwright-report/
 test-results/
 

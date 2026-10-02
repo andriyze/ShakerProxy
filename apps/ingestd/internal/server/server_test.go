@@ -454,3 +454,56 @@ func TestCloudConnectorNotRunningDoesNotBlockLocalIngestion(t *testing.T) {
 		})
 	}
 }
+
+// A segment's events arrive in one request and share one round of disk syncs;
+// each line still gets its own result, in order.
+func TestAnalyzerBatchStoresEachEventAndReportsQuarantines(t *testing.T) {
+	server := testServer(t)
+	lines := []string{}
+	for index := 0; index < 30; index++ {
+		lines = append(lines, fmt.Sprintf(`{"ts":1788278400.%06d,"uid":"Cbatch%03d","_path":"conn","id.orig_h":"10.77.0.111","id.resp_h":"1.1.1.1"}`, index, index))
+	}
+	lines = append(lines, lines[0], `{"_path":"conn"}`)
+	post := func(contentType, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/v1/adapters/zeek/batch", strings.NewReader(body))
+		request.Header.Set("Content-Type", contentType)
+		request.Header.Set("Authorization", "Bearer "+testToken)
+		request.Header.Set("X-ShakerProxy-Source-Version", "8.2.1")
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, request)
+		return recorder
+	}
+	recorder := post("application/x-ndjson", strings.Join(lines, "\n")+"\n")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("batch response %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response adapterBatchResult
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || len(response.Results) != 32 {
+		t.Fatalf("batch results: %v %s", err, recorder.Body.String())
+	}
+	for index := 0; index < 30; index++ {
+		if !response.Results[index].Accepted || response.Results[index].Duplicate {
+			t.Fatalf("line %d: %#v", index, response.Results[index])
+		}
+	}
+	if !response.Results[30].Duplicate || !response.Results[31].Quarantined {
+		t.Fatalf("duplicate and malformed lines: %#v %#v", response.Results[30], response.Results[31])
+	}
+	stats, err := server.spool.Stats()
+	if err != nil || stats.PendingRecords != 30 || stats.QuarantinedRecords != 1 {
+		t.Fatalf("spool after batch: %#v err=%v", stats, err)
+	}
+	if recorder := post("application/json", lines[0]); recorder.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("a JSON body on the batch route returned %d", recorder.Code)
+	}
+	if recorder := post("application/x-ndjson", "\n\n"); recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("an empty batch returned %d", recorder.Code)
+	}
+	unauthenticated := httptest.NewRequest(http.MethodPost, "/v1/adapters/suricata/batch", strings.NewReader(lines[0]))
+	unauthenticated.Header.Set("Content-Type", "application/x-ndjson")
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, unauthenticated)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("an unauthenticated batch returned %d", recorder.Code)
+	}
+}

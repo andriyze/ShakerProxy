@@ -44,7 +44,7 @@ func labTestManager(t *testing.T, runner *fakeTrafficRunner) *TrafficPolicyManag
 // DNS forwarder with the configured upstreams.
 func TestEnforceLocalRuntimeIsAcceptedByDNSForwarder(t *testing.T) {
 	manager := labTestManager(t, &fakeTrafficRunner{})
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Force plain DNS"
 	policy.EncryptedDNS.Mode = trafficpolicy.EncryptedDNSEnforceLocal
@@ -66,7 +66,7 @@ func TestEnforceLocalRuntimeIsAcceptedByDNSForwarder(t *testing.T) {
 func TestDeviceControlsRenderMACRulesForBothFamiliesAndPublishIdentity(t *testing.T) {
 	runner := &fakeTrafficRunner{}
 	manager := labTestManager(t, runner)
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Device lab controls"
 	policy.TLS.Enabled = true
@@ -143,7 +143,7 @@ func TestIPv6RedirectsWaitForIPv6Listeners(t *testing.T) {
 	runner := &fakeTrafficRunner{chains: map[string]bool{"6:DOCKER-USER": true}}
 	manager := labTestManager(t, runner)
 	manager.ProbeIPv6 = func(context.Context, int) error { return os.ErrNotExist }
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "All devices"
 	policy.TLS.Enabled = true
@@ -188,7 +188,7 @@ func TestSecurityHooksStayAboveShakerProxyHooks(t *testing.T) {
 	runner.attach("", "DOCKER-USER", "SHAKERPROXY-FORWARD", 1)
 	runner.attach("", "INPUT", "SHAKERPROXY-INPUT", 1)
 	runner.attach("6:", "FORWARD", "SHAKERPROXY-FORWARD", 1)
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Block a device"
 	policy.DeviceControls = []trafficpolicy.DeviceControl{{DeviceID: labTestDevice, HardwareAddresses: []string{"aa:bb:cc:dd:ee:01"}, BlockInternet: true}}
@@ -227,7 +227,7 @@ func TestIPv6RedirectFailureKeepsIPv4PolicyAndIPv6Protection(t *testing.T) {
 		return nil
 	}}
 	manager := labTestManager(t, runner)
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Decrypt and block"
 	policy.TLS.Enabled = true
@@ -263,7 +263,7 @@ func TestDurablePolicyIsReappliedAfterRestart(t *testing.T) {
 	if err := first.Ensure(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Block a device"
 	policy.DeviceControls = []trafficpolicy.DeviceControl{{DeviceID: labTestDevice, HardwareAddresses: []string{"aa:bb:cc:dd:ee:01"}, BlockInternet: true}}
@@ -303,7 +303,9 @@ func readOnboardingEndpoints(t *testing.T, path string) OnboardingEndpoints {
 // Regression from a routed EC2 lab: after the network plan was confirmed,
 // the default observe-only policy rendered no lab rules, so clients that
 // use ShakerProxy as their resolver (DHCP's default) had no DNS at all.
-func TestDefaultPolicyAnswersDNSSentToTheConfirmedLabGateway(t *testing.T) {
+// The default is now maximum visibility: every lab client's plain DNS is
+// answered by ShakerProxy and encrypted DNS is blocked.
+func TestDefaultPolicyAnswersAllLabDNSAndBlocksEncryptedDNS(t *testing.T) {
 	runner := &fakeTrafficRunner{}
 	manager := labTestManager(t, runner)
 	if err := manager.ReconcileNow(t.Context()); err != nil {
@@ -312,13 +314,23 @@ func TestDefaultPolicyAnswersDNSSentToTheConfirmedLabGateway(t *testing.T) {
 	v4 := runner.lastRestore("/usr/sbin/iptables-restore")
 	for _, expected := range []string{
 		"-i lab0 -s 10.77.0.0/24 -d 10.77.0.1 -p udp --dport 53 -j REDIRECT --to-ports 1053",
-		"-i lab0 -s 10.77.0.0/24 -d 10.77.0.1 -p tcp --dport 53 -j REDIRECT --to-ports 1053",
+		"-i lab0 -s 10.77.0.0/24 ! -d 10.77.0.0/24 -p udp --dport 53 -j REDIRECT --to-ports 1053",
+		"-i lab0 -s 10.77.0.0/24 ! -d 10.77.0.0/24 -p tcp --dport 853 -j REJECT --reject-with tcp-reset",
+		"-i lab0 -s 10.77.0.0/24 -d 8.8.8.8 -p tcp --dport 443 -j REJECT --reject-with tcp-reset",
 	} {
 		if !strings.Contains(v4, expected) {
-			t.Fatalf("default policy lacks the lab resolver rule %q:\n%s", expected, v4)
+			t.Fatalf("default policy lacks %q:\n%s", expected, v4)
 		}
 	}
-	if strings.Contains(v4, "! -d 10.77.0.0/24 -p udp --dport 53") {
-		t.Fatalf("observe-only must not redirect DNS sent to other resolvers:\n%s", v4)
+	// An administrator who turns both switches off gets observe-only: only
+	// DNS sent to ShakerProxy itself is answered.
+	observe := trafficpolicy.LegacyDefaultPolicy()
+	observe.Revision = 2
+	if _, err := manager.Apply(t.Context(), observe, 1); err != nil {
+		t.Fatal(err)
+	}
+	v4 = runner.lastRestore("/usr/sbin/iptables-restore")
+	if !strings.Contains(v4, "-i lab0 -s 10.77.0.0/24 -d 10.77.0.1 -p udp --dport 53 -j REDIRECT --to-ports 1053") || strings.Contains(v4, "! -d 10.77.0.0/24 -p udp --dport 53") || strings.Contains(v4, "--dport 853") {
+		t.Fatalf("observe-only must answer only DNS sent to ShakerProxy:\n%s", v4)
 	}
 }

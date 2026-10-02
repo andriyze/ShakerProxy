@@ -22,6 +22,7 @@ func main() {
 	trafficPolicyLockPath := flag.String("traffic-policy-lock", "/run/lock/shakerproxy/traffic-policy.lock", "cross-process traffic policy coordination lock")
 	onboardingEndpointsPath := flag.String("onboarding-endpoints", daemon.DefaultOnboardingEndpointsPath, "public lab-side CA onboarding endpoints projection")
 	enableNetworkApply := flag.Bool("enable-network-apply", false, "enable production-gated transactional network activation")
+	connectionEventSpool := flag.String("connection-event-spool", envOr("SHAKERPROXY_CONNECTION_EVENT_SPOOL", daemon.DefaultConnectionEventSpool), "host event spool for live lab connections, or off")
 	flag.Parse()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	store, err := daemon.OpenStateStore(*statePath)
@@ -53,6 +54,8 @@ func main() {
 		server = daemon.NewServerWithHostServices(store, logger, activation, captures)
 		// Record lab traffic whenever a confirmed lab plan routes.
 		go server.RecordLabTraffic(ctx)
+		// Report each connection a lab device opens within about a second.
+		go daemon.ReportLabConnections(ctx, store, *connectionEventSpool, logger)
 		traffic = daemon.NewProductionTrafficPolicyManager(store, *trafficPolicyPath, *trafficRuntimePath, *cloudTrafficPolicyStatusPath, *trafficPolicyLockPath, logger)
 		traffic.OnboardingPath = *onboardingEndpointsPath
 		if err := traffic.Ensure(ctx); err != nil {
@@ -80,4 +83,11 @@ func main() {
 		logger.Error("gateway daemon stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func envOr(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }

@@ -214,9 +214,10 @@ func compileTextPredicate(predicate querylang.Predicate, args *[]any) (string, e
 		}
 		return clause, nil
 	}
-	fields := []string{"dns_query", "tls_server_name", "http_host"}
+	// dns_name is the looked-up name of a gateway-reported connection.
+	fields := []string{"dns_query", "tls_server_name", "http_host", "dns_name"}
 	if predicate.Value == "*" {
-		clause := "(dns_query IS NOT NULL OR tls_server_name IS NOT NULL OR http_host IS NOT NULL)"
+		clause := "(dns_query IS NOT NULL OR tls_server_name IS NOT NULL OR http_host IS NOT NULL OR dns_name IS NOT NULL)"
 		if predicate.Operator == querylang.OperatorNotEqual {
 			clause = "NOT " + clause
 		}

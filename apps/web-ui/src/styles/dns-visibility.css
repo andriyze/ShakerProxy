@@ -1,0 +1,11 @@
+.dns-visibility{margin:22px 0;padding:22px 26px;border:1px solid #315c50;background:linear-gradient(180deg,#0c201d,#091917)}
+.dns-visibility>p{color:#adc0c3;font-size:13px;margin:4px 0 14px}
+.dns-switch{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;margin:8px 0;border:1px solid #24443d;background:#071613;cursor:pointer}
+.dns-switch input{flex:none;width:20px;height:20px;margin-top:2px;accent-color:#7fe0b5}
+.dns-switch strong{display:block;color:#eafff6;font-size:14px}
+.dns-switch small{display:block;color:#adc0c3;font-size:12px;line-height:1.5;margin-top:2px}
+.dns-warning{border-left:3px solid #e7bc58;background:#221f12;color:#eddba8;padding:10px 12px;font-size:12px;line-height:1.5}
+.dns-resolvers summary{cursor:pointer;color:#9bb0b4;font:12px var(--mono);margin-top:8px}
+.dns-resolvers ul{margin:8px 0;padding-left:18px;color:#cfe0e3;font-size:12px;line-height:1.6}
+.dns-resolvers small,.dns-resolvers p{color:#9bb0b4;font-size:12px}
+@media(max-width:700px){.dns-visibility{padding:16px}}

@@ -19,8 +19,8 @@ const (
 // BackfillProjection classifies up to limit rows stored before
 // projection_version existed or by an older projection, newest first, back to
 // since. It only fills
-// columns: new protocol, HTTP, and alert columns are written, and an existing
-// service, DNS, or TLS value is never overwritten. It returns the number of
+// columns: new protocol, HTTP, alert, and DNS answer columns are written, and an
+// existing service, DNS, or TLS value is never overwritten. It returns the number of
 // rows it projected; zero means the backfill is complete for the horizon.
 func (s PostgresSink) BackfillProjection(ctx context.Context, since time.Time, limit int) (int, error) {
 	if s.DB == nil {
@@ -75,6 +75,7 @@ LIMIT $2`, since.UTC(), limit, ProjectionVersion)
 service = COALESCE(service, NULLIF($3,'')),
 dns_query = COALESCE(dns_query, NULLIF($4,'')),
 dns_record_type = COALESCE(dns_record_type, NULLIF($5,'')),
+dns_answers = COALESCE(dns_answers, $20::text[]),
 tls_server_name = COALESCE(tls_server_name, NULLIF($6,'')),
 http_method = NULLIF($7,''), http_host = NULLIF($8,''), http_path = NULLIF($9,''), http_status = NULLIF($10::smallint,0),
 alert_signature = NULLIF($11,''), alert_severity = NULLIF($12::smallint,0), alert_category = NULLIF($13,''),
@@ -83,7 +84,7 @@ protocol_evidence = NULLIF($17,''), protocol_exotic = $18::boolean, projection_v
 WHERE occurred_at = $1 AND record_id = $2 AND (projection_version IS NULL OR projection_version < $19::smallint)`,
 			row.occurredAt, row.recordID, network.Service, dns.Query, dns.RecordType, tls.ServerName,
 			http.Method, http.Host, http.Path, http.Status, alert.Signature, alert.Severity, alert.Category,
-			protocol.AppProtocol, protocol.Category, protocol.Visibility, protocol.Evidence, exotic, ProjectionVersion); err != nil {
+			protocol.AppProtocol, protocol.Category, protocol.Visibility, protocol.Evidence, exotic, ProjectionVersion, dnsAnswersArgument(dns.Answers)); err != nil {
 			return 0, fmt.Errorf("backfill normalized event projection: %w", err)
 		}
 	}

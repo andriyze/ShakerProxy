@@ -20,11 +20,13 @@ ShakerProxy), so Traffic, Devices and reports always have data.
 - **Manual captures replace it.** One capture runs at a time, so a manual capture
   (or a test session started with `--capture`) stops the automatic recording,
   and gatewayd starts it again once the manual capture ends.
-- **Disk.** Each recording is a ring of 64 files of at most 8 MiB (512 MiB). Only
-  the two newest finished recordings are kept; older ones are deleted through the
-  normal verified capture deletion, which leaves analyzed events in place.
-  Recordings under an evidence hold are kept until the hold is released.
-  Automatic recording therefore never keeps more than 1.5 GiB of PCAP. It does
+- **Disk.** Each recording is a ring of 120 files of at most 4 MiB (480 MiB) that
+  rotates every 10 seconds, so connection details reach Traffic about 10 seconds
+  after the traffic and about 20 minutes of low-rate traffic stay downloadable.
+  Only the two newest finished recordings are kept; older ones are deleted
+  through the normal verified capture deletion, which leaves analyzed events in
+  place. Recordings under an evidence hold are kept until the hold is released.
+  Automatic recording therefore never keeps more than 1.4 GiB of PCAP. It does
   not start while CPU, memory or capture disk pressure is critical, and the
   capture worker's emergency free-space reserve still applies.
 - **A reboot mid-recording.** The cut-off recording is sealed with its retained
@@ -605,3 +607,26 @@ Run `make analyzer-smoke` to build the pinned images and prove a deterministic
 seven-packet HTTP PCAPNG produces normalized Zeek and Suricata events, a
 Suricata starter-policy alert, no quarantine, durable checkpoints, and no
 second-pass replay.
+
+## Request / Response of an HTTP event
+
+Clicking a web request in Traffic shows its connection's requests and
+responses, like Wireshark's "Follow HTTP stream":
+
+- **Cleartext HTTP** is read back from the recording. gatewayd's
+  `ReadCaptureFlow` selects the connection's packets from the closed files
+  around the event (a finished capture's manifest, or a running one's
+  closed-segment feed; at most 12 files) and reassembles each direction
+  (retransmissions and reordering handled, at most 320 KiB each). The control
+  API parses HTTP/1.x: headers in the order sent, chunked bodies, gzip and
+  deflate decoded, and previews up to 64 KiB. Binary bodies show as a hex dump
+  of the first 256 bytes.
+- **Decrypted HTTPS** comes from the request and response events mitmproxy
+  recorded, subject to [content retention](decrypted-content-retention.md).
+
+Headers and bodies are plaintext evidence: only signed-in administrators see
+them (API tokens are refused), each read is logged, and the web UI renders them
+as text with credentials and cookies masked until revealed. When content cannot
+be shown, the panel says why: an encrypted connection, a headers-only recording
+(what was recorded is still shown), files the recording's ring buffer already
+replaced, or a part of the recording still being written (try again shortly).

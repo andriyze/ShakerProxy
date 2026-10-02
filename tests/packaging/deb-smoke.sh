@@ -60,7 +60,7 @@ docker run --rm --platform linux/amd64 -v "$PACKAGE_PATH:/package.deb:ro" "$UBUN
   test -x /pkg/usr/libexec/shakerproxy/shakerproxy-uninstall
   test -f /pkg/usr/libexec/shakerproxy/release-public.pem
   grep -Fqx "ExecStart=/usr/libexec/shakerproxy/shakerproxy-gatewayd --enable-network-apply" /pkg/lib/systemd/system/shakerproxy-gatewayd.service
-  grep -Fqx "SupplementaryGroups=shakerproxy-capture shakerproxy-cloud" /pkg/lib/systemd/system/shakerproxy-gatewayd.service
+  grep -Fqx "SupplementaryGroups=shakerproxy-capture shakerproxy-cloud shakerproxy-dns" /pkg/lib/systemd/system/shakerproxy-gatewayd.service
   grep -Fqx "ExecStart=/usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4.conf" /pkg/lib/systemd/system/shakerproxy-dhcp4.service
   grep -Fqx "ExecStart=/usr/sbin/radvd --nodaemon --config /etc/shakerproxy/radvd/shakerproxy.conf --pidfile /run/shakerproxy-radvd/radvd.pid --logmethod stderr --username radvd" /pkg/lib/systemd/system/shakerproxy-radvd.service
   grep -Fqx "ExecStart=/usr/libexec/shakerproxy/shakerproxy-capture-worker --session-id=capture-%i" /pkg/lib/systemd/system/shakerproxy-capture@.service

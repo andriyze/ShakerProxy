@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -53,9 +54,28 @@ func TestLabRecordingIsAValidFullPacketDayLongRing(t *testing.T) {
 	if !request.Automatic || request.Mode != ModeFull || request.StopAfterSeconds != 86400 || request.Administrator != LabRecordingAdministrator {
 		t.Fatalf("lab recording request = %+v", request)
 	}
-	// One 64 x 8 MiB ring running plus two finished ones: 1.5 GiB at most.
-	if bound := LabRecordingDiskBound(); bound != 3*512<<20 {
-		t.Fatalf("automatic recording disk bound = %d bytes, want 1.5 GiB", bound)
+	// Segments close every 10 s so connection details reach Traffic quickly,
+	// and 120 x 4 MiB keeps about 20 minutes within a manual capture's 512 MiB.
+	request = request.WithDefaults()
+	if request.SegmentSeconds != 10 || request.MaxFiles != 120 || request.SegmentSizeMiB != 4 {
+		t.Fatalf("lab recording ring = %d s x %d files x %d MiB", request.SegmentSeconds, request.MaxFiles, request.SegmentSizeMiB)
+	}
+	if retained := request.SegmentSeconds * request.MaxFiles; retained < 20*60 {
+		t.Fatalf("the ring keeps only %d s of low-rate traffic", retained)
+	}
+	// One 480 MiB ring running plus two finished ones.
+	if bound := LabRecordingDiskBound(); bound != 3*480<<20 || bound > 3*512<<20 {
+		t.Fatalf("automatic recording disk bound = %d bytes, want 3 x 480 MiB", bound)
+	}
+	// Only the automatic recording may use more than 64 files.
+	manual := request
+	manual.Automatic = false
+	if err := manual.Validate(); err == nil || !strings.Contains(err.Error(), "between 2 and 64 files") {
+		t.Fatalf("a manual 120-file ring was accepted: %v", err)
+	}
+	request.MaxFiles = 129
+	if err := request.Validate(); err == nil {
+		t.Fatal("an automatic ring larger than a manifest holds was accepted")
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 	"shakerproxy.dev/shakerproxy/internal/capture"
 )
 
-const postgresSchemaVersion = 14
+const postgresSchemaVersion = 16
 
 const postgresSchema = `
 CREATE TABLE IF NOT EXISTS shakerproxy_schema_versions (
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS shakerproxy_schema_versions (
   applied_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 INSERT INTO shakerproxy_schema_versions(component, version)
-VALUES ('normalized_ingest', 14)
+VALUES ('normalized_ingest', 16)
 ON CONFLICT (component) DO UPDATE SET version = EXCLUDED.version, applied_at = clock_timestamp()
 WHERE shakerproxy_schema_versions.version < EXCLUDED.version;
 
@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS normalized_events (
   dns_record_type text CHECK (dns_record_type IS NULL OR length(dns_record_type) BETWEEN 1 AND 32),
   dns_response_code text CHECK (dns_response_code IS NULL OR length(dns_response_code) BETWEEN 1 AND 32),
   dns_answer_count integer CHECK (dns_answer_count IS NULL OR dns_answer_count BETWEEN 0 AND 10000),
+  dns_answers text[] CHECK (dns_answers IS NULL OR (cardinality(dns_answers) BETWEEN 1 AND 8 AND octet_length(array_to_string(dns_answers, ' ')) <= 2048)),
+  dns_name text CHECK (dns_name IS NULL OR length(dns_name) BETWEEN 1 AND 253),
   detection_type text CHECK (detection_type IS NULL OR length(detection_type) BETWEEN 1 AND 64),
   detection_severity text CHECK (detection_severity IS NULL OR detection_severity IN ('WARNING','HIGH','CRITICAL')),
   detection_state text CHECK (detection_state IS NULL OR detection_state IN ('OPEN','RESOLVED')),
@@ -87,6 +89,8 @@ ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS dns_query text CHECK (dns
 ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS dns_record_type text CHECK (dns_record_type IS NULL OR length(dns_record_type) BETWEEN 1 AND 32);
 ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS dns_response_code text CHECK (dns_response_code IS NULL OR length(dns_response_code) BETWEEN 1 AND 32);
 ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS dns_answer_count integer CHECK (dns_answer_count IS NULL OR dns_answer_count BETWEEN 0 AND 10000);
+ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS dns_answers text[] CHECK (dns_answers IS NULL OR (cardinality(dns_answers) BETWEEN 1 AND 8 AND octet_length(array_to_string(dns_answers, ' ')) <= 2048));
+ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS dns_name text CHECK (dns_name IS NULL OR length(dns_name) BETWEEN 1 AND 253);
 ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS detection_type text CHECK (detection_type IS NULL OR length(detection_type) BETWEEN 1 AND 64);
 ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS detection_severity text CHECK (detection_severity IS NULL OR detection_severity IN ('WARNING','HIGH','CRITICAL'));
 ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS detection_state text CHECK (detection_state IS NULL OR detection_state IN ('OPEN','RESOLVED'));
@@ -368,6 +372,9 @@ RETURNING event_sha256`, pending.RecordID, record.EventSHA256, record.ReceivedAt
 		if _, err := tx.ExecContext(ctx, columns.insertStatement(), columns.args()...); err != nil {
 			return recordDataError(pending.RecordID, fmt.Errorf("insert normalized event: %w", err))
 		}
+	}
+	if err := nameHostConnections(ctx, tx, batch); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit normalized ingestion batch: %w", err)

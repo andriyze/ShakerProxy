@@ -88,6 +88,7 @@ type analyzerStatusService interface {
 type Server struct {
 	store                       *Store
 	gateway                     gatewayclient.Client
+	coverage                    coverageState
 	allowedHosts                map[string]struct{}
 	logger                      *slog.Logger
 	inventory                   *deviceinventory.Store
@@ -116,6 +117,8 @@ type Server struct {
 	nameResolver                *deviceinventory.NameResolver
 	sessionsMu                  sync.Mutex
 	sessions                    map[string]sessionRecord
+	sessionsPath                string
+	sessionsSavedAt             time.Time
 	clock                       func() time.Time
 	authFailuresMu              sync.Mutex
 	authFailures                map[string]authFailureCounter
@@ -141,6 +144,10 @@ func New(config Config) *Server {
 		hosts[strings.ToLower(strings.TrimSpace(host))] = struct{}{}
 	}
 	server := &Server{store: config.Store, gateway: gatewayclient.Client{SocketPath: config.GatewaySocket}, allowedHosts: hosts, logger: config.Logger, inventory: config.Inventory, keaLeasePath: config.KeaLeasePath, eventReader: config.EventReader, liveEventReader: config.LiveEventReader, ingestStatus: config.IngestStatus, eventSnapshots: config.EventSnapshots, savedViews: config.SavedViews, captureEventDeletions: config.CaptureEventDeletions, eventSelectionDeletions: config.EventSelectionDeletions, zeekCheckpointDeletions: config.ZeekCheckpointDeletions, suricataCheckpointDeletions: config.SuricataCheckpointDeletions, capabilities: config.Capabilities, recoveryObjectives: config.RecoveryObjectives, managementCACertPath: config.ManagementCACertPath, managementPKIStatusPath: config.ManagementPKIStatusPath, cases: config.Cases, apiTokens: config.APITokens, forwarders: config.Forwarders, nameResolver: &deviceinventory.NameResolver{Store: config.Inventory}, sessions: make(map[string]sessionRecord), authFailures: make(map[string]authFailureCounter), tokenRates: make(map[string]tokenRateWindow), liveSlots: make(chan struct{}, 16), openAPIPath: config.OpenAPIPath, adminResetRequestPath: config.AdminResetRequestPath}
+	if config.Store != nil {
+		server.sessionsPath = config.Store.SessionsPath()
+		server.loadSessions()
+	}
 	if server.openAPIPath == "" {
 		server.openAPIPath = "/usr/share/shakerproxy/schemas/api/openapi.yaml"
 	}
@@ -211,6 +218,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/traffic-policy/catalog", s.requireAuth(http.HandlerFunc(s.getTrafficResolverCatalog)))
 	mux.Handle("POST /api/v1/traffic-policy/preview", s.requireAuth(http.HandlerFunc(s.previewTrafficPolicy)))
 	mux.Handle("PUT /api/v1/traffic-policy", s.requireAuth(http.HandlerFunc(s.applyTrafficPolicy)))
+	mux.Handle("GET /api/v1/dns-visibility", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.getDNSVisibility)))
+	mux.Handle("PUT /api/v1/dns-visibility", s.requireLabWrite(http.HandlerFunc(s.putDNSVisibility)))
 	mux.Handle("POST /api/v1/traffic-policy/rollback", s.requireAuth(http.HandlerFunc(s.rollbackTrafficPolicy)))
 	mux.Handle("GET /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesRead, http.HandlerFunc(s.listCaptures)))
 	mux.Handle("POST /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.startCapture)))
@@ -257,6 +266,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/saved-views/{viewID}/export", s.requireAuth(http.HandlerFunc(s.exportSavedView)))
 	mux.Handle("GET /api/v1/saved-views/{viewID}/history", s.requireAuth(http.HandlerFunc(s.savedViewHistory)))
 	mux.Handle("GET /api/v1/events/live", s.requireAuthOrScope(apitoken.ScopeTrafficRead, http.HandlerFunc(s.streamLiveEvents)))
+	// Plaintext headers and bodies: administrator sessions only, like the
+	// event detail payload (API tokens get metadata only).
+	mux.Handle("GET /api/v1/events/{recordID}/http-exchange", s.requireAuth(http.HandlerFunc(s.getHTTPExchange)))
 	mux.Handle("GET /api/v1/ingest/status", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.getIngestStatus)))
 	mux.Handle("GET /api/v1/devices/{deviceID}", s.requireAuthOrScope(apitoken.ScopeDevicesRead, http.HandlerFunc(s.getDevice)))
 	mux.Handle("PUT /api/v1/devices/{deviceID}/metadata", s.requireAuth(http.HandlerFunc(s.updateDeviceMetadata)))

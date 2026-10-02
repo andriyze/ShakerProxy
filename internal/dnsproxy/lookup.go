@@ -23,10 +23,13 @@ type Lookup struct {
 	Rcode       string
 	AnswerCount int
 	Answers     []Answer
-	// Blocked is set when ShakerProxy answered NXDOMAIN for a domain blocked
-	// for the client's device.
+	// Blocked is set when ShakerProxy answered NXDOMAIN on purpose: a domain
+	// blocked for the client's device, or an encrypted-DNS resolver name or
+	// canary while encrypted DNS is blocked. BlockedReason says which
+	// (trafficpolicy.BlockReason*).
 	Blocked       bool
 	BlockedDomain string
+	BlockedReason string
 }
 
 // Answer is one answer record. Data is the address of an A or AAAA record or
@@ -49,6 +52,7 @@ type LookupObserver interface {
 type answerNote struct {
 	blocked bool
 	domain  string
+	reason  string
 }
 
 // NewLookup describes a query and the response sent for it. It fails only

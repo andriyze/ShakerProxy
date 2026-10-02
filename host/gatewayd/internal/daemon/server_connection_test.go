@@ -301,3 +301,17 @@ func TestMethodTimeoutsCoverSlowHostOperations(t *testing.T) {
 		t.Fatal("status reads should use the default budget")
 	}
 }
+
+// ReadCaptureFlow returns plaintext packet payloads, so it validates its
+// request before touching the capture store and gets the capture budget.
+func TestReadCaptureFlowValidatesItsRequest(t *testing.T) {
+	server := connectionTestServer(t, nil)
+	for _, params := range []string{`{}`, `{"request":{"schema":1,"session_id":"../x","client":"1.2.3.4:5","server":"5.6.7.8:80","at":"2026-10-02T03:30:00Z"}}`} {
+		if _, rpcErr := server.dispatch(t.Context(), gatewayprotocol.Request{JSONRPC: gatewayprotocol.JSONRPCVersion, ID: "flow", Method: "ReadCaptureFlow", Params: json.RawMessage(params)}); rpcErr == nil {
+			t.Fatalf("invalid flow request %s was accepted", params)
+		}
+	}
+	if gatewayprotocol.MethodTimeout("ReadCaptureFlow") != gatewayprotocol.MethodTimeout("ReadCaptureArtifact") {
+		t.Fatal("flow reads should get the capture read budget")
+	}
+}

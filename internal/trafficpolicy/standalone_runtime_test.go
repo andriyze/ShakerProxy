@@ -7,7 +7,7 @@ import (
 )
 
 func TestProjectStandaloneProxyRuntimeUsesCompiledSchema(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.Revision = 7
 	policy.EncryptedDNS.Mode = EncryptedDNSBlockKnown
 	policy.EncryptedDNS.BlockKnownDoH = true
@@ -44,7 +44,7 @@ func TestProjectStandaloneProxyRuntimeUsesCompiledSchema(t *testing.T) {
 }
 
 func TestProjectStandaloneProxyRuntimeUsesStableDeviceSelection(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.Revision = 9
 	policy.TLS.Enabled = true
 	policy.TLS.SelectedDeviceIDs = []string{"device-22222222222222222222222222222222", "device-11111111111111111111111111111111"}
@@ -73,7 +73,7 @@ func TestProjectStandaloneProxyRuntimeUsesStableDeviceSelection(t *testing.T) {
 }
 
 func TestProjectStandaloneProxyRuntimeRejectsInvalidPolicy(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.Revision = 0
 	if _, err := ProjectStandaloneProxyRuntimeWithDevices(policy, EmptyStandaloneDeviceRuntime()); err == nil {
 		t.Fatal("invalid standalone policy was projected")
@@ -83,7 +83,7 @@ func TestProjectStandaloneProxyRuntimeRejectsInvalidPolicy(t *testing.T) {
 // Regression from a routed EC2 lab: nil lists were written as null and the
 // mitmproxy addon could not iterate them, so interception failed open.
 func TestStandaloneProxyRuntimeWritesEmptyListsNotNull(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.TLS.Enabled = true
 	policy.TLS.SelectedDeviceIDs = []string{"device-35d06eff6436258199f4e8ed887198ed"}

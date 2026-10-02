@@ -173,13 +173,18 @@ func (r *SpoolRecorder) countPending() int {
 }
 
 // removeStaleTemporaryFiles clears files a crash left half written.
+// gatewayd writes its connection events to the same directory, so only
+// files older than a minute go.
 func (r *SpoolRecorder) removeStaleTemporaryFiles() {
 	entries, err := os.ReadDir(r.Directory)
 	if err != nil {
 		return
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".tmp-") {
+		if !strings.HasPrefix(entry.Name(), ".tmp-") {
+			continue
+		}
+		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > time.Minute {
 			_ = os.Remove(filepath.Join(r.Directory, entry.Name()))
 		}
 	}
@@ -210,6 +215,7 @@ type lookupEventPayload struct {
 	Answers         []lookupEntry `json:"answers"`
 	Blocked         bool          `json:"blocked"`
 	BlockedDomain   string        `json:"blocked_domain,omitempty"`
+	BlockedReason   string        `json:"blocked_reason,omitempty"`
 }
 
 type lookupEntry struct {
@@ -237,7 +243,7 @@ func LookupEvent(id string, lookup Lookup) ([]byte, error) {
 	payload, err := json.Marshal(lookupEventPayload{
 		SourceIP: lookup.Client.Addr().String(), SourcePort: int(lookup.Client.Port()), DestinationPort: 53,
 		Protocol: lookup.Transport, Service: "dns", Query: name, QueryType: lookup.Type, ResponseCode: lookup.Rcode,
-		AnswerCount: lookup.AnswerCount, Answers: answers, Blocked: lookup.Blocked, BlockedDomain: lookup.BlockedDomain,
+		AnswerCount: lookup.AnswerCount, Answers: answers, Blocked: lookup.Blocked, BlockedDomain: lookup.BlockedDomain, BlockedReason: lookup.BlockedReason,
 	})
 	if err != nil {
 		return nil, err

@@ -30,6 +30,10 @@ func eventSummary(event RecentEvent) string {
 			return "Alert (" + severity + "): " + event.AlertSignature
 		}
 		return "Alert: " + event.AlertSignature
+	case event.Source == SourceHost && event.Kind == HostBlockedKind:
+		return "Blocked " + blockReasonLabel(event.BlockedReason) + " to " + firstNonEmpty(endpoint(event.DestinationIP, event.DestinationPort), "an unknown resolver") + " — falls back to plain DNS"
+	case event.Blocked && event.DNSQuery != "":
+		return "DNS lookup " + event.DNSQuery + recordTypeSuffix(event.DNSRecordType) + " — blocked (" + blockReasonLabel(event.BlockedReason) + ")"
 	case event.Source == SourceMitmproxy && event.Kind == "encrypted_dns_detected":
 		if event.DNSQuery != "" {
 			return "Encrypted DNS (DoH) lookup " + event.DNSQuery + recordTypeSuffix(event.DNSRecordType)
@@ -37,6 +41,12 @@ func eventSummary(event RecentEvent) string {
 		return "Encrypted DNS (DoH) to " + firstNonEmpty(event.HTTPHost, event.TLSServerName, event.DestinationIP, "an unknown resolver")
 	case event.DNSQuery != "":
 		return "DNS lookup " + event.DNSQuery + recordTypeSuffix(event.DNSRecordType) + dnsOutcome(event)
+	case event.Source == SourceHost && event.Kind == HostConnKind:
+		target := net.JoinHostPort(event.DestinationIP, strconv.Itoa(event.DestinationPort))
+		if event.DNSName != "" {
+			return "Connection to " + event.DNSName + " (" + target + "/" + event.Protocol + ")"
+		}
+		return "Connection to " + target + "/" + event.Protocol
 	case event.TLSInterceptionState != "":
 		host := firstNonEmpty(event.TLSServerName, event.DestinationIP, "unknown host")
 		switch event.TLSInterceptionState {
@@ -81,6 +91,28 @@ func eventSummary(event RecentEvent) string {
 		line += ": " + event.SourceIP + " → " + endpoint(event.DestinationIP, event.DestinationPort)
 	}
 	return line
+}
+
+// blockReasonLabel names what ShakerProxy blocked in plain language.
+func blockReasonLabel(reason string) string {
+	switch reason {
+	case "dot":
+		return "DNS over TLS"
+	case "doq":
+		return "DNS over QUIC"
+	case "doh-ip":
+		return "DNS over HTTPS"
+	case "doh3-ip":
+		return "DNS over HTTP/3"
+	case "doh-name":
+		return "encrypted DNS resolver name"
+	case "canary":
+		return "encrypted DNS check"
+	case "device-domain":
+		return "domain blocked for this device"
+	default:
+		return "encrypted DNS"
+	}
 }
 
 func dnsOutcome(event RecentEvent) string {

@@ -186,7 +186,7 @@ func runDoctor(ctx context.Context, output io.Writer) error {
 	if !overview.EvidenceReady {
 		status = "CONNECTED · EVIDENCE DEGRADED"
 	}
-	if _, err := fmt.Fprintf(output, "ShakerProxy MCP: %s\nAPI: authenticated over %s\nGateway: %s\nEvidence: %s\nTools: 12 read-only tools (list_devices, find_device, device_report, compare_runs, …)\n", status, envOr("SHAKERPROXY_API_URL", "https://127.0.0.1:8443"), overview.Gateway.OperatingMode, overview.Overall); err != nil {
+	if _, err := fmt.Fprintf(output, "ShakerProxy MCP: %s\nAPI: authenticated over %s\nGateway: %s\nEvidence: %s\nTools: 13 read-only tools (list_devices, find_device, device_report, compare_runs, visibility_coverage, …)\n", status, envOr("SHAKERPROXY_API_URL", "https://127.0.0.1:8443"), overview.Gateway.OperatingMode, overview.Overall); err != nil {
 		return err
 	}
 	for _, limitation := range overview.Limitations {
