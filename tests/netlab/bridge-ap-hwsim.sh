@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Inline bridge with ShakerProxy's Wi-Fi access point, proven with simulated
-# radios (mac80211_hwsim, two radios: the access point in ShakerProxy's
-# namespace and a Wi-Fi device in its own; the simulated air connects them):
+# radios (mac80211_hwsim, three radios: the access point in ShakerProxy's
+# namespace and two Wi-Fi devices in their own; the simulated air connects
+# them):
 #   - the plan renders the access point's hostapd configuration with
 #     bridge=spbr0, and the real hostapd adds the radio to the bridge, where
 #     spanning tree lets it forward like a cabled port;
@@ -11,10 +12,16 @@
 #     plain DNS the Wi-Fi device and the wired device send to the router
 #     (which answers no DNS) is answered by ShakerProxy's DNS forwarder;
 #   - conntrack reports the Wi-Fi device's bridged connection;
+#   - traffic between two Wi-Fi devices crosses the bridge: with ap_isolate
+#     the access point no longer switches it itself (the devices cannot
+#     reach each other before hairpin mode), and once ShakerProxy turns on
+#     hairpin mode on the access point's port, UDP, TCP and mDNS multicast
+#     between them work;
 #   - one dumpcap recording of both device-side ports, run with the
 #     arguments the automatic lab recording uses, holds both interfaces in
 #     one file that libpcap (which Zeek and Suricata use) reads, with each
-#     device's DHCP and its DNS as sent on the wire;
+#     device's DHCP and its DNS as sent on the wire, and the traffic between
+#     the two Wi-Fi devices;
 #   - rolling back removes the DNS redirect for both ports.
 # Netplan is not run: the script builds spbr0 with ip as the rendered plan
 # describes; unit tests cover the YAML. It runs in the CI netlab-wifi job
@@ -28,7 +35,7 @@ fail() {
     {
       printf '%s\n' "--- ShakerProxy nat" && ip netns exec "$GATEWAY" iptables -t nat -S
       printf '%s\n' "--- bridge ports" && ip -n "$GATEWAY" -d link show master spbr0
-      for log in hostapd wpa_supplicant dnsd upstream-dns dnsmasq apply dumpcap udhcpc-station udhcpc-wired; do
+      for log in hostapd wpa_supplicant wpa_supplicant2 dnsd upstream-dns dnsmasq apply hairpin dumpcap udhcpc-station udhcpc-wired udhcpc-station2 c2c-listener; do
         [[ -f "$LAB_TEMP/$log.log" ]] && printf -- '--- %s\n' "$log" && tail -n 25 "$LAB_TEMP/$log.log"
       done
     } >&2 || true
@@ -58,6 +65,7 @@ PEER="${RUN_ID}p"
 GATEWAY="${RUN_ID}g"
 CLIENT="${RUN_ID}c"
 STATION="${RUN_ID}s"
+STATION2="${RUN_ID}t"
 SSID="ShakerProxy-BridgeLab"
 PASSPHRASE="netlab-passphrase"
 LAB_TEMP="$(mktemp -d /tmp/shakerproxy-bridge-ap-proof.XXXXXX)"
@@ -69,7 +77,7 @@ cleanup() {
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   done
-  for namespace in "$STATION" "$CLIENT" "$GATEWAY" "$PEER" "$ROUTER"; do
+  for namespace in "$STATION2" "$STATION" "$CLIENT" "$GATEWAY" "$PEER" "$ROUTER"; do
     ip netns pids "$namespace" 2>/dev/null | xargs -r kill 2>/dev/null || true
     ip netns del "$namespace" 2>/dev/null || true
   done
@@ -99,7 +107,7 @@ if [[ -z "${SHAKERPROXY_NETLAB_BIN:-}" ]]; then
 fi
 [[ -x "$BIN/daemon.test" && -x "$BIN/shakerproxy-dnsd" ]] || fail "the bridge roles were not built in $BIN"
 
-if ! modprobe mac80211_hwsim radios=2 2>/dev/null; then
+if ! modprobe mac80211_hwsim radios=3 2>/dev/null; then
   netlab_skip "this kernel has no mac80211_hwsim (apt install linux-modules-extra-\$(uname -r))"
 fi
 LOADED=1
@@ -109,15 +117,16 @@ for phy_path in /sys/class/ieee80211/*; do
     PHYS+=("$(basename "$phy_path")")
   fi
 done
-[[ "${#PHYS[@]}" -eq 2 ]] || fail "expected 2 simulated radios, found ${#PHYS[@]}"
+[[ "${#PHYS[@]}" -eq 3 ]] || fail "expected 3 simulated radios, found ${#PHYS[@]}"
 radio_interface() {
   find "/sys/class/ieee80211/$1/device/net/" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | head -n 1
 }
 AP_IF="$(radio_interface "${PHYS[0]}")"
 STA_IF="$(radio_interface "${PHYS[1]}")"
-[[ -n "$AP_IF" && -n "$STA_IF" ]] || fail "a simulated radio has no interface"
+STA2_IF="$(radio_interface "${PHYS[2]}")"
+[[ -n "$AP_IF" && -n "$STA_IF" && -n "$STA2_IF" ]] || fail "a simulated radio has no interface"
 
-for namespace in "$ROUTER" "$PEER" "$GATEWAY" "$CLIENT" "$STATION"; do
+for namespace in "$ROUTER" "$PEER" "$GATEWAY" "$CLIENT" "$STATION" "$STATION2"; do
   ip netns add "$namespace"
   ip -n "$namespace" link set lo up
 done
@@ -125,7 +134,8 @@ done
 # device; moving them keeps host network managers away.
 iw phy "${PHYS[0]}" set netns name "$GATEWAY"
 iw phy "${PHYS[1]}" set netns name "$STATION"
-printf 'access point %s (%s), Wi-Fi device %s (%s)\n' "$AP_IF" "${PHYS[0]}" "$STA_IF" "${PHYS[1]}"
+iw phy "${PHYS[2]}" set netns name "$STATION2"
+printf 'access point %s (%s), Wi-Fi devices %s (%s) and %s (%s)\n' "$AP_IF" "${PHYS[0]}" "$STA_IF" "${PHYS[1]}" "$STA2_IF" "${PHYS[2]}"
 
 role() {
   ip netns exec "$GATEWAY" env SHAKERPROXY_BRIDGELAB_ROLE="$1" SHAKERPROXY_BRIDGELAB_DIR="$LAB_TEMP" \
@@ -216,6 +226,7 @@ role apply >"$LAB_TEMP/apply.log" || fail "the plan with the access point could 
 [[ -s "$LAB_TEMP/hostapd.conf" ]] || fail "the plan rendered no access point configuration"
 grep -qx "interface=$AP_IF" "$LAB_TEMP/hostapd.conf" || fail "hostapd's interface is not the access point radio"
 grep -qx 'bridge=spbr0' "$LAB_TEMP/hostapd.conf" || fail "hostapd would not add the access point to the inline bridge"
+grep -qx 'ap_isolate=1' "$LAB_TEMP/hostapd.conf" || fail "the access point would switch traffic between its Wi-Fi devices itself (ap_isolate is off)"
 # The control socket lives in the proof's own directory instead of /run.
 sed -i "s#^ctrl_interface=.*#ctrl_interface=$LAB_TEMP/hostapd#" "$LAB_TEMP/hostapd.conf"
 for port in dev0 "$AP_IF"; do
@@ -277,8 +288,10 @@ lease() {
 
 # 4. The Wi-Fi device joins ShakerProxy's access point and gets its address
 # from the router through the bridge.
-cat >"$LAB_TEMP/wpa_supplicant.conf" <<EOF
-ctrl_interface=$LAB_TEMP/wpa
+join_wifi() {
+  local namespace="$1" interface="$2" name="$3" connected=0
+  cat >"$LAB_TEMP/$name.conf" <<EOF
+ctrl_interface=$LAB_TEMP/$name-ctrl
 network={
   ssid="$SSID"
   psk="$PASSPHRASE"
@@ -286,18 +299,19 @@ network={
   ieee80211w=0
 }
 EOF
-ip -n "$STATION" link set "$STA_IF" up
-ip netns exec "$STATION" wpa_supplicant -i "$STA_IF" -c "$LAB_TEMP/wpa_supplicant.conf" >"$LAB_TEMP/wpa_supplicant.log" 2>&1 &
-PIDS+=($!)
-connected=0
-for _ in $(seq 1 60); do
-  if ip netns exec "$STATION" wpa_cli -p "$LAB_TEMP/wpa" -i "$STA_IF" status 2>/dev/null | grep -qx 'wpa_state=COMPLETED'; then
-    connected=1
-    break
-  fi
-  sleep 0.5
-done
-[[ "$connected" == 1 ]] || fail "the Wi-Fi device did not join ShakerProxy's access point"
+  ip -n "$namespace" link set "$interface" up
+  ip netns exec "$namespace" wpa_supplicant -i "$interface" -c "$LAB_TEMP/$name.conf" >"$LAB_TEMP/$name.log" 2>&1 &
+  PIDS+=($!)
+  for _ in $(seq 1 60); do
+    if ip netns exec "$namespace" wpa_cli -p "$LAB_TEMP/$name-ctrl" -i "$interface" status 2>/dev/null | grep -qx 'wpa_state=COMPLETED'; then
+      connected=1
+      break
+    fi
+    sleep 0.5
+  done
+  [[ "$connected" == 1 ]] || fail "Wi-Fi device $interface did not join ShakerProxy's access point"
+}
+join_wifi "$STATION" "$STA_IF" wpa_supplicant
 STATION_IP="$(lease "$STATION" "$STA_IF" station)"
 [[ "$STATION_IP" == 192.168.77.1[0-5][0-9] ]] || fail "unexpected Wi-Fi lease $STATION_IP"
 WIRED_IP="$(lease "$CLIENT" eth0 wired)"
@@ -358,6 +372,76 @@ body="$(ip netns exec "$STATION" python3 -c 'import urllib.request; print(urllib
 wait "$CONNTRACK_PID" || { cat "$LAB_TEMP/conntrack.log"; fail "conntrack did not report the Wi-Fi device's bridged connection"; }
 grep -q "\"source\":\"$STATION_IP:" "$LAB_TEMP/conntrack.log" || { cat "$LAB_TEMP/conntrack.log"; fail "conntrack reported another source than the Wi-Fi device"; }
 
+# 5b. A second Wi-Fi device. With ap_isolate the access point hands traffic
+# between the two to the bridge instead of switching it itself; until
+# hairpin mode is on, the bridge does not send it back out of the port it
+# came in on, so they cannot reach each other at all.
+join_wifi "$STATION2" "$STA2_IF" wpa_supplicant2
+STATION2_IP="$(lease "$STATION2" "$STA2_IF" station2)"
+[[ "$STATION2_IP" == 192.168.77.1[0-5][0-9] && "$STATION2_IP" != "$STATION_IP" ]] || fail "unexpected second Wi-Fi lease $STATION2_IP"
+if ip netns exec "$STATION" busybox ping -c 1 -W 2 "$STATION2_IP" >/dev/null 2>&1; then
+  fail "the Wi-Fi devices reached each other before hairpin mode: the access point still switches their traffic itself"
+fi
+role hairpin >"$LAB_TEMP/hairpin.log" || fail "ShakerProxy could not turn on hairpin mode on the access point's bridge port"
+[[ "$(ip netns exec "$GATEWAY" cat "/sys/class/net/$AP_IF/brport/hairpin_mode")" == 1 ]] || fail "hairpin mode is not on for the access point's bridge port"
+# The second device listens for one UDP datagram, one TCP connection and
+# one mDNS multicast from the first.
+ip netns exec "$STATION2" python3 - "$STATION2_IP" >"$LAB_TEMP/c2c-listener.log" 2>&1 <<'PY' &
+import socket, struct, sys, threading
+own = sys.argv[1]
+udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+udp.bind((own, 7001))
+tcp = socket.socket()
+tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+tcp.bind((own, 7002))
+tcp.listen(1)
+mdns = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+mdns.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+mdns.bind(("", 5353))
+mdns.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton("224.0.0.251") + socket.inet_aton(own))
+print("ready", flush=True)
+def udp_once():
+    data, peer = udp.recvfrom(512)
+    print("udp from %s %s" % (peer[0], data.decode()), flush=True)
+def tcp_once():
+    connection, peer = tcp.accept()
+    print("tcp from %s %s" % (peer[0], connection.recv(512).decode()), flush=True)
+    connection.sendall(b"c2c-tcp-reply")
+    connection.close()
+def mdns_once():
+    while True:
+        data, peer = mdns.recvfrom(512)
+        if data.endswith(b"c2c-mdns"):
+            print("mdns from %s" % peer[0], flush=True)
+            return
+threads = [threading.Thread(target=target) for target in (udp_once, tcp_once, mdns_once)]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join(20)
+PY
+PIDS+=($!)
+for _ in $(seq 1 50); do grep -q '^ready' "$LAB_TEMP/c2c-listener.log" 2>/dev/null && break; sleep .1; done
+ip netns exec "$STATION" python3 - "$STATION_IP" "$STATION2_IP" <<'PY' || fail "the first Wi-Fi device could not reach the second through the bridge"
+import socket, struct, sys
+own, other = sys.argv[1], sys.argv[2]
+udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+udp.sendto(b"c2c-udp", (other, 7001))
+tcp = socket.create_connection((other, 7002), 5)
+tcp.sendall(b"c2c-tcp")
+assert tcp.recv(64) == b"c2c-tcp-reply"
+tcp.close()
+mdns = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+mdns.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(own))
+mdns.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+# A minimal mDNS query header followed by a marker the listener matches.
+mdns.sendto(struct.pack("!HHHHHH", 0, 0, 0, 0, 0, 0) + b"c2c-mdns", ("224.0.0.251", 5353))
+PY
+for _ in $(seq 1 50); do [[ "$(grep -c ' from ' "$LAB_TEMP/c2c-listener.log" 2>/dev/null)" -ge 3 ]] && break; sleep .1; done
+for kind in udp tcp mdns; do
+  grep -q "^$kind from $STATION_IP" "$LAB_TEMP/c2c-listener.log" || fail "the second Wi-Fi device did not get the first one's $kind traffic"
+done
+
 # 6. The recording: one file, both ports, readable by libpcap.
 sleep 1
 kill -INT "$DUMPCAP_PID" 2>/dev/null || true
@@ -389,6 +473,9 @@ grep -q "$STATION_IP.[0-9]* > 192.168.77.1.53:" "$LAB_TEMP/lab.txt" || fail "the
 grep -q "$WIRED_IP.[0-9]* > 192.168.77.1.53:" "$LAB_TEMP/lab.txt" || fail "the recording does not show the wired device's DNS as sent to the router"
 grep -q "$STATION_IP.[0-9]* > 192.168.77.30.8080:" "$LAB_TEMP/lab.txt" || fail "the recording does not show the Wi-Fi device's traffic to the peer"
 grep -q '0.0.0.0.68 > 255.255.255.255.67\|192.168.77.1.67 > ' "$LAB_TEMP/lab.txt" || fail "the recording has no DHCP"
+grep -q "$STATION_IP.[0-9]* > $STATION2_IP.7001:" "$LAB_TEMP/lab.txt" || fail "the recording does not show UDP between the two Wi-Fi devices"
+grep -q "$STATION_IP.[0-9]* > $STATION2_IP.7002:" "$LAB_TEMP/lab.txt" || fail "the recording does not show TCP between the two Wi-Fi devices"
+grep -q "$STATION_IP.5353 > 224.0.0.251.5353:\|$STATION_IP.[0-9]* > 224.0.0.251.5353:" "$LAB_TEMP/lab.txt" || fail "the recording does not show the first Wi-Fi device's mDNS"
 
 # 7. Roll back: the policy drops the redirect for both device-side ports.
 role rollback >"$LAB_TEMP/rollback.log" || fail "rollback failed"
@@ -396,4 +483,4 @@ if ip netns exec "$GATEWAY" iptables -t nat -S 2>/dev/null | grep -q -- '--physd
   fail "a bridge DNS redirect remains after rollback"
 fi
 
-printf '%s\n' "PASS: inline bridge Wi-Fi: a Wi-Fi device joined ShakerProxy's access point in the bridge, got DHCP from the router through ShakerProxy, its DNS to the router was answered by ShakerProxy like the wired device's, conntrack reported its connection, and one recording held both device-side ports"
+printf '%s\n' "PASS: inline bridge Wi-Fi: a Wi-Fi device joined ShakerProxy's access point in the bridge, got DHCP from the router through ShakerProxy, its DNS to the router was answered by ShakerProxy like the wired device's, conntrack reported its connection, traffic between two Wi-Fi devices (UDP, TCP, mDNS) crossed the bridge once hairpin mode was on, and one recording held both device-side ports and that traffic"
