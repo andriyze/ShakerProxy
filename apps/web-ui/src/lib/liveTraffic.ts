@@ -370,19 +370,31 @@ export function collapseRepeats<T extends Pick<RecentEvent, "occurred_at">>(
   rows: readonly T[],
   key: (event: T) => string,
 ): CollapsedRow<T>[] {
+  // Rows are newest first. A line folds into the newest identical line seen
+  // within the last minute, even when other lines came in between: network
+  // gear announcing itself every few seconds from several addresses
+  // otherwise buries everything else.
   const out: CollapsedRow<T>[] = []
-  let previousKey = ""
+  const open = new Map<string, CollapsedRow<T>>()
   for (const event of rows) {
     const current = key(event)
-    const last = out.at(-1)
-    if (last && current === previousKey && Math.abs(Date.parse(last.event.occurred_at) - Date.parse(event.occurred_at)) <= 60_000) {
-      last.count++
+    const group = open.get(current)
+    if (group && Math.abs(Date.parse(group.event.occurred_at) - Date.parse(event.occurred_at)) <= 60_000) {
+      group.count++
       continue
     }
-    out.push({ event, count: 1 })
-    previousKey = current
+    const row = { event, count: 1 }
+    out.push(row)
+    open.set(current, row)
   }
   return out
+}
+
+// chatterShare is the part of a window that is network discovery chatter
+// (mDNS, SSDP, UniFi and other broadcasts), from the server summary's totals.
+export function chatterShare(totals: { events: number; types: Partial<Record<string, number>> } | undefined): number {
+  if (!totals || totals.events <= 0) return 0
+  return (totals.types.discovery ?? 0) / totals.events
 }
 
 const BLOCK_REASONS: Record<string, string> = {

@@ -269,3 +269,16 @@ test("the Live view draws the server summary when it has one", async () => {
   assert.equal(facets.ports[0].filter, "dst.port:443")
   assert.equal(facets.domains[0].label, "github.com")
 })
+
+test("interleaved repeats fold together and chatter is measured", async () => {
+  const { collapseRepeats, chatterShare } = await import("../../apps/web-ui/src/lib/liveTraffic.ts")
+  const at = (second) => `2026-10-02T14:00:${String(second).padStart(2, "0")}Z`
+  const rows = [
+    { name: "a", occurred_at: at(50) }, { name: "b", occurred_at: at(49) }, { name: "a", occurred_at: at(40) },
+    { name: "b", occurred_at: at(39) }, { name: "c", occurred_at: at(30) }, { name: "a", occurred_at: at(5) },
+  ]
+  assert.deepEqual(collapseRepeats(rows, (row) => row.name).map((row) => [row.event.name, row.count]), [["a", 3], ["b", 2], ["c", 1]])
+  assert.equal(chatterShare({ events: 3731, types: { discovery: 3716 } }) > 0.99, true)
+  assert.equal(chatterShare(undefined), 0)
+})
+
