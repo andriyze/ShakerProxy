@@ -21,7 +21,16 @@ var credentialNames = map[string]bool{
 	"sig": true, "signature": true, "code": true, "otp": true, "pin": true,
 }
 
-var jsonCredential = regexp.MustCompile(`(?i)("(?:password|passwd|pass|pwd|secret|client_secret|token|access_token|refresh_token|id_token|auth|authorization|api_key|apikey|session|sessionid|session_id|signature|otp|pin)"\s*:\s*)"(?:[^"\\]|\\.)*"`)
+const credentialPattern = `password|passwd|pass|pwd|secret|client_secret|token|access_token|refresh_token|id_token|auth|authorization|api_key|apikey|session|sessionid|session_id|signature|otp|pin`
+
+// jsonCredential matches a credential field's string, number or boolean
+// value; multipartCredential a form-data part named like one; and
+// xmlCredential an element named like one.
+var (
+	jsonCredential      = regexp.MustCompile(`(?i)("(?:` + credentialPattern + `)"\s*:\s*)(?:"(?:[^"\\]|\\.)*"|-?[0-9][0-9.eE+-]*|true|false)`)
+	multipartCredential = regexp.MustCompile(`(?is)(content-disposition:[^\r\n]*\bname="(?:` + credentialPattern + `)"[^\r\n]*\r?\n(?:[^\r\n]+\r?\n)*\r?\n)([^\r\n]*)`)
+	xmlCredential       = regexp.MustCompile(`(?i)(<(` + credentialPattern + `)\b[^>]*>)[^<]*(</)`)
+)
 
 // IsSensitiveHeader reports whether a header carries credentials.
 func IsSensitiveHeader(name string) bool {
@@ -88,16 +97,33 @@ func redactPairs(encoded string) string {
 	return strings.Join(parts, "&")
 }
 
+// redactBody removes credentials from a text preview. A token reader gets
+// no binary (hex or base64) preview at all: it could hold anything, and its
+// fields cannot be found reliably. Text previews get every heuristic,
+// whatever the declared content type, since servers mislabel bodies.
 func redactBody(body Body) Body {
-	if body.Preview == "" || body.PreviewEncoding != "" && body.PreviewEncoding != "text" && body.PreviewEncoding != "utf-8" {
+	if body.Preview == "" {
+		return body
+	}
+	if body.PreviewEncoding != "" && body.PreviewEncoding != "text" && body.PreviewEncoding != "utf-8" {
+		body.Preview, body.PreviewBytes, body.PreviewEncoding = "", 0, ""
+		body.Note = "The body is binary; its preview is not shown to API tokens."
 		return body
 	}
 	contentType := strings.ToLower(body.ContentType)
-	switch {
-	case strings.Contains(contentType, "x-www-form-urlencoded"):
-		body.Preview = redactPairs(body.Preview)
-	case strings.Contains(contentType, "json"), strings.Contains(contentType, "graphql"):
-		body.Preview = jsonCredential.ReplaceAllString(body.Preview, `${1}"`+Redacted+`"`)
+	preview := body.Preview
+	if strings.Contains(contentType, "x-www-form-urlencoded") || looksLikeForm(preview) {
+		preview = redactPairs(preview)
 	}
+	preview = jsonCredential.ReplaceAllString(preview, `${1}"`+Redacted+`"`)
+	preview = multipartCredential.ReplaceAllString(preview, `${1}`+Redacted)
+	preview = xmlCredential.ReplaceAllString(preview, `${1}`+Redacted+`${3}`)
+	body.Preview = preview
 	return body
+}
+
+// looksLikeForm reports whether a preview is a single line of
+// name=value pairs, as a form body sent with a wrong content type is.
+func looksLikeForm(preview string) bool {
+	return strings.Contains(preview, "=") && !strings.ContainsAny(preview, " \t\r\n{<")
 }
