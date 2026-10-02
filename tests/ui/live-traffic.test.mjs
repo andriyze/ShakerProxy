@@ -39,7 +39,9 @@ test("each kind of traffic reads as one line", () => {
 
 test("chips compose one filter, including a client's merged records", () => {
   const chip = (id) => STREAM_KINDS.find((kind) => kind.id === id).query
-  assert.ok(composeLiveQuery(DEFAULT_LIVE_FILTERS).startsWith(`(${chip("dns")} OR `))
+  // All kinds: everything but the analyzers' duplicates, not a join of
+  // every chip (which ran past the server's term limit).
+  assert.ok(composeLiveQuery(DEFAULT_LIVE_FILTERS).startsWith("NOT (kind:suricata.flow"))
   const query = composeLiveQuery({ kinds: ["dns", "http"], clients: [PHONE], time: "last_1h", search: "github" }, "", (id) => (id === PHONE ? [FORMER] : []))
   assert.equal(
     query,
@@ -154,9 +156,10 @@ test("discovery traffic on the network has its own type", () => {
   const ssdp = streamLine({ ...base, kind: "zeek.conn", protocol: "udp", destination_ip: "239.255.255.250", destination_port: 1900, network_bytes: 410 })
   assert.deepEqual([ssdp.kind, ssdp.badge, ssdp.name], ["discovery", "SSDP", "239.255.255.250:1900"])
   const chip = (id) => STREAM_KINDS.find((kind) => kind.id === id).query
-  for (const port of [5353, 1900, 5355, 137, 67]) assert.match(chip("discovery"), new RegExp(`dst\\.port:${port}\\b`))
-  assert.match(chip("dns"), /NOT dst\.port:5353/)
-  assert.match(chip("other"), /NOT dst\.port:1900/)
+  assert.match(chip("discovery"), /protocol\.category:local-discovery OR app\.protocol:dhcp/)
+  assert.match(chip("dns"), /NOT protocol\.category:local-discovery/)
+  assert.match(chip("other"), /NOT \(protocol\.category:local-discovery/)
+  assert.equal(streamLine({ ...base, kind: "zeek.conn", app_protocol: "ws-discovery", protocol_category: "local-discovery", destination_port: 4000 }).kind, "discovery")
   assert.ok(composeLiveQuery(DEFAULT_LIVE_FILTERS).length < 2048)
 })
 
@@ -180,4 +183,27 @@ test("the Traffic page has a wide view", () => {
   assert.match(traffic, /document\.body\.classList\.toggle\("traffic-wide", wide\)/)
   assert.match(traffic, /traffic_view/)
   assert.match(webUIFile("styles/live-traffic.css"), /body\.traffic-wide main\.workspace\{max-width:none/)
+})
+
+// The server accepts at most 128 terms. "All" once joined every chip's query
+// and ran past it ("query contains too many tokens"), so Traffic showed
+// nothing.
+test("every selection of kinds stays within the server's term limit", async () => {
+  const { queryTerms } = await import("../../apps/web-ui/src/lib/liveTraffic.ts")
+  const clients = Array.from({ length: 30 }, (_, index) => `device-${String(index).padStart(32, "0")}`)
+  let worst = 0
+  for (let mask = 1; mask < 1 << ALL_STREAM_KINDS.length; mask++) {
+    const kinds = ALL_STREAM_KINDS.filter((_, index) => mask & (1 << index))
+    const query = composeLiveQuery({ kinds, clients, time: "last_24h", search: "github" }, "proto:mqtt")
+    worst = Math.max(worst, queryTerms(query))
+    assert.ok(query.length < 2048, `${kinds} is ${query.length} bytes`)
+  }
+  assert.ok(worst <= 120, `the longest selection has ${worst} terms`)
+  assert.match(composeLiveQuery(DEFAULT_LIVE_FILTERS), /^NOT \(kind:suricata\.flow/)
+})
+
+test("network chatter gets plain badges", () => {
+  const line = (extra) => streamLine({ ...base, kind: "zeek.conn", protocol: "udp", ...extra })
+  assert.equal(line({ destination_ip: "255.255.255.255", destination_port: 10001, app_protocol: "ubnt-discovery", protocol_category: "local-discovery" }).badge, "UniFi")
+  assert.equal(line({ destination_ip: "192.168.200.255", destination_port: 58866, app_protocol: "local-broadcast", protocol_category: "local-discovery" }).badge, "Bcast")
 })

@@ -97,3 +97,20 @@ func TestCatalogIsDefensiveCopy(t *testing.T) {
 		t.Fatal("Lookup returned shared port slice")
 	}
 }
+
+// On the test VM the single-arm recording now keeps the network's broadcast:
+// UniFi gear announcing itself on UDP 10001, and devices broadcasting on
+// ports no known protocol uses. Both are local discovery, not servers.
+func TestBroadcastChatterIsLocalDiscovery(t *testing.T) {
+	ubnt := Classify(Observation{Transport: "udp", ServerPort: 10001, ToBroadcast: true})
+	if ubnt.Protocol != "ubnt-discovery" || ubnt.Category != CategoryLocalDiscovery {
+		t.Fatalf("UDP 10001 = %+v", ubnt)
+	}
+	unknown := Classify(Observation{Transport: "udp", ServerPort: 58866, ToBroadcast: true})
+	if unknown.Protocol != LocalBroadcast || unknown.Category != CategoryLocalDiscovery {
+		t.Fatalf("broadcast to an unknown port = %+v", unknown)
+	}
+	if unicast := Classify(Observation{Transport: "udp", ServerPort: 58866}); unicast.Protocol != UnknownUDP {
+		t.Fatalf("unicast to an unknown port = %+v", unicast)
+	}
+}

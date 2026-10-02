@@ -106,3 +106,14 @@ func TestProjectEventLeavesNonTrafficRecordsUnclassified(t *testing.T) {
 		}
 	}
 }
+
+func TestBroadcastDestinations(t *testing.T) {
+	for value, want := range map[string]bool{
+		"255.255.255.255": true, "233.89.188.1": true, "224.0.0.251": true, "192.168.200.255": true, "ff02::fb": true,
+		"192.168.10.177": false, "140.82.121.4": false, "2606:4700::1": false, "not-an-ip": false,
+	} {
+		if got := broadcastDestination(value); got != want {
+			t.Fatalf("broadcastDestination(%q) = %v, want %v", value, got, want)
+		}
+	}
+}

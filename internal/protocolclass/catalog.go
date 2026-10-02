@@ -94,7 +94,10 @@ type Port struct {
 const (
 	UnknownTCP = "unknown-tcp"
 	UnknownUDP = "unknown-udp"
-	UnknownIP  = "unknown"
+	// LocalBroadcast is unrecognized traffic to a broadcast or multicast
+	// address: local network chatter, not a connection to a server.
+	LocalBroadcast = "local-broadcast"
+	UnknownIP      = "unknown"
 )
 
 // mainstream protocols are expected on almost every network and are
@@ -156,6 +159,8 @@ var catalog = []Protocol{
 	{ID: "llmnr", Label: "LLMNR", Category: CategoryLocalDiscovery, Visibility: cleartext, Description: "Windows link-local name resolution.", Ports: udp(5355)},
 	{ID: "netbios-ns", Label: "NetBIOS name service", Category: CategoryLocalDiscovery, Visibility: cleartext, Description: "Legacy Windows name resolution.", Ports: udp(137, 138)},
 	{ID: "ws-discovery", Label: "WS-Discovery", Category: CategoryLocalDiscovery, Visibility: cleartext, Description: "Discovery used by printers and ONVIF cameras.", Ports: udp(3702)},
+	{ID: "ubnt-discovery", Label: "Ubiquiti discovery", Category: CategoryLocalDiscovery, Visibility: cleartext, Description: "UniFi and other Ubiquiti devices announcing themselves on the network.", Ports: udp(10001)},
+	{ID: LocalBroadcast, Label: "Broadcast or multicast", Category: CategoryLocalDiscovery, Visibility: cleartext, Description: "Sent to every device on the network or to a multicast group, on a port no known protocol uses."},
 
 	// IoT messaging.
 	{ID: "mqtt", Label: "MQTT", Category: CategoryIoTMessaging, Visibility: cleartext, Description: "Lightweight IoT publish/subscribe messaging.", Ports: tcp(1883)},

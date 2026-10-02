@@ -3,6 +3,7 @@ package ingest
 import (
 	"bytes"
 	"encoding/json"
+	"net/netip"
 	"regexp"
 	"strings"
 
@@ -108,6 +109,7 @@ func ProjectProtocolFields(envelope Envelope, network NetworkProjection, tls TLS
 			Service:     classificationService(envelope, network),
 			ServerPort:  network.DestinationPort,
 			ClientPort:  network.SourcePort,
+			ToBroadcast: broadcastDestination(network.DestinationIP),
 			Intercepted: mitmproxyDecrypted(envelope, tls),
 		}))
 	}
@@ -219,4 +221,23 @@ func validProtocolProjection(event RecentEvent) bool {
 		return true
 	}
 	return false
+}
+
+// broadcastDestination reports a multicast group, the limited broadcast
+// address, or an IPv4 address ending in .255 (a /24's broadcast, the usual
+// lab and home subnet).
+func broadcastDestination(value string) bool {
+	address, err := netip.ParseAddr(value)
+	if err != nil {
+		return false
+	}
+	address = address.Unmap()
+	if address.IsMulticast() {
+		return true
+	}
+	if !address.Is4() {
+		return false
+	}
+	octets := address.As4()
+	return octets[3] == 255
 }

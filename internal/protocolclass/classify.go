@@ -15,6 +15,9 @@ type Observation struct {
 	ClientPort int
 	// Intercepted is true when ShakerProxy decrypted this flow.
 	Intercepted bool
+	// ToBroadcast is true when the destination is a broadcast or multicast
+	// address.
+	ToBroadcast bool
 }
 
 // Classification is the result of Classify.
@@ -122,6 +125,9 @@ func Classify(observation Observation) Classification {
 		if id := portProtocol(transport, observation.ClientPort); id != "" {
 			return classification(id, EvidencePort, observation.Intercepted)
 		}
+	}
+	if observation.ToBroadcast {
+		return classification(LocalBroadcast, EvidencePort, false)
 	}
 	switch transport {
 	case "tcp":
