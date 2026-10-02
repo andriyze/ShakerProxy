@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help verify docs-check registry-check test test-go test-ui test-mitm test-mitm-image compose-check security-check shell-check package package-smoke release-images release-bundle release-bundle-smoke vm-confirm vm-timeout vm-daemon-kill vm-reboot vm-host-safety vm-dhcp vm-capture ingest-db-smoke live-events-smoke analyzer-smoke netlab netlab-mitmproxy dev dev-observe dev-down dev-logs dev-ps dev-reset dev-cli dev-demo dev-demo-live ui-dev
+.PHONY: help verify fmt-check docs-check registry-check test test-go test-ui test-mitm test-mitm-image compose-check security-check shell-check package package-smoke release-images release-bundle release-bundle-smoke vm-confirm vm-timeout vm-daemon-kill vm-reboot vm-host-safety vm-dhcp vm-capture ingest-db-smoke live-events-smoke analyzer-smoke netlab netlab-mitmproxy dev dev-observe dev-down dev-logs dev-ps dev-reset dev-cli dev-demo dev-demo-live ui-dev
 
 PACKAGE_VERSION ?= 0.1.0-dev.1
 GO_IMAGE := golang:1.25.1-bookworm@sha256:c423747fbd96fd8f0b1102d947f51f9b266060217478e5f9bf86f145969562ee
@@ -54,7 +54,11 @@ dev-reset: ## Delete all dev data and start fresh with a new setup token
 
 ##@ Checks
 
-verify: docs-check registry-check test compose-check security-check shell-check ## Run every check CI runs locally
+verify: docs-check registry-check fmt-check test compose-check security-check shell-check ## Run every check CI runs locally
+
+fmt-check: ## Fail when Go files are not gofmt-formatted (as CI checks)
+	@unformatted=$$(docker run --rm -v "$(CURDIR):/src" -w /src $(GO_IMAGE) gofmt -l apps host internal); \
+	if [ -n "$$unformatted" ]; then echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
 
 docs-check: ## Check Markdown links, headings and make targets in docs
 	node ./scripts/check-docs.mjs
