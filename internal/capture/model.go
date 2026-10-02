@@ -168,6 +168,15 @@ type Source struct {
 	// recorded, so each flow appears once, from the device.
 	SingleArmGateway string `json:"single_arm_gateway,omitempty"`
 	SingleArmLabCIDR string `json:"single_arm_lab_cidr,omitempty"`
+	// AccessPointName and AccessPointStableID add the Wi-Fi access point of
+	// an inline bridge to the recording. Wi-Fi devices join the bridge
+	// through it, so it is recorded like the wired device port: on the port,
+	// before the firewall rewrites a redirected DNS query. Both ports carry
+	// Ethernet frames, so one pcapng file holds both interfaces for Zeek,
+	// Suricata, live analysis and the HTTP exchange reader. A frame between
+	// a wired and a Wi-Fi device crosses both ports and is recorded twice.
+	AccessPointName     string `json:"access_point_name,omitempty"`
+	AccessPointStableID string `json:"access_point_stable_id,omitempty"`
 }
 
 func (s Source) Validate() error {
@@ -182,7 +191,27 @@ func (s Source) Validate() error {
 			return err
 		}
 	}
+	if s.AccessPointName != "" || s.AccessPointStableID != "" {
+		if !interfacePattern.MatchString(s.AccessPointName) || s.AccessPointName == s.InterfaceName {
+			return errors.New("capture access point interface name is invalid")
+		}
+		if strings.TrimSpace(s.AccessPointStableID) == "" || len(s.AccessPointStableID) > 256 || s.AccessPointStableID == s.InterfaceStableID {
+			return errors.New("capture access point stable identity is invalid")
+		}
+		if s.SingleArmGateway != "" {
+			// A single-arm filter names one interface's address.
+			return errors.New("a single-arm capture cannot add an access point")
+		}
+	}
 	return nil
+}
+
+// Interfaces lists the interfaces the capture records, in dumpcap order.
+func (s Source) Interfaces() []string {
+	if s.AccessPointName == "" {
+		return []string{s.InterfaceName}
+	}
+	return []string{s.InterfaceName, s.AccessPointName}
 }
 
 // singleArmFilter derives the fixed BPF exclusion from validated addresses;

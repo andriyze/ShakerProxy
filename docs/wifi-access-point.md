@@ -53,11 +53,12 @@ unpredictably; prefer adapters supported by the mainline kernel.
 | --- | --- | --- |
 | **Wi-Fi only** | `WAN` + `WIFI_AP` (+ optional `MANAGEMENT`) | The Wi-Fi network is the whole lab. |
 | **Wi-Fi and wired lab port** | `WAN` + `LAB` + `WIFI_AP` with `bridge_with_lab: true` | Wired and Wi-Fi devices share one lab network through bridge `lgbr0`. |
+| **Wi-Fi on an inline bridge** | `TRANSPARENT_BRIDGE`: `WAN` (router port) + `LAB` (device port) + `WIFI_AP` with `bridge_with_lab: true` | The access point joins `spbr0`; Wi-Fi devices get addresses from your own router through ShakerProxy. See [Inline bridge](bridge-mode.md#wi-fi-on-the-bridge). |
 
-Wi-Fi works with the `TWO_NIC`, `THREE_INTERFACE`, `EXISTING_ROUTED_VLAN`, and
-`ADVANCED_CUSTOM` topologies. It is not available for single-arm, VLAN trunk,
-or passive-sensor plans, because those have no separate lab segment for the
-access point.
+Wi-Fi works with the `TWO_NIC`, `THREE_INTERFACE`, `EXISTING_ROUTED_VLAN`,
+`TRANSPARENT_BRIDGE`, and `ADVANCED_CUSTOM` topologies. It is not available
+for single-arm, VLAN trunk, or passive-sensor plans, because those have no
+separate lab segment for the access point.
 
 In the bridged layout the lab gateway address, DHCP, firewall rules, capture,
 and HTTPS decryption all move to `lgbr0`, so a phone on Wi-Fi and a TV on the

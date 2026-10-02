@@ -50,10 +50,10 @@ func (p OSProbe) AccessPoint(ctx context.Context, staged networkplan.StagedPlan)
 	if state := strings.TrimSpace(string(operstate)); state != "up" {
 		return fmt.Errorf("Wi-Fi adapter %s is %s instead of broadcasting", ap.CurrentName, state)
 	}
-	if networkplan.WiFiBridged(staged.Plan) {
-		state, err := p.readFile("/sys/class/net/" + networkplan.LabBridgeName + "/brif/" + ap.CurrentName + "/state")
+	if bridge := networkplan.AccessPointBridgeName(staged.Plan); bridge != "" {
+		state, err := p.readFile("/sys/class/net/" + bridge + "/brif/" + ap.CurrentName + "/state")
 		if err != nil || strings.TrimSpace(string(state)) != "3" {
-			return fmt.Errorf("Wi-Fi adapter %s is not forwarding in lab bridge %s", ap.CurrentName, networkplan.LabBridgeName)
+			return fmt.Errorf("Wi-Fi adapter %s is not forwarding in bridge %s", ap.CurrentName, bridge)
 		}
 	}
 	return nil

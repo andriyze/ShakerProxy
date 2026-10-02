@@ -19,7 +19,7 @@ import (
 
 var (
 	packetCountPattern = regexp.MustCompile(`(?:Packets:|Packets captured:)\s*([0-9]+)`)
-	dropCountPattern   = regexp.MustCompile(`Packets received/dropped on interface '[^']+':\s*([0-9]+)/([0-9]+)\s*\(pcap:([0-9]+)/dumpcap:([0-9]+)/flushed:([0-9]+)/ps_ifdrop:([0-9]+)\)`)
+	dropCountPattern   = regexp.MustCompile(`Packets received/dropped on interface '([^']+)':\s*([0-9]+)/([0-9]+)\s*\(pcap:([0-9]+)/dumpcap:([0-9]+)/flushed:([0-9]+)/ps_ifdrop:([0-9]+)\)`)
 	// dumpcap 4.2 prints "File: <path>" on its own line at each rotation;
 	// dumpcap 4.6 (Ubuntu 26.04) appends it to the packet counter line,
 	// "Packets: 14 File: <path>".
@@ -38,18 +38,21 @@ func BuildDumpcapArguments(session Session, directory string, now time.Time) ([]
 		return nil, errors.New("capture stop deadline has elapsed")
 	}
 	seconds := int((remaining + time.Second - 1) / time.Second)
-	arguments := []string{
-		"-i", session.Source.InterfaceName,
-		"-s", strconv.Itoa(session.Request.SnapLength),
-		"-B", "8",
+	// The snapshot length and buffer follow each -i, so they apply to every
+	// recorded interface.
+	arguments := []string{}
+	for _, name := range session.Source.Interfaces() {
+		arguments = append(arguments, "-i", name, "-s", strconv.Itoa(session.Request.SnapLength), "-B", "8")
+	}
+	arguments = append(arguments,
 		"-n",
 		"--temp-dir", directory,
 		"-w", filepath.Join(directory, session.OutputBaseName),
-		"-b", "filesize:" + strconv.Itoa(session.Request.SegmentSizeMiB*1024),
-		"-b", "duration:" + strconv.Itoa(session.Request.SegmentSeconds),
-		"-b", "files:" + strconv.Itoa(session.Request.MaxFiles),
-		"-a", "duration:" + strconv.Itoa(seconds),
-	}
+		"-b", "filesize:"+strconv.Itoa(session.Request.SegmentSizeMiB*1024),
+		"-b", "duration:"+strconv.Itoa(session.Request.SegmentSeconds),
+		"-b", "files:"+strconv.Itoa(session.Request.MaxFiles),
+		"-a", "duration:"+strconv.Itoa(seconds),
+	)
 	if session.Source.SingleArmGateway != "" {
 		filter, err := session.Source.singleArmFilter()
 		if err != nil {
@@ -232,7 +235,17 @@ type captureOutputTracker struct {
 	// shareStarted lets the analyzers read a segment as soon as dumpcap
 	// starts it, for live analysis.
 	shareStarted func(name string)
+	// interfaceCounts holds dumpcap's latest counters per interface.
+	interfaceCounts map[string]interfaceCounts
 }
+
+type interfaceCounts struct {
+	received, kernel, dumpcap uint64
+}
+
+// maxCaptureInterfaces bounds the per-interface counters; a recording has
+// at most the device port and an access point.
+const maxCaptureInterfaces = 4
 
 func (t *captureOutputTracker) consume(reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
@@ -273,14 +286,25 @@ func (t *captureOutputTracker) observe(line string) (started string) {
 			t.status.PacketsCaptured = count
 		}
 	}
-	if match := dropCountPattern.FindStringSubmatch(line); len(match) == 7 {
+	if match := dropCountPattern.FindStringSubmatch(line); len(match) == 8 {
 		values := make([]uint64, 6)
 		for index := range values {
-			values[index], _ = strconv.ParseUint(match[index+1], 10, 64)
+			values[index], _ = strconv.ParseUint(match[index+2], 10, 64)
 		}
-		t.status.PacketsReceived = values[0]
-		t.status.KernelDrops = values[2] + values[5]
-		t.status.DumpcapDrops = values[3] + values[4]
+		// dumpcap reports each recorded interface on its own line; the
+		// status is their sum.
+		if t.interfaceCounts == nil {
+			t.interfaceCounts = map[string]interfaceCounts{}
+		}
+		if _, known := t.interfaceCounts[match[1]]; known || len(t.interfaceCounts) < maxCaptureInterfaces {
+			t.interfaceCounts[match[1]] = interfaceCounts{received: values[0], kernel: values[2] + values[5], dumpcap: values[3] + values[4]}
+		}
+		t.status.PacketsReceived, t.status.KernelDrops, t.status.DumpcapDrops = 0, 0, 0
+		for _, counts := range t.interfaceCounts {
+			t.status.PacketsReceived += counts.received
+			t.status.KernelDrops += counts.kernel
+			t.status.DumpcapDrops += counts.dumpcap
+		}
 	}
 	if match := outputFilePattern.FindStringSubmatch(line); len(match) == 2 {
 		name := filepath.Base(strings.TrimSpace(match[1]))

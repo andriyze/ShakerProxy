@@ -54,8 +54,8 @@ func RenderHostapdConf(plan Plan) (string, error) {
 	}
 	b.WriteString("# Managed by ShakerProxy. The next network apply replaces this file.\n")
 	line("interface", ap.CurrentName)
-	if WiFiBridged(plan) {
-		line("bridge", LabBridgeName)
+	if bridge := AccessPointBridgeName(plan); bridge != "" {
+		line("bridge", bridge)
 	}
 	line("driver", "nl80211")
 	line("ctrl_interface", HostapdControlDirectory)
@@ -145,8 +145,19 @@ func addWiFiPreview(preview *Preview, plan Plan) {
 	preview.HostapdConf = RedactHostapdConf(config)
 	preview.ChangedObjects = append(preview.ChangedObjects, ManagedHostapdPath, HostapdUnit)
 	wifi := *plan.WiFi
-	preview.Impact = append(preview.Impact, fmt.Sprintf("ShakerProxy would broadcast the Wi-Fi network %q from %s (%s, %s channel %d); devices that join get lab addresses from ShakerProxy", wifi.SSID, ap.CurrentName, securityLabel(wifi.Security), bandLabel(EffectiveWiFiBand(wifi)), EffectiveWiFiChannel(wifi)))
-	if WiFiBridged(plan) {
+	if InlineBridge(plan) {
+		_, device, _ := BridgePorts(plan)
+		preview.ChangedObjects = append(preview.ChangedObjects, "bridge port "+ap.CurrentName)
+		preview.Impact = append(preview.Impact,
+			fmt.Sprintf("ShakerProxy would broadcast the Wi-Fi network %q from %s (%s, %s channel %d); devices that join get their address, gateway and DNS from your router, through the bridge", wifi.SSID, ap.CurrentName, securityLabel(wifi.Security), bandLabel(EffectiveWiFiBand(wifi)), EffectiveWiFiChannel(wifi)),
+			fmt.Sprintf("Wi-Fi %s would join bridge %s beside the device port %s: Wi-Fi devices are recorded and get the same DNS forcing and device rules as wired ones", ap.CurrentName, InlineBridgeName, device.CurrentName),
+		)
+	} else {
+		preview.Impact = append(preview.Impact, fmt.Sprintf("ShakerProxy would broadcast the Wi-Fi network %q from %s (%s, %s channel %d); devices that join get lab addresses from ShakerProxy", wifi.SSID, ap.CurrentName, securityLabel(wifi.Security), bandLabel(EffectiveWiFiBand(wifi)), EffectiveWiFiChannel(wifi)))
+	}
+	if InlineBridge(plan) {
+		// Described above.
+	} else if WiFiBridged(plan) {
 		wired, _ := InterfaceForRole(plan, RoleLab)
 		preview.ChangedObjects = append(preview.ChangedObjects, "bridge "+LabBridgeName)
 		preview.Impact = append(preview.Impact, fmt.Sprintf("Wired lab port %s and Wi-Fi %s would share one lab network through bridge %s, which takes over the lab gateway address", wired.CurrentName, ap.CurrentName, LabBridgeName))

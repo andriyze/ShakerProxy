@@ -226,6 +226,49 @@ func TestLabRecorderRestartsForANewLabPlan(t *testing.T) {
 	}
 }
 
+// hostapd starts the inline bridge's access point after the bridge, so the
+// lab recording may start without it; once it is up the recording restarts
+// to record it beside the device port, and stays put after that.
+func TestLabRecorderAddsTheBridgeAccessPointWhenItComesUp(t *testing.T) {
+	fixture := newLabRecordingFixture(t)
+	apUp := false
+	original := bridgeAccessPointSource
+	bridgeAccessPointSource = func(networkplan.Plan) (string, string, bool) { return "wlan0", "usb-wlan0", apUp }
+	t.Cleanup(func() { bridgeAccessPointSource = original })
+	fixture.recorder.LabRevision = labRecordingRevision
+	fixture.recorder.Source = func(context.Context) (capture.Source, string, error) {
+		active := fixture.store.Get().activeNetworkPlan()
+		source := capture.Source{InterfaceName: "eth1", InterfaceStableID: "pci-eth1"}
+		if name, stableID, ok := bridgeAccessPointSource(active.Plan); ok {
+			source.AccessPointName, source.AccessPointStableID = name, stableID
+		}
+		return source, labRecordingRevisionFor(*active, source.AccessPointName != ""), nil
+	}
+
+	first := fixture.recorder.Tick(t.Context())
+	view, err := fixture.captures.Get(t.Context(), first.SessionID)
+	if err != nil || view.Session.Source.AccessPointName != "" || view.Session.PolicyRevision != stateTestPlanHash {
+		t.Fatalf("recording before the access point is up: %+v %v", view.Session, err)
+	}
+	if again := fixture.recorder.Tick(t.Context()); again.SessionID != first.SessionID {
+		t.Fatalf("the recording restarted with nothing changed: %+v", again)
+	}
+
+	apUp = true
+	fixture.recorder.Tick(t.Context())
+	if fixture.units.active[first.SessionID] {
+		t.Fatal("the recording without the access point kept running")
+	}
+	next := fixture.recorder.Tick(t.Context())
+	view, err = fixture.captures.Get(t.Context(), next.SessionID)
+	if err != nil || !next.Recording || view.Session.Source.AccessPointName != "wlan0" || view.Session.PolicyRevision != stateTestPlanHash+accessPointRevisionSuffix {
+		t.Fatalf("the access point is not recorded: %+v view=%+v err=%v", next, view.Session, err)
+	}
+	if again := fixture.recorder.Tick(t.Context()); again.SessionID != next.SessionID {
+		t.Fatalf("the recording with the access point restarted: %+v", again)
+	}
+}
+
 func TestLabRecorderStepsAsideForAManualCaptureAndResumesAfterIt(t *testing.T) {
 	fixture := newLabRecordingFixture(t)
 	automatic := fixture.recorder.Tick(t.Context())

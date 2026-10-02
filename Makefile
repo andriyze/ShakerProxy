@@ -175,8 +175,9 @@ netlab: ## Network namespace lab suite (sudo)
 	sudo ./tests/netlab/wifi-hwsim.sh
 	SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/mitmproxy-container.sh
 
-netlab-wifi: ## Wi-Fi visibility lab test with simulated radios (sudo, needs mac80211_hwsim)
+netlab-wifi: ## Wi-Fi lab tests with simulated radios: visibility, and the access point in an inline bridge (sudo, needs mac80211_hwsim)
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/wifi-hwsim.sh
+	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/bridge-ap-hwsim.sh
 
 netlab-mitmproxy: ## mitmproxy container lab test
 	./tests/netlab/mitmproxy-container.sh

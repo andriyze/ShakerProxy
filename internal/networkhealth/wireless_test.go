@@ -146,6 +146,15 @@ func TestOSProbeAccessPoint(t *testing.T) {
 			}
 		})
 	}
+	// On an inline bridge the access point must forward in spbr0.
+	inline := wifiHealthStaged(t, now, true)
+	inline.Plan.Topology = networkplan.TopologyTransparentBridge
+	if err := probeWith(map[string]string{"/sys/class/net/wlan0/operstate": "up\n", "/sys/class/net/spbr0/brif/wlan0/state": "3\n"}, nil).AccessPoint(context.Background(), inline); err != nil {
+		t.Fatalf("an access point forwarding in the inline bridge failed: %v", err)
+	}
+	if err := probeWith(files, nil).AccessPoint(context.Background(), inline); err == nil || !strings.Contains(err.Error(), "not forwarding in bridge spbr0") {
+		t.Fatalf("an access point outside the inline bridge passed: %v", err)
+	}
 	unsafe := wifiHealthStaged(t, now, false)
 	unsafe.Plan.Interfaces[1].CurrentName = "../../etc"
 	if err := probeWith(files, nil).AccessPoint(context.Background(), unsafe); err == nil {

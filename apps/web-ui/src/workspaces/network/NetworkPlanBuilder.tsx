@@ -5,7 +5,7 @@ import { api } from "../../api"
 import { sortedPlanExtensions, type PlanInterface } from "../../features"
 import {
   applyExtensionRoles,
-  extensionsApply,
+  extensionApplies,
   interfaceLabel,
   mergePlanExtensions,
   shellRoles,
@@ -71,7 +71,6 @@ export function NetworkPlanBuilder({
   // modules. Each owns one top-level plan key; the shell does not render its
   // own control for a claimed key.
   const extensions = useMemo(() => sortedPlanExtensions(), [])
-  const claimedKeys = useMemo(() => new Set(extensions.map((extension) => extension.planKey)), [extensions])
   const [extensionValues, setExtensionValues] = useState<Record<string, unknown>>(() => {
     const values: Record<string, unknown> = {}
     for (const extension of extensions) {
@@ -82,7 +81,11 @@ export function NetworkPlanBuilder({
   })
   const [extensionRoles, setExtensionRoles] = useState<Record<string, string>>({})
   const planInterfaces = useMemo(() => interfaces.map(planInterface), [interfaces])
-  const useExtensions = extensionsApply(topology) && extensions.length > 0
+  // The extensions this topology takes (an inline bridge takes only the
+  // Wi-Fi access point).
+  const activeExtensions = useMemo(() => extensions.filter((extension) => extensionApplies(topology, extension.planKey)), [extensions, topology])
+  const activeKeys = useMemo(() => new Set(activeExtensions.map((extension) => extension.planKey)), [activeExtensions])
+  const useExtensions = activeExtensions.length > 0
 
   // Restore an in-flight network change after a reload (audit #7): the
   // appliance reports it in status.staged_network_plan.
@@ -318,7 +321,7 @@ export function NetworkPlanBuilder({
           }
         : nextPlan
     if (useExtensions) {
-      finalPlan = mergePlanExtensions(nextPlan, extensionValues, claimedKeys)
+      finalPlan = mergePlanExtensions(finalPlan, extensionValues, activeKeys)
       finalPlan.interfaces = applyExtensionRoles(plannedInterfaces as PlannedInterface[], extensionRoles, interfaces)
     }
     try {
@@ -580,11 +583,15 @@ export function NetworkPlanBuilder({
                       <span>I reviewed cloud-init ownership and explicitly authorize the ShakerProxy override.</span>
                     </label>
                   )}
+                  <p className="field-help">
+                    To test phones and other Wi-Fi devices too, turn on ShakerProxy&apos;s Wi-Fi access point below: it
+                    joins the bridge, so Wi-Fi devices get their address from your router through ShakerProxy and are
+                    recorded and controlled like the device on the device port.
+                  </p>
                   <p className="danger-note">
-                    Not available on a bridge yet: ShakerProxy&apos;s Wi-Fi access point. DNS forcing and device rules
-                    apply to IPv4 and IPv6; ShakerProxy takes its IPv6 address from your router to answer DNS over IPv6.
-                    While ShakerProxy is off the device has no network; emergency bypass keeps it online without
-                    inspection.
+                    DNS forcing and device rules apply to IPv4 and IPv6; ShakerProxy takes its IPv6 address from your
+                    router to answer DNS over IPv6. While ShakerProxy is off the devices have no network; emergency
+                    bypass keeps them online without inspection.
                   </p>
                 </fieldset>
               ) : (
@@ -744,7 +751,7 @@ export function NetworkPlanBuilder({
                       Local search domain
                       <input name="search_domain" defaultValue="shakerproxy.home" />
                     </label>
-                    {!(useExtensions && claimedKeys.has("ipv6")) && (
+                    {!activeKeys.has("ipv6") && (
                       <label>
                         Lab IPv6 strategy
                         <select name="lab_ipv6_strategy" defaultValue="DISABLED">
@@ -773,7 +780,7 @@ export function NetworkPlanBuilder({
               </fieldset>
               )}
               {useExtensions &&
-                extensions.map((extension) => (
+                activeExtensions.map((extension) => (
                   // Extensions render their own titled fieldset; a second
                   // legend here would repeat the title.
                   <div className="plan-section plan-extension" key={extension.id} data-plan-key={extension.planKey}>
@@ -882,7 +889,10 @@ export function TopologyDiagram({
         <span>{wan?.name ?? "router port"}</span>
         <b>↔</b>
         <span>Your router + internet</span>
-        <small>The device keeps your router&apos;s DHCP, gateway and DNS; every frame between them is recorded.</small>
+        <small>
+          The device keeps your router&apos;s DHCP, gateway and DNS; every frame between them is recorded. Wi-Fi devices
+          can join through ShakerProxy&apos;s access point the same way.
+        </small>
       </div>
     )
   if (topology === "SINGLE_ARM")

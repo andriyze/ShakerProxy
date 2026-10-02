@@ -137,10 +137,26 @@ func wifiLabInterface(plan Plan) (Interface, bool) {
 
 func wifiTopologySupported(topology Topology) bool {
 	switch topology {
-	case TopologyTwoNIC, TopologyThreeInterface, TopologyExistingRoutedVLAN, TopologyAdvancedCustom:
+	case TopologyTwoNIC, TopologyThreeInterface, TopologyExistingRoutedVLAN, TopologyAdvancedCustom, TopologyTransparentBridge:
 		return true
 	}
 	return false
+}
+
+// AccessPointBridgeName is the bridge hostapd adds the access point to: the
+// inline bridge spbr0, where Wi-Fi devices join the network beside the
+// wired device port, or the lab bridge lgbr0 of a bridged Wi-Fi lab. It is
+// empty when the access point is the whole lab network.
+func AccessPointBridgeName(plan Plan) string {
+	switch {
+	case !WiFiEnabled(plan):
+		return ""
+	case InlineBridge(plan):
+		return InlineBridgeName
+	case WiFiBridged(plan):
+		return LabBridgeName
+	}
+	return ""
 }
 
 func validateWiFi(plan Plan, roles map[InterfaceRole]int, addError, addWarning func(string, string, string)) {
@@ -152,7 +168,7 @@ func validateWiFi(plan Plan, roles map[InterfaceRole]int, addError, addWarning f
 	}
 	config := *plan.WiFi
 	if !wifiTopologySupported(plan.Topology) {
-		addError("WIFI_TOPOLOGY_UNSUPPORTED", "topology", "A Wi-Fi access point can be added to two-NIC, three-interface, existing-routed-VLAN, and advanced plans. Choose one of those topologies or turn Wi-Fi off.")
+		addError("WIFI_TOPOLOGY_UNSUPPORTED", "topology", "A Wi-Fi access point can be added to two-NIC, three-interface, existing-routed-VLAN, inline bridge, and advanced plans. Choose one of those topologies or turn Wi-Fi off.")
 	}
 	switch roles[RoleWiFiAP] {
 	case 0:
@@ -171,8 +187,8 @@ func validateWiFi(plan Plan, roles map[InterfaceRole]int, addError, addWarning f
 				addError("WIFI_INTERFACE_MTU_UNSUPPORTED", path+".mtu", "ShakerProxy does not change the MTU of the Wi-Fi adapter. Set mtu to 0.")
 			}
 		}
-		if iface.CurrentName == LabBridgeName {
-			addError("WIFI_BRIDGE_NAME_RESERVED", path+".current_name", "The name lgbr0 is reserved for the ShakerProxy lab bridge. Remove that interface from the plan or rename it on the host.")
+		if iface.CurrentName == LabBridgeName || iface.CurrentName == InlineBridgeName {
+			addError("WIFI_BRIDGE_NAME_RESERVED", path+".current_name", fmt.Sprintf("The name %s is reserved for a ShakerProxy bridge. Remove that interface from the plan or rename it on the host.", iface.CurrentName))
 		}
 	}
 	if roles[RoleLab] > 0 && !config.BridgeWithLab {
