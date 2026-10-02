@@ -374,6 +374,22 @@ func TestOSAccessPointServiceRestartsAndWaitsForBridgedAccessPoint(t *testing.T)
 	if (*calls)[1].args != "enable shakerproxy-hostapd.service" || (*calls)[2].args != "disable --now shakerproxy-hostapd.service" {
 		t.Fatalf("unexpected enable/disable commands: %+v", *calls)
 	}
+	// On an inline bridge the access point is a port of spbr0, and spanning
+	// tree keeps it from forwarding for a few seconds.
+	_, inline := osAccessPointFixture(map[string]string{
+		"/sys/class/net/wlan0/operstate":        "up\n",
+		"/sys/class/net/spbr0/brif/wlan0/state": "1\n",
+	}, nil)
+	if err := inline.StartAccessPoint(context.Background(), AccessPointTarget{Interface: "wlan0", Bridge: networkplan.InlineBridgeName}); err == nil || !strings.Contains(err.Error(), "did not come up") {
+		t.Fatalf("an access point still listening in the inline bridge counted as ready: %v", err)
+	}
+	_, inline = osAccessPointFixture(map[string]string{
+		"/sys/class/net/wlan0/operstate":        "up\n",
+		"/sys/class/net/spbr0/brif/wlan0/state": "3\n",
+	}, nil)
+	if err := inline.StartAccessPoint(context.Background(), AccessPointTarget{Interface: "wlan0", Bridge: networkplan.InlineBridgeName}); err != nil {
+		t.Fatalf("an access point forwarding in the inline bridge was refused: %v", err)
+	}
 }
 
 func TestOSAccessPointServiceExplainsStartFailures(t *testing.T) {
