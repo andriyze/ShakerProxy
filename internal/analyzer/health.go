@@ -31,6 +31,7 @@ type HealthSnapshot struct {
 	HeartbeatAgeMillis int64       `json:"heartbeat_age_millis"`
 	LastError          string      `json:"last_error,omitempty"`
 	CheckedAt          time.Time   `json:"checked_at"`
+	Live               *LiveStatus `json:"live,omitempty"`
 }
 
 func (s StateStore) Health(now time.Time) (HealthSnapshot, error) {
@@ -45,7 +46,7 @@ func (s StateStore) Health(now time.Time) (HealthSnapshot, error) {
 		RulesetID: status.RulesetID, RulesetVersion: status.RulesetVersion, RulesetSHA256: status.RulesetSHA256,
 		ScanInProgress: status.ScanInProgress, CompletedCaptures: status.CompletedCaptures, DeliveredEvents: status.DeliveredEvents,
 		LastScanAt: status.LastScanAt, LastSuccessAt: status.LastSuccessAt, HeartbeatAt: status.UpdatedAt,
-		HeartbeatAgeMillis: age.Milliseconds(), LastError: status.LastError, CheckedAt: now,
+		HeartbeatAgeMillis: age.Milliseconds(), LastError: status.LastError, CheckedAt: now, Live: status.Live,
 	}
 	if age < -5*time.Second || age > 2*time.Minute {
 		return snapshot, nil
@@ -68,6 +69,9 @@ func (h HealthSnapshot) Validate() error {
 		return errors.New("analyzer health snapshot is invalid")
 	}
 	if !validText(h.SourceVersion, 1, 64) || len(h.LastError) > 2048 || h.LastError != "" && !validText(h.LastError, 1, 2048) {
+		return errors.New("analyzer health snapshot is invalid")
+	}
+	if h.Live != nil && (h.Engine != EngineZeek || !validLiveStatus(*h.Live)) {
 		return errors.New("analyzer health snapshot is invalid")
 	}
 	rulesetPresent := h.RulesetID != "" || h.RulesetVersion != "" || h.RulesetSHA256 != ""

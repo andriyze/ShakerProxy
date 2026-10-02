@@ -113,7 +113,11 @@ func (w Worker) Run(ctx context.Context, id string) error {
 		_ = command.Wait()
 		return err
 	}
-	tracker := &captureOutputTracker{status: status}
+	tracker := &captureOutputTracker{status: status, shareStarted: func(name string) {
+		// Live analysis is best effort: without read access it leaves the
+		// segment to offline analysis once it closes.
+		_ = w.Store.ShareActiveSegment(id, name)
+	}}
 	outputDone := make(chan struct{})
 	go func() {
 		tracker.consume(stderr)
@@ -225,6 +229,9 @@ type captureOutputTracker struct {
 	closedFiles  []string
 	queueEvicted uint64
 	feedEvicted  uint64
+	// shareStarted lets the analyzers read a segment as soon as dumpcap
+	// starts it, for live analysis.
+	shareStarted func(name string)
 }
 
 func (t *captureOutputTracker) consume(reader io.Reader) {
@@ -232,7 +239,9 @@ func (t *captureOutputTracker) consume(reader io.Reader) {
 	scanner.Split(splitDumpcapOutput)
 	scanner.Buffer(make([]byte, 1024), 16<<10)
 	for scanner.Scan() {
-		t.observe(strings.TrimSpace(scanner.Text()))
+		if started := t.observe(strings.TrimSpace(scanner.Text())); started != "" && t.shareStarted != nil {
+			t.shareStarted(started)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		t.observe("dumpcap status stream failed")
@@ -251,9 +260,11 @@ func splitDumpcapOutput(data []byte, atEOF bool) (advance int, token []byte, err
 	return 0, nil, nil
 }
 
-func (t *captureOutputTracker) observe(line string) {
+// observe records one dumpcap status line and returns the name of a segment
+// dumpcap just started writing, if the line announces one.
+func (t *captureOutputTracker) observe(line string) (started string) {
 	if line == "" {
-		return
+		return ""
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -282,6 +293,9 @@ func (t *captureOutputTracker) observe(line string) {
 					t.status.AnalyzerFeedEvicted = t.queueEvicted + t.feedEvicted
 				}
 			}
+			if t.currentFile != name {
+				started = name
+			}
 			t.currentFile = name
 		}
 	}
@@ -289,6 +303,7 @@ func (t *captureOutputTracker) observe(line string) {
 		line = line[:512]
 	}
 	t.lastOutput = line
+	return started
 }
 
 func (t *captureOutputTracker) drainClosedFiles() []string {

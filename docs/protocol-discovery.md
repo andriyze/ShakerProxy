@@ -203,8 +203,42 @@ low-rate capture within 512 MiB) and a 2 s analyzer poll
 (`SHAKERPROXY_ANALYZER_POLL_INTERVAL`). A capture started with an explicit
 `segment_seconds` keeps that value; larger values trade latency for fewer,
 larger files. The automatic lab recording rotates every 10 s (120 × 4 MiB,
-≈20 minutes within 480 MiB), so its connection details reach Traffic about
-10 s after the traffic.
+≈20 minutes within 480 MiB).
+
+### Live analysis of the lab recording
+
+Zeek also follows the automatic lab recording live, so its records do not
+wait for the segment to close. dumpcap is unchanged and keeps writing the
+evidence segments; the capture worker lets the capture group read the segment
+being written, and the Zeek analyzer pipes its packets into one long-running
+Zeek as they are written. That Zeek runs as the isolated parser user with no
+capture access: it reads only a packet stream on its standard input and
+writes logs to its own work directory. Its records are delivered every
+250 ms. Measured with the real Zeek on 10 s segments
+(`TestLiveZeekEndToEnd`), from the record's packets to ingest:
+
+| Record | Segment analysis (median / worst) | Live |
+|---|---|---|
+| DNS, HTTP, TLS and QUIC server names, files, NTP, software | 9.6 s / 10.7 s | 0.25–0.4 s |
+| Closed TCP connection (`conn.log`) | 9.0 s / 10.7 s | ≈3 s (2 s close delay) |
+| Open connection's bytes | per segment | every 10 s |
+
+Live Zeek reports a connection still carrying traffic every 10 seconds; each
+report covers only the window since the previous one, so a connection's
+records add up to its totals, as per-segment records do. QUIC
+records are written at the client hello, so they carry the server name but
+not the server's connection ID. Closed TCP connections are logged 2 s after
+their last packet, DNS exchanges 3 s, and idle UDP and ICMP flows 30 s.
+
+Each segment reaches ingest once. Live analysis records a segment as covered
+only after it streamed every byte of the closed file into Zeek, and the
+offline pass skips a segment only when its SHA-256 matches; it analyzes
+everything else, including a segment Zeek crashed in, the segments a lagging
+Zeek skipped (it jumps to the newest segment when three behind), and every
+segment when live analysis is off (`SHAKERPROXY_ZEEK_LIVE=off`) or the capture
+worker predates it. On shutdown the analyzer waits up to 12 s for the
+segment being written to close, so a restart hands nothing over. Manual
+captures and Suricata are analyzed per segment as before.
 
 Analyzers deliver a segment's events in batches (`POST
 /v1/adapters/{zeek,suricata}/batch`, NDJSON, up to 256 events), and ingest

@@ -30,6 +30,9 @@ type Runner struct {
 
 	failures map[string]captureFailure
 	seedKey  []byte
+	// Live hands segments between live Zeek analysis and this offline pass;
+	// nil means every segment is analyzed offline.
+	Live *LiveCoverage
 }
 
 // captureFailure tracks consecutive analysis failures for one capture so the
@@ -175,6 +178,10 @@ func (r *Runner) runCapture(ctx context.Context, sessionID string, result *ScanR
 			result.Errors = append(result.Errors, fmt.Errorf("capture %s: clean active analyzer progress: %w", sessionID, cleanupErr))
 			return
 		}
+		if cleanupErr := r.Live.Forget(sessionID); cleanupErr != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("capture %s: clean live coverage: %w", sessionID, cleanupErr))
+			return
+		}
 		result.Skipped++
 		return
 	}
@@ -195,6 +202,11 @@ func (r *Runner) runCapture(ctx context.Context, sessionID string, result *ScanR
 		}
 	}
 	events, processErr := r.processJob(ctx, job)
+	if errors.Is(processErr, errLiveSegmentPending) {
+		result.Events += events
+		result.Skipped++
+		return
+	}
 	if processErr != nil {
 		result.Errors = append(result.Errors, fmt.Errorf("capture %s: %w", sessionID, processErr))
 		return
@@ -259,12 +271,31 @@ func (r *Runner) processJob(ctx context.Context, job captureJob) (int, error) {
 	for _, segment := range progress.Recent {
 		processed[segment.Name] = segment
 	}
+	// A reindex runs behind a deletion barrier after the capture's events
+	// were deleted, so it analyzes everything regardless of live coverage.
+	reindexing, err := r.State.HasCheckpointDeletionBarrier(r.Config.Engine, job.Manifest.SessionID)
+	if err != nil {
+		return 0, err
+	}
 	persistProgress := true
 	for _, artifact := range job.Manifest.Files {
 		if segment, ok := processed[artifact.Name]; ok && segment.SizeBytes == artifact.SizeBytes && segment.Modified.Equal(artifact.Modified) && segment.SHA256 == artifact.SHA256 {
 			continue
 		}
-		delivered, outputBytes, processErr := r.processArtifact(analysisContext, job.Manifest.SessionID, artifact, r.Config.MaxOutputBytes-totalOutputBytes, MaxEventsPerCapture-totalEvents)
+		var delivered int
+		var outputBytes int64
+		var processErr error
+		decision := LiveOffline
+		if !reindexing {
+			decision = r.liveDecision(job.Manifest.SessionID, artifact)
+		}
+		switch decision {
+		case LiveWait:
+			return totalEvents - initialEvents, errLiveSegmentPending
+		case LiveCovered:
+		default:
+			delivered, outputBytes, processErr = r.processArtifact(analysisContext, job.Manifest.SessionID, artifact, r.Config.MaxOutputBytes-totalOutputBytes, MaxEventsPerCapture-totalEvents)
+		}
 		totalEvents += delivered
 		totalOutputBytes += outputBytes
 		if processErr != nil {
@@ -316,7 +347,23 @@ func (r *Runner) processJob(ctx context.Context, job captureJob) (int, error) {
 	if err := r.State.DeleteActiveProgress(job.Manifest.SessionID); err != nil {
 		return totalEvents - initialEvents, err
 	}
+	if err := r.Live.Forget(job.Manifest.SessionID); err != nil {
+		return totalEvents - initialEvents, err
+	}
 	return totalEvents - initialEvents, nil
+}
+
+// errLiveSegmentPending defers a finalized capture while live analysis may
+// still cover one of its segments.
+var errLiveSegmentPending = errors.New("live analysis may still cover a capture segment")
+
+// liveDecision reports whether live analysis covers a closed segment; only
+// Zeek runs live.
+func (r *Runner) liveDecision(sessionID string, artifact capture.CaptureFile) LiveDecision {
+	if r.Config.Engine != EngineZeek || r.Live == nil {
+		return LiveOffline
+	}
+	return r.Live.Decide(sessionID, artifact)
 }
 
 func (r *Runner) processActiveJob(ctx context.Context, job activeCaptureJob) (int, int, error) {
@@ -336,6 +383,7 @@ func (r *Runner) processActiveJob(ctx context.Context, job activeCaptureJob) (in
 	defer cancel()
 	newEvents := 0
 	processed := 0
+segments:
 	for _, segment := range job.Feed.Segments {
 		if segment.Sequence <= progress.LastCompletedSequence {
 			continue
@@ -350,7 +398,16 @@ func (r *Runner) processActiveJob(ctx context.Context, job activeCaptureJob) (in
 		var outputBytes int64
 		processErr := snapshotErr
 		if processErr == nil {
-			delivered, outputBytes, processErr = r.processArtifact(analysisContext, job.Feed.SessionID, artifact, r.Config.MaxOutputBytes-progress.OutputBytes, MaxEventsPerCapture-progress.EventsDelivered)
+			switch r.liveDecision(job.Feed.SessionID, artifact) {
+			case LiveWait:
+				// Live analysis may still cover this segment; later ones
+				// wait behind it so progress stays in order.
+				break segments
+			case LiveCovered:
+				// Live analysis already delivered this segment's packets.
+			default:
+				delivered, outputBytes, processErr = r.processArtifact(analysisContext, job.Feed.SessionID, artifact, r.Config.MaxOutputBytes-progress.OutputBytes, MaxEventsPerCapture-progress.EventsDelivered)
+			}
 		}
 		if errors.Is(processErr, os.ErrNotExist) {
 			// The capture's ring buffer removed the segment before it was

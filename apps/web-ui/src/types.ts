@@ -204,6 +204,19 @@ export type AnalyzerHealth = {
   heartbeat_age_millis: number
   last_error?: string
   checked_at: string
+  live?: AnalyzerLiveStatus
+}
+
+export type AnalyzerLiveStatus = {
+  state: "OFF" | "IDLE" | "FOLLOWING" | "RECOVERING"
+  capture_id?: string
+  segment?: string
+  lag_millis: number
+  events_delivered: number
+  segments_covered: number
+  segments_handed_off: number
+  restarts: number
+  last_error?: string
 }
 
 export type AnalyzerStatusReport = {
