@@ -19,7 +19,7 @@ func TestRoutingFindingsForASingleArmLab(t *testing.T) {
 	got := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "SINGLE_ARM", IPv6Strategy: "DISABLED", GatewayIPv4: "192.168.10.177", LabInterface: "ens18", PolicyAvailable: true}))
 	for id, status := range map[string]FindingStatus{
 		FindingIPv6: FindingOK, FindingDHCP: FindingGap, FindingPeerToPeer: FindingGap,
-		FindingEncryptedDNS: FindingGap, FindingPlainDNS: FindingGap, FindingLocalDiscovery: FindingGap,
+		FindingEncryptedDNS: FindingGap, FindingPlainDNS: FindingGap, FindingLocalDiscovery: FindingOK,
 	} {
 		if got[id].Status != status {
 			t.Fatalf("%s = %s (%s), want %s", id, got[id].Status, got[id].Detail, status)

@@ -147,3 +147,15 @@ test("encrypted DNS is identified by kind", () => {
   for (const kind of ["dot", "doq", "doh"]) assert.equal(line(kind).kind, "dns")
   assert.match(composeLiveQuery({ ...DEFAULT_LIVE_FILTERS, kinds: ["dns"] }), /app\.protocol:dot OR app\.protocol:doq/)
 })
+
+test("discovery traffic on the network has its own type", () => {
+  const mdns = streamLine({ ...base, kind: "zeek.dns", protocol: "udp", source_ip: "192.168.10.50", destination_ip: "224.0.0.251", destination_port: 5353, dns_query: "_googlecast._tcp.local", dns_record_type: "PTR", dns_answers: ["Living-Room-TV._googlecast._tcp.local"] })
+  assert.deepEqual([mdns.kind, mdns.badge, mdns.name, mdns.detail], ["discovery", "mDNS", "_googlecast._tcp.local", "PTR → Living-Room-TV._googlecast._tcp.local"])
+  const ssdp = streamLine({ ...base, kind: "zeek.conn", protocol: "udp", destination_ip: "239.255.255.250", destination_port: 1900, network_bytes: 410 })
+  assert.deepEqual([ssdp.kind, ssdp.badge, ssdp.name], ["discovery", "SSDP", "239.255.255.250:1900"])
+  const chip = (id) => STREAM_KINDS.find((kind) => kind.id === id).query
+  for (const port of [5353, 1900, 5355, 137, 67]) assert.match(chip("discovery"), new RegExp(`dst\\.port:${port}\\b`))
+  assert.match(chip("dns"), /NOT dst\.port:5353/)
+  assert.match(chip("other"), /NOT dst\.port:1900/)
+  assert.ok(composeLiveQuery(DEFAULT_LIVE_FILTERS).length < 2048)
+})

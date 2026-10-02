@@ -171,9 +171,8 @@ func encryptedDNSFindings(in RoutingInput) []Finding {
 func discoveryFinding(singleArm bool) Finding {
 	finding := Finding{ID: FindingLocalDiscovery, Title: "Local discovery (mDNS/Bonjour, SSDP)"}
 	if singleArm {
-		finding.Status = FindingGap
-		finding.Detail = "Single-arm recordings keep only traffic routed through ShakerProxy, so the multicast discovery AirPlay, Chromecast and smart-home apps use is not recorded."
-		finding.Fix = "Use a two-port or Wi-Fi lab, where the lab segment is recorded in full."
+		finding.Status = FindingOK
+		finding.Detail = "The recording keeps every device's multicast and broadcast on the shared network (mDNS/Bonjour, SSDP, LLMNR, NetBIOS, DHCP), the discovery AirPlay, Chromecast and smart-home apps use. Unicast traffic between two devices still does not cross ShakerProxy."
 	} else {
 		finding.Status = FindingOK
 		finding.Detail = "The lab segment is recorded in full, including multicast discovery."

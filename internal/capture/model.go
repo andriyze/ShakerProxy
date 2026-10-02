@@ -199,9 +199,14 @@ func (s Source) singleArmFilter() (string, error) {
 	// copy of each flow, its upstream DNS, management sessions) is left out,
 	// except the DNS it answers for lab devices. So is the host's own
 	// multicast and broadcast (IPv6 router solicitations, printer discovery
-	// on a desktop install): ShakerProxy forwards only unicast for devices.
+	// on a desktop install).
+	//
+	// Everything other hosts multicast or broadcast on the segment is kept:
+	// mDNS/Bonjour, SSDP, LLMNR, NetBIOS, DHCP and IPv6 router messages are how
+	// devices find each other (AirPlay, casting, smart-home apps) and announce
+	// their names, and that is part of what a tester needs to see.
 	if mac, err := interfaceHardwareAddress(s.InterfaceName); err == nil {
-		return fmt.Sprintf("ether host %[1]s and not (ether src %[1]s and ether multicast) and (not host %[2]s or (dst host %[2]s and dst port 53) or (src host %[2]s and src port 53))", mac, gateway), nil
+		return fmt.Sprintf("(ether host %[1]s and not (ether src %[1]s and ether multicast) and (not host %[2]s or (dst host %[2]s and dst port 53) or (src host %[2]s and src port 53))) or (ether multicast and not ether src %[1]s)", mac, gateway), nil
 	}
 	// Without the interface address, leave out only ShakerProxy talking to
 	// (or hearing from) a host outside the lab. BPF "net" matches either

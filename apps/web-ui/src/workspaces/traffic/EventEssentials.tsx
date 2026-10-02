@@ -81,13 +81,15 @@ export function EventEssentials({ event, payload }: { event: RecentEvent; payloa
   const line = streamLine(event)
   const destination = endpoint(event.destination_ip, event.destination_port)
   switch (line.kind) {
+    case "discovery":
     case "dns": {
       const answers = (event.dns_answers?.length ? event.dns_answers : Array.isArray(payload.answers) ? payload.answers.map(answerText) : []).filter(Boolean)
       return (
         <section className="ed-section">
           <Facts
             rows={[
-              ["Looked up", event.dns_query ?? "", true],
+              [line.kind === "discovery" ? `${line.badge} name` : "Looked up", event.dns_query ?? "", true],
+              ["Sent to", line.kind === "discovery" ? destination : "", true],
               ["Type", event.dns_record_type ?? value(payload.qtype_name)],
               ["Result", event.dns_response_code ?? value(payload.rcode_name)],
               ["Answered by", event.kind === "shakerproxy.dns" ? "ShakerProxy" : destination, true],
