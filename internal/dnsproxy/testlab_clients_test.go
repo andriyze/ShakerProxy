@@ -17,6 +17,10 @@ func TestTheVirtualTestLabClientsMayUseTheForwarder(t *testing.T) {
 	if !runtime.AllowedClient(netip.MustParseAddr(testlab.DefaultNormalClient)) {
 		t.Fatal("a virtual test-lab client was refused")
 	}
+	// The IPv6 probes come from a unique-local address, a private client.
+	if !runtime.AllowedClient(netip.MustParseAddr(testlab.DefaultNormalClientIPv6)) {
+		t.Fatal("a virtual test-lab client's IPv6 lookup was refused")
+	}
 	if runtime.AllowedClient(netip.MustParseAddr("198.18.241.254")) || runtime.AllowedClient(netip.MustParseAddr("8.8.8.8")) {
 		t.Fatal("addresses outside the lab and the test-lab clients must be refused")
 	}

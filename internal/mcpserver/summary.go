@@ -86,7 +86,9 @@ func localEventSummary(event ingest.RecentEvent) string {
 	case event.Kind == "http_request" || event.Kind == "http_response":
 		return "HTTP exchange with " + endpoint(event)
 	}
-	classification := protocolclass.Classify(protocolclass.Observation{Transport: event.Protocol, Service: event.Service, ServerPort: event.DestinationPort, ClientPort: event.SourcePort})
+	destination := net.ParseIP(event.DestinationIP)
+	classification := protocolclass.Classify(protocolclass.Observation{Transport: event.Protocol, Service: event.Service, ServerPort: event.DestinationPort, ClientPort: event.SourcePort,
+		IPv6: destination != nil && destination.To4() == nil})
 	summary := classification.Label + " to " + endpoint(event)
 	if event.NetworkBytes > 0 {
 		summary += " · " + devicereport.FormatBytes(event.NetworkBytes)

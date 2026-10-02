@@ -62,6 +62,8 @@ func TestClassifyUsesAnalyzerThenPortThenUnknown(t *testing.T) {
 		{"ephemeral client port ignored", Observation{Transport: "tcp", ServerPort: 40000, ClientPort: 5432}, UnknownTCP, EvidenceUnclassified, VisibilityOpaque, true},
 		{"unknown udp", Observation{Transport: "udp", ServerPort: 34567}, UnknownUDP, EvidenceUnclassified, VisibilityOpaque, true},
 		{"icmp", Observation{Transport: "icmp"}, "icmp", EvidenceAnalyzer, VisibilityCleartext, false},
+		{"zeek names icmpv6 icmp", Observation{Transport: "icmp", IPv6: true}, "icmpv6", EvidenceAnalyzer, VisibilityCleartext, false},
+		{"suricata names icmpv6", Observation{Transport: "IPv6-ICMP"}, "icmpv6", EvidenceAnalyzer, VisibilityCleartext, false},
 		{"no evidence", Observation{}, UnknownIP, EvidenceUnclassified, VisibilityOpaque, true},
 		{"failed analyzer falls back to port", Observation{Transport: "tcp", Service: "failed", ServerPort: 502}, "modbus", EvidencePort, VisibilityCleartext, true},
 		{"tls on 853 is dns over tls", Observation{Transport: "tcp", Service: "ssl", ServerPort: 853}, "dot", EvidenceAnalyzer, VisibilityEncryptedMetadata, true},
@@ -112,5 +114,18 @@ func TestBroadcastChatterIsLocalDiscovery(t *testing.T) {
 	}
 	if unicast := Classify(Observation{Transport: "udp", ServerPort: 58866}); unicast.Protocol != UnknownUDP {
 		t.Fatalf("unicast to an unknown port = %+v", unicast)
+	}
+}
+
+func TestLooseTunnelAnalyzersYieldToWellKnownPorts(t *testing.T) {
+	quic := Classify(Observation{Transport: "udp", Service: "ayiya", ServerPort: 443})
+	if quic.Protocol != "quic" || quic.Evidence != EvidencePort {
+		t.Fatalf("AYIYA on UDP/443 = %+v, want QUIC by port", quic)
+	}
+	if got := Classify(Observation{Transport: "udp", Service: "teredo", ServerPort: 3544}); got.Protocol != "ipv6-tunnel" || got.Evidence != EvidenceAnalyzer {
+		t.Fatalf("Teredo on its own port = %+v", got)
+	}
+	if got := Classify(Observation{Transport: "udp", Service: "teredo", ServerPort: 40000}); got.Protocol != "ipv6-tunnel" {
+		t.Fatalf("Teredo on an unknown port = %+v, want the analyzer's answer", got)
 	}
 }

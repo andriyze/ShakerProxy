@@ -23,6 +23,10 @@ type RoutingInput struct {
 	// recorded traffic that are not ShakerProxy.
 	ForeignRouterAdverts []string
 	ForeignDHCPServers   []string
+	// RouterAdvertsSearched is set when recorded lab traffic could be
+	// searched for IPv6 router advertisements; without it, finding none
+	// proves nothing.
+	RouterAdvertsSearched bool
 	// WirelessAccessPoint is set when the plan runs ShakerProxy's own Wi-Fi.
 	WirelessAccessPoint bool
 	// Encrypted DNS policy (trafficpolicy.EncryptedDNSPolicy).
@@ -31,6 +35,12 @@ type RoutingInput struct {
 	BlockDoQ         bool
 	BlockKnownDoH    bool
 	RedirectPlainDNS bool
+	// VPN is true while VPN mode is up (and no emergency bypass): devices
+	// on the WireGuard VPN send everything through ShakerProxy.
+	VPN           bool
+	VPNDevices    int
+	VPNPeerToPeer bool
+	VPNIPv6Routed bool
 }
 
 const (
@@ -41,24 +51,53 @@ const (
 	FindingEncryptedDNS   = "encrypted-dns"
 	FindingPlainDNS       = "outside-dns"
 	FindingLocalDiscovery = "local-discovery"
+	FindingVPN            = "vpn-full-tunnel"
 )
 
 // InspectRouting names every way a real device could bypass ShakerProxy.
 func InspectRouting(in RoutingInput) []Finding {
 	if !in.Routing {
+		if in.VPN {
+			// A VPN-only appliance: the VPN is the whole lab.
+			return append([]Finding{vpnFinding(in)}, encryptedDNSFindings(in)...)
+		}
 		return []Finding{{
 			ID:     FindingNotRouting,
 			Title:  "No lab is routing",
 			Status: FindingGap,
 			Detail: "No confirmed lab network routes devices through ShakerProxy, so nothing devices do is visible.",
-			Fix:    "Set up and confirm a lab on the Network page.",
+			Fix:    "Set up and confirm a lab on the Network page, or turn on VPN mode and add a device.",
 		}}
 	}
 	singleArm := in.Topology == "SINGLE_ARM"
 	findings := []Finding{ipv6Finding(in, singleArm), dhcpFinding(in, singleArm), peerFinding(in, singleArm)}
 	findings = append(findings, encryptedDNSFindings(in)...)
 	findings = append(findings, discoveryFinding(singleArm))
+	if in.VPN {
+		findings = append(findings, vpnFinding(in))
+	}
 	return findings
+}
+
+// vpnFinding describes the WireGuard VPN path: a full tunnel leaves a
+// device no other router, DHCP server or IPv6 path, so the lab's bypass
+// findings do not apply to VPN devices.
+func vpnFinding(in RoutingInput) Finding {
+	finding := Finding{ID: FindingVPN, Title: "VPN devices (WireGuard)", Status: FindingOK}
+	ipv6 := "IPv6 stays inside the tunnel, so they use IPv4."
+	if in.VPNIPv6Routed {
+		ipv6 = "IPv6 is routed through ShakerProxy too."
+	}
+	peers := "They cannot reach each other."
+	if in.VPNPeerToPeer {
+		peers = "Traffic between two VPN devices also crosses ShakerProxy."
+	}
+	finding.Detail = fmt.Sprintf("%d VPN device(s) send all their traffic through ShakerProxy, local-network destinations included: no other router, DHCP server or IPv6 path can take it around ShakerProxy. %s %s Local discovery (mDNS, SSDP) of the device's own network does not cross the tunnel.", in.VPNDevices, ipv6, peers)
+	if in.VPNDevices == 0 {
+		finding.Status = FindingUnknown
+		finding.Fix = "Add a device under VPN devices on the Network page and scan its QR code with the WireGuard app."
+	}
+	return finding
 }
 
 func routesIPv6(strategy string) bool {
@@ -70,27 +109,39 @@ func routesIPv6(strategy string) bool {
 	}
 }
 
+// ipv6Finding judges IPv6 from router advertisements in recorded lab traffic
+// and the appliance's own lab interface: a device takes its IPv6 default
+// route from whichever router advertises one.
 func ipv6Finding(in RoutingInput, singleArm bool) Finding {
 	finding := Finding{ID: FindingIPv6, Title: "IPv6"}
 	routers := uniqueSorted(in.ForeignRouterAdverts)
+	routed := routesIPv6(in.IPv6Strategy)
 	switch {
-	case routesIPv6(in.IPv6Strategy) && len(routers) == 0:
-		finding.Status = FindingOK
-		finding.Detail = "ShakerProxy routes the lab's IPv6 and no other IPv6 router was seen."
+	case len(routers) > 0 && routed:
+		finding.Status = FindingGap
+		finding.Detail = fmt.Sprintf("Another router also advertises IPv6 on the lab network (%s). Devices may send IPv6 traffic to it instead of ShakerProxy.", strings.Join(routers, ", "))
+		finding.Fix = "Turn off IPv6 router advertisements on that router for the lab network, so ShakerProxy is the only IPv6 router."
 	case len(routers) > 0:
 		finding.Status = FindingGap
-		finding.Detail = fmt.Sprintf("Another router advertises IPv6 on the lab network (%s). Devices send IPv6 traffic straight to it, past ShakerProxy.", strings.Join(routers, ", "))
+		finding.Detail = fmt.Sprintf("Another router advertises IPv6 on the lab network (%s), and ShakerProxy does not route IPv6. Devices send every IPv6 connection straight to it, past ShakerProxy.", strings.Join(routers, ", "))
 		finding.Fix = "Turn off IPv6 router advertisements on that router for the lab network, or give the lab its own network (two ports or ShakerProxy's Wi-Fi)."
-	case in.LabIPv6 && !routesIPv6(in.IPv6Strategy):
+	case in.LabIPv6 && !routed:
 		finding.Status = FindingGap
 		finding.Detail = fmt.Sprintf("The lab network (%s) has IPv6 from another router, and ShakerProxy does not route IPv6. Devices with IPv6 bypass ShakerProxy for every IPv6 destination.", in.LabInterface)
 		finding.Fix = "Turn off IPv6 on the network's router, or use a two-port or Wi-Fi lab where ShakerProxy is the only router."
+	case !in.RouterAdvertsSearched:
+		finding.Status = FindingUnknown
+		finding.Detail = "Recorded lab traffic could not be searched for IPv6 router advertisements, so another IPv6 router on the lab network cannot be ruled out."
+		finding.Fix = "Keep the automatic lab recording on, then check again."
+	case routed:
+		finding.Status = FindingOK
+		finding.Detail = "ShakerProxy routes the lab's IPv6, and no other router advertised IPv6 in the last 24 hours of recorded lab traffic."
 	case singleArm:
 		finding.Status = FindingOK
-		finding.Detail = "No IPv6 router was found on the lab network, so devices have no IPv6 path around ShakerProxy."
+		finding.Detail = "No router advertised IPv6 in the last 24 hours of recorded lab traffic, so devices have no IPv6 path around ShakerProxy."
 	default:
 		finding.Status = FindingOK
-		finding.Detail = "ShakerProxy is the lab network's only router and no other IPv6 router was seen."
+		finding.Detail = "ShakerProxy is the lab network's only router, and no other router advertised IPv6 in the last 24 hours of recorded lab traffic."
 	}
 	return finding
 }

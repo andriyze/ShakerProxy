@@ -7,9 +7,10 @@ import (
 	"strings"
 )
 
-// A compact QR Code encoder (ISO/IEC 18004) for short URLs shown in the
-// terminal: byte mode, error correction level M, versions 1-10 (up to 213
-// bytes). It follows the structure of Project Nayuki's reference encoder.
+// A compact QR Code encoder (ISO/IEC 18004) for URLs and WireGuard
+// configurations shown in the terminal: byte mode, error correction level M,
+// versions 1-20 (up to 666 bytes). It follows the structure of Project
+// Nayuki's reference encoder.
 
 type qrCode struct {
 	version int
@@ -39,9 +40,20 @@ var qrLevelM = [...]qrBlockSpec{
 	{22, 2, 38, 2, 39},
 	{22, 3, 36, 2, 37},
 	{26, 4, 43, 1, 44},
+	{30, 1, 50, 4, 51},
+	{22, 6, 36, 2, 37},
+	{22, 8, 37, 1, 38},
+	{24, 4, 40, 5, 41},
+	{24, 5, 41, 5, 42},
+	{28, 7, 45, 3, 46},
+	{28, 10, 46, 1, 47},
+	{26, 9, 43, 4, 44},
+	{26, 3, 44, 11, 45},
+	{26, 3, 41, 13, 42},
 }
 
-var qrAlignmentCenters = [...][]int{nil, nil, {6, 18}, {6, 22}, {6, 26}, {6, 30}, {6, 34}, {6, 22, 38}, {6, 24, 42}, {6, 26, 46}, {6, 28, 50}}
+var qrAlignmentCenters = [...][]int{nil, nil, {6, 18}, {6, 22}, {6, 26}, {6, 30}, {6, 34}, {6, 22, 38}, {6, 24, 42}, {6, 26, 46}, {6, 28, 50},
+	{6, 30, 54}, {6, 32, 58}, {6, 34, 62}, {6, 26, 46, 66}, {6, 26, 48, 70}, {6, 26, 50, 74}, {6, 30, 54, 78}, {6, 30, 56, 82}, {6, 30, 58, 86}, {6, 34, 62, 90}}
 
 func (s qrBlockSpec) dataCodewords() int {
 	return s.group1Blocks*s.group1Data + s.group2Blocks*s.group2Data

@@ -46,6 +46,22 @@ DNS client    198.18.240.30 ---/            |
 The `198.18.0.0/15` range is reserved for benchmark/testing use and is not used
 as a normal Internet destination.
 
+The [visibility coverage check](visibility-coverage.md) adds IPv6 to the same
+lab from the unique-local prefix `fd8a:6c1e:4b37::/48`:
+
+```text
+clients fd8a:6c1e:4b37:f0::10/20/30 --- lgtest-client  fd8a:6c1e:4b37:f0::1 (DNS only)
+                                             |
+                                lgtest-router  f0::2 / f1::1 (IPv6 forwarding in its own namespace)
+                                             |
+                                lgtest-wan --- target fd8a:6c1e:4b37:f1::fe
+```
+
+IPv6 is routed by the `lgtest-router` namespace, not by the host. Turning on any
+`net.ipv6.conf.*.forwarding` on the host makes Linux drop every IPv6 default
+route it learned from router advertisements, so the check never changes the
+host's IPv6 forwarding and has nothing to restore.
+
 The target namespace is implemented by the same signed ShakerProxy binary and
 provides bounded local HTTP, UDP DNS, and TLS endpoints. No third-party test
 container is required.

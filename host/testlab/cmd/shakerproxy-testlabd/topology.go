@@ -187,19 +187,13 @@ func forwardRules() [][]string {
 
 func cleanupLab(ctx context.Context) {
 	killNamespaceProcesses(ctx, targetNS)
-	for _, rule := range forwardRules() {
-		// Delete every copy, e.g. after an interrupted earlier run.
-		for attempt := 0; attempt < 8; attempt++ {
-			if _, err := runCommand(ctx, "iptables", append([]string{"-D", "FORWARD"}, rule...)...); err != nil {
-				break
-			}
-		}
-	}
+	deleteTaggedRules(ctx, "iptables", "FORWARD", forwardRules())
+	deleteTaggedRules(ctx, "ip6tables", "FORWARD", bridgedIPv6Rules())
 	_, _ = runCommand(ctx, "nft", "delete", "table", "inet", testTable)
-	for _, namespace := range []string{normalNS, bypassNS, dnsNS, targetNS} {
+	for _, namespace := range []string{normalNS, bypassNS, dnsNS, targetNS, routerNS} {
 		_, _ = runCommand(ctx, "ip", "netns", "delete", namespace)
 	}
-	for _, link := range []string{clientBridge, wanBridge, "lgtn0", "lgtb0", "lgtd0", "lgtt0"} {
+	for _, link := range []string{clientBridge, wanBridge, "lgtn0", "lgtb0", "lgtd0", "lgtt0", "lgtr0", "lgtw0"} {
 		_, _ = runCommand(ctx, "ip", "link", "delete", link)
 	}
 }

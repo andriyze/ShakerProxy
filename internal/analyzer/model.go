@@ -182,6 +182,8 @@ type Status struct {
 	LastError         string    `json:"last_error,omitempty"`
 	// Live reports live analysis of the lab recording (Zeek only).
 	Live *LiveStatus `json:"live,omitempty"`
+	// LiveVPN reports live analysis of the VPN recording (Zeek only).
+	LiveVPN *LiveStatus `json:"live_vpn,omitempty"`
 }
 
 type ScanResult struct {

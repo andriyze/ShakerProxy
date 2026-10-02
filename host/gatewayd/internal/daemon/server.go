@@ -49,6 +49,9 @@ type Server struct {
 	recorder   *LabRecorder
 	configLock *configlock.Manager
 	traffic    *TrafficPolicyManager
+	vpn        *VPNManager
+	// vpnRecorder records the VPN interface beside the lab recording.
+	vpnRecorder *LabRecorder
 
 	// Connection budgets; zero values select requestReadTimeout and
 	// gatewayprotocol.MethodTimeout plus responseGrace. Tests shorten them.
@@ -83,8 +86,27 @@ func NewServerWithHostServices(store *StateStore, logger *slog.Logger, activatio
 // RecordLabTraffic keeps lab traffic recorded for the daemon's lifetime (see
 // LabRecorder); it returns at once when capture is unavailable.
 func (s *Server) RecordLabTraffic(ctx context.Context) {
+	if s.vpnRecorder != nil {
+		go s.vpnRecorder.Run(ctx)
+	}
 	if s.recorder != nil {
 		s.recorder.Run(ctx)
+	}
+}
+
+// SetVPNManager enables the VPN requests and records the VPN interface
+// whenever VPN mode is up. Call it before RecordLabTraffic.
+func (s *Server) SetVPNManager(manager *VPNManager) {
+	s.vpn = manager
+	if manager != nil && s.captures != nil {
+		s.vpnRecorder = &LabRecorder{Store: s.store, Captures: s.captures, NewCaptureAllowed: s.newCaptureAllowed, ConfigLock: s.configLock, Logger: s.logger, VPN: manager.TrafficSegment}
+	}
+}
+
+// VPNChanged is called when the VPN segment appears, changes or goes away.
+func (s *Server) VPNChanged() {
+	if s.vpnRecorder != nil {
+		s.vpnRecorder.Wake()
 	}
 }
 
@@ -113,6 +135,9 @@ func (s *Server) SetConfigurationLock(manager *configlock.Manager) {
 	s.configLock = manager
 	if s.recorder != nil {
 		s.recorder.ConfigLock = manager
+	}
+	if s.vpnRecorder != nil {
+		s.vpnRecorder.ConfigLock = manager
 	}
 }
 
@@ -286,6 +311,9 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 	}
 	if s.recorder != nil && wakesLabRecorder(req.Method) {
 		defer s.recorder.Wake()
+	}
+	if s.vpnRecorder != nil && wakesLabRecorder(req.Method) {
+		defer s.vpnRecorder.Wake()
 	}
 	decodeEmpty := func() *gatewayprotocol.RPCError {
 		var params gatewayprotocol.EmptyParams
@@ -931,6 +959,8 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 			}
 		}
 		return map[string]any{"operating_mode": params.Mode, "emergency_bypass": bypass}, nil
+	case "GetVPN", "SetVPN", "AddVPNPeer", "SetVPNPeerDevice", "RevokeVPNPeer":
+		return s.dispatchVPN(ctx, req)
 	case "EnableEmergencyBypass":
 		if err := decodeEmpty(); err != nil {
 			return nil, err
@@ -998,6 +1028,8 @@ func hostMutationCategory(method string) (configlock.Category, bool) {
 		return configlock.CategoryRetention, true
 	case "ApplyTrafficPolicy", "RollbackTrafficPolicy":
 		return configlock.CategoryDNS, true
+	case "SetVPN", "AddVPNPeer", "SetVPNPeerDevice", "RevokeVPNPeer":
+		return configlock.CategoryNetwork, true
 	default:
 		return "", false
 	}

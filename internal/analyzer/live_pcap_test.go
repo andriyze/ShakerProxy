@@ -214,3 +214,32 @@ func TestLivePcapTicksOnlyMoveZeeksClockForward(t *testing.T) {
 		t.Fatal("ticked on a link type without an ignorable frame")
 	}
 }
+
+// The VPN recording is raw IP; its ticks are loopback IPv4 packets of an
+// experimental protocol, with a valid header checksum.
+func TestLivePcapTicksOnRawIP(t *testing.T) {
+	at := time.Date(2026, 10, 2, 10, 0, 0, 0, time.UTC)
+	raw := newPcapngToPcap()
+	var out bytes.Buffer
+	if err := raw.Feed(pcapngSection(binary.LittleEndian, pcapLinkTypeRaw, 0, []livePacket{{at, frame(1)}}), &out); err != nil {
+		t.Fatal(err)
+	}
+	if ticked, err := raw.Tick(at.Add(time.Second), &out); !ticked || err != nil {
+		t.Fatalf("no tick on raw IP: %v %v", ticked, err)
+	}
+	_, records := parsePcapStream(t, out.Bytes())
+	tick := records[len(records)-1].data
+	if len(tick) != 20 || tick[0] != 0x45 || tick[9] != 253 || !bytes.Equal(tick[12:16], []byte{127, 0, 0, 1}) {
+		t.Fatalf("tick = % x", tick)
+	}
+	var sum uint32
+	for index := 0; index < len(tick); index += 2 {
+		sum += uint32(tick[index])<<8 | uint32(tick[index+1])
+	}
+	for sum > 0xffff {
+		sum = sum&0xffff + sum>>16
+	}
+	if sum != 0xffff {
+		t.Fatalf("tick header checksum does not verify: %#x", sum)
+	}
+}

@@ -12,7 +12,7 @@ import (
 // stored before it existed (NULL) or by an older projection are backfilled.
 // Bump it whenever derived columns change meaning, for example when the
 // protocol classifier learns to name more protocols.
-const ProjectionVersion = 5
+const ProjectionVersion = 6
 
 // MaxEventHTTPPathBytes bounds the HTTP path stored with every event. Query
 // strings and fragments are never stored.

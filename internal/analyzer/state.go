@@ -295,8 +295,10 @@ func validStatus(status Status) bool {
 	if rulesetPresent && (status.Engine != EngineSuricata || !rulesetIDPattern.MatchString(status.RulesetID) || !rulesetVersionPattern.MatchString(status.RulesetVersion) || !sha256Pattern.MatchString(status.RulesetSHA256)) {
 		return false
 	}
-	if status.Live != nil && (status.Engine != EngineZeek || !validLiveStatus(*status.Live)) {
-		return false
+	for _, live := range []*LiveStatus{status.Live, status.LiveVPN} {
+		if live != nil && (status.Engine != EngineZeek || !validLiveStatus(*live)) {
+			return false
+		}
 	}
 	return true
 }

@@ -167,7 +167,9 @@ export function DeviceRow({
             </small>
           )}
           {platformHint && !device.friendly_name && (
-            <small className="device-platform">Identified by its connectivity check to {platformHint.domain}</small>
+            <small className="device-platform" title="Only this kind of device contacts this server: a connectivity check, time, location or update service of its operating system.">
+              Identified from its system traffic to {platformHint.domain}
+            </small>
           )}
           <code>{device.id}</code>
           <small className={device.online ? "device-seen online" : "device-seen"}>

@@ -18,6 +18,9 @@ type Observation struct {
 	// ToBroadcast is true when the destination is a broadcast or multicast
 	// address.
 	ToBroadcast bool
+	// IPv6 is true for a flow between IPv6 addresses. Zeek names ICMPv6
+	// "icmp", so only the address family tells it from ICMP.
+	IPv6 bool
 }
 
 // Classification is the result of Classify.
@@ -46,6 +49,10 @@ var analyzerAliases = map[string]string{
 	"websocket": "websocket", "http2": "http2", "quic": "quic", "dhcp": "dhcp", "dhcpv6": "dhcpv6",
 	"ntp": "ntp", "dns": "dns", "mdns": "mdns", "llmnr": "llmnr", "ssdp": "ssdp",
 }
+
+// guessy analyzers match loosely on payload shape; a well-known port of a
+// different protocol outranks them.
+var guessy = map[string]bool{"ipv6-tunnel": true}
 
 // generic analyzer names describe a transport wrapper rather than the
 // application. When a Zeek service lists several analyzers, a specific one
@@ -105,13 +112,23 @@ var carriers = map[string]string{
 func Classify(observation Observation) Classification {
 	transport := strings.ToLower(strings.TrimSpace(observation.Transport))
 	if id := NormalizeService(observation.Service); id != "" {
-		if specific := portProtocol(transport, observation.ServerPort); specific != "" && carriers[specific] == id {
+		specific := portProtocol(transport, observation.ServerPort)
+		if specific != "" && carriers[specific] == id {
 			return classification(specific, EvidenceAnalyzer, observation.Intercepted)
+		}
+		// Zeek's Teredo and AYIYA analyzers accept almost any UDP payload, so
+		// on another protocol's well-known port (QUIC on UDP/443) the port is
+		// the better evidence.
+		if guessy[id] && specific != "" && specific != id {
+			return classification(specific, EvidencePort, observation.Intercepted)
 		}
 		return classification(id, EvidenceAnalyzer, observation.Intercepted)
 	}
 	switch transport {
 	case "icmp":
+		if observation.IPv6 {
+			return classification("icmpv6", EvidenceAnalyzer, false)
+		}
 		return classification("icmp", EvidenceAnalyzer, false)
 	case "icmpv6", "ipv6-icmp", "icmp6":
 		return classification("icmpv6", EvidenceAnalyzer, false)

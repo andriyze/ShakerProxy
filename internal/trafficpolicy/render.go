@@ -37,6 +37,22 @@ type RenderContext struct {
 	Devices map[string]DeviceMatch
 	// OnboardingPort defaults to DefaultOnboardingPort.
 	OnboardingPort int
+	// VPN is the WireGuard VPN segment while VPN mode is up. Its devices get
+	// the lab's DNS, encrypted-DNS, TLS and device rules. It may be the only
+	// segment (a VPN-only install has no LabInterface).
+	VPN *Segment
+}
+
+// Segment is a client network beside the lab, such as the WireGuard VPN.
+type Segment struct {
+	Interface   string
+	IPv4CIDR    string
+	GatewayIPv4 string
+	IPv6Prefix  string
+	GatewayIPv6 string
+	// Devices maps device IDs to their addresses on this segment. VPN
+	// addresses are bound to the device's key, so no MAC is needed.
+	Devices map[string]DeviceMatch
 }
 
 type FirewallRules struct {
@@ -63,6 +79,9 @@ type familyRenderer struct {
 	private     []string
 	redirects   bool
 	devices     map[string]DeviceMatch
+	// noOnboarding leaves out the CA onboarding page; it is served on the
+	// lab gateway only.
+	noOnboarding bool
 }
 
 // outbound restricts a client rule to traffic leaving the lab. When the lab
@@ -130,55 +149,52 @@ func RenderFirewall(policy Policy, context RenderContext) (FirewallRules, error)
 	rules := FirewallRules{NeedsInputHook: true}
 	// A confirmed lab always gets its resolver (see renderFamily), so only a
 	// policy without client rules and without a lab stays baseline-only.
-	if !needsLabContext(normalized) && context.LabInterface == "" {
+	if !needsLabContext(normalized) && context.LabInterface == "" && context.VPN == nil {
 		rules.FilterRules = baselineInput(false, ports)
 		rules.FilterRulesIPv6 = baselineInput(true, ports)
 		rules.NATRules = []string{}
 		return rules, nil
 	}
 
-	prefix, parseErr := netip.ParsePrefix(context.LabCIDR)
-	if parseErr != nil || !prefix.Addr().Is4() {
-		return FirewallRules{}, fmt.Errorf("traffic policy requires an IPv4 lab CIDR")
+	segments := []Segment{}
+	if context.LabInterface != "" || context.VPN == nil {
+		segments = append(segments, Segment{
+			Interface: context.LabInterface, IPv4CIDR: context.LabCIDR, GatewayIPv4: context.LabGatewayIPv4,
+			IPv6Prefix: context.LabIPv6Prefix, GatewayIPv6: context.LabGatewayIPv6, Devices: context.Devices,
+		})
 	}
-	if !enforcementInterfacePattern.MatchString(context.LabInterface) {
-		return FirewallRules{}, fmt.Errorf("traffic policy requires a safe lab interface name")
+	if context.VPN != nil {
+		segments = append(segments, *context.VPN)
 	}
-	if err := validateDeviceMatches(context.Devices); err != nil {
-		return FirewallRules{}, err
-	}
-	v4 := familyRenderer{ipv6: false, iface: context.LabInterface, source: prefix.Masked().String(), unreachable: "icmp-port-unreachable", private: privateIPv4Destinations, redirects: true, devices: context.Devices}
-	if context.LabGatewayIPv4 != "" {
-		gateway, err := netip.ParseAddr(context.LabGatewayIPv4)
-		if err != nil || !gateway.Is4() || !prefix.Contains(gateway) {
-			return FirewallRules{}, fmt.Errorf("lab IPv4 gateway address must be inside the lab CIDR")
+	var v4s, v6s []familyRenderer
+	for index, segment := range segments {
+		v4, v6, err := segmentRenderers(segment, context.IPv6Listeners)
+		if err != nil {
+			return FirewallRules{}, err
 		}
-		v4.gateway = gateway.String()
-	}
-	v6 := familyRenderer{ipv6: true, iface: context.LabInterface, unreachable: "icmp6-port-unreachable", private: privateIPv6Destinations, redirects: context.IPv6Listeners, devices: context.Devices}
-	if context.LabIPv6Prefix != "" {
-		prefix6, err := netip.ParsePrefix(context.LabIPv6Prefix)
-		if err != nil || !prefix6.Addr().Is6() || prefix6.Addr().Is4In6() || prefix6.Bits() < 16 {
-			return FirewallRules{}, fmt.Errorf("lab IPv6 prefix is invalid")
+		if context.VPN != nil && index == len(segments)-1 {
+			v4.noOnboarding, v6.noOnboarding = true, true
 		}
-		v6.source = prefix6.Masked().String()
-		if context.LabGatewayIPv6 != "" {
-			gateway, err := netip.ParseAddr(context.LabGatewayIPv6)
-			if err != nil || !gateway.Is6() || gateway.Zone() != "" || !prefix6.Contains(gateway) {
-				return FirewallRules{}, fmt.Errorf("lab IPv6 gateway address must be inside the lab IPv6 prefix")
-			}
-			v6.gateway = gateway.String()
-		}
+		v4s, v6s = append(v4s, v4), append(v6s, v6)
 	}
 
 	for _, control := range normalized.DeviceControls {
-		if control.Effective() && context.Devices[control.DeviceID].Empty() {
+		if !control.Effective() {
+			continue
+		}
+		matched := false
+		for _, segment := range segments {
+			if !segment.Devices[control.DeviceID].Empty() {
+				matched = true
+			}
+		}
+		if !matched {
 			rules.UnmatchedDevices = append(rules.UnmatchedDevices, control.DeviceID)
 		}
 	}
 
-	filter4, nat4, needs4 := renderFamily(normalized, v4, ports)
-	filter6, nat6, _ := renderFamily(normalized, v6, ports)
+	filter4, nat4, needs4 := renderFamilies(normalized, v4s, ports)
+	filter6, nat6, needs6 := renderFamilies(normalized, v6s, ports)
 	rules.FilterRules = filter4
 	rules.NATRules = nat4
 	rules.FilterRulesIPv6 = filter6
@@ -186,8 +202,74 @@ func RenderFirewall(policy Policy, context RenderContext) (FirewallRules, error)
 	rules.NeedsNATHook = len(nat4) != 0
 	rules.NeedsDNSService = needs4.dns
 	rules.NeedsMITMService = normalized.TLS.Enabled
-	rules.NeedsOnboarding = needs4.onboarding || (v6.gateway != "" && normalized.TLS.Enabled)
+	rules.NeedsOnboarding = needs4.onboarding || needs6.onboarding
 	return rules, nil
+}
+
+// segmentRenderers validates one client segment and returns its IPv4 and
+// IPv6 renderers.
+func segmentRenderers(segment Segment, ipv6Listeners bool) (familyRenderer, familyRenderer, error) {
+	prefix, parseErr := netip.ParsePrefix(segment.IPv4CIDR)
+	if parseErr != nil || !prefix.Addr().Is4() {
+		return familyRenderer{}, familyRenderer{}, fmt.Errorf("traffic policy requires an IPv4 lab CIDR")
+	}
+	if !enforcementInterfacePattern.MatchString(segment.Interface) {
+		return familyRenderer{}, familyRenderer{}, fmt.Errorf("traffic policy requires a safe lab interface name")
+	}
+	if err := validateDeviceMatches(segment.Devices); err != nil {
+		return familyRenderer{}, familyRenderer{}, err
+	}
+	v4 := familyRenderer{ipv6: false, iface: segment.Interface, source: prefix.Masked().String(), unreachable: "icmp-port-unreachable", private: privateIPv4Destinations, redirects: true, devices: segment.Devices}
+	if segment.GatewayIPv4 != "" {
+		gateway, err := netip.ParseAddr(segment.GatewayIPv4)
+		if err != nil || !gateway.Is4() || !prefix.Contains(gateway) {
+			return familyRenderer{}, familyRenderer{}, fmt.Errorf("lab IPv4 gateway address must be inside the lab CIDR")
+		}
+		v4.gateway = gateway.String()
+	}
+	v6 := familyRenderer{ipv6: true, iface: segment.Interface, unreachable: "icmp6-port-unreachable", private: privateIPv6Destinations, redirects: ipv6Listeners, devices: segment.Devices}
+	if segment.IPv6Prefix != "" {
+		prefix6, err := netip.ParsePrefix(segment.IPv6Prefix)
+		if err != nil || !prefix6.Addr().Is6() || prefix6.Addr().Is4In6() || prefix6.Bits() < 16 {
+			return familyRenderer{}, familyRenderer{}, fmt.Errorf("lab IPv6 prefix is invalid")
+		}
+		v6.source = prefix6.Masked().String()
+		if segment.GatewayIPv6 != "" {
+			gateway, err := netip.ParseAddr(segment.GatewayIPv6)
+			if err != nil || !gateway.Is6() || gateway.Zone() != "" || !prefix6.Contains(gateway) {
+				return familyRenderer{}, familyRenderer{}, fmt.Errorf("lab IPv6 gateway address must be inside the lab IPv6 prefix")
+			}
+			v6.gateway = gateway.String()
+		}
+	}
+	return v4, v6, nil
+}
+
+// renderFamilies renders every segment of one family into a single filter
+// and NAT list: each segment's forward rules in turn (every rule names its
+// interface, so segments never match each other's packets), then the
+// listener protection with all segments' accepts.
+func renderFamilies(policy Policy, renderers []familyRenderer, ports listenerPorts) ([]string, []string, familyNeeds) {
+	var needs familyNeeds
+	forward, nat, inputLab := []string{}, []string{}, []string{}
+	ipv6 := false
+	for _, renderer := range renderers {
+		segmentForward, segmentNAT, segmentInput, segmentNeeds := renderFamily(policy, renderer, ports)
+		forward = append(forward, segmentForward...)
+		nat = append(nat, segmentNAT...)
+		inputLab = append(inputLab, segmentInput...)
+		needs.dns = needs.dns || segmentNeeds.dns
+		needs.onboarding = needs.onboarding || segmentNeeds.onboarding
+		ipv6 = renderer.ipv6
+	}
+	filter := append([]string{}, forward...)
+	baseline := baselineInput(ipv6, ports)
+	loopback, drops := baseline[:4], baseline[4:]
+	sort.Strings(inputLab)
+	filter = append(filter, loopback...)
+	filter = append(filter, inputLab...)
+	filter = append(filter, drops...)
+	return filter, nat, needs
 }
 
 type listenerPorts struct {
@@ -199,7 +281,7 @@ type familyNeeds struct {
 	onboarding bool
 }
 
-func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]string, []string, familyNeeds) {
+func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]string, []string, []string, familyNeeds) {
 	var needs familyNeeds
 	forward := []string{}
 	nat := []string{}
@@ -294,7 +376,7 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 
 	// NAT order: onboarding DNAT, interception exemptions (RETURN), DNS
 	// redirects, then interception redirects.
-	onboarding := tls.Enabled && f.gateway != ""
+	onboarding := tls.Enabled && f.gateway != "" && !f.noOnboarding
 	if onboarding {
 		needs.onboarding = true
 		target := f.gateway
@@ -400,14 +482,7 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 		inputLab = append(inputLab, fmt.Sprintf("-A SHAKERPROXY-INPUT %s -p tcp --dport %d -m conntrack --ctstate DNAT -j ACCEPT", f.scope(), ports.tls))
 	}
 
-	filter := append([]string{}, forward...)
-	baseline := baselineInput(f.ipv6, ports)
-	loopback, drops := baseline[:4], baseline[4:]
-	sort.Strings(inputLab)
-	filter = append(filter, loopback...)
-	filter = append(filter, inputLab...)
-	filter = append(filter, drops...)
-	return filter, nat, needs
+	return forward, nat, inputLab, needs
 }
 
 // baselineInput keeps the local DNS, TLS and onboarding listeners reachable

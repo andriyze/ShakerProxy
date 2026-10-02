@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"shakerproxy.dev/shakerproxy/internal/analyzer"
+	"shakerproxy.dev/shakerproxy/internal/capture"
 )
 
 func main() {
@@ -127,9 +128,11 @@ func main() {
 			stop()
 		}
 	}()
-	// Live analysis follows the automatic lab recording with one long Zeek;
-	// the offline pass below analyzes every segment it does not cover.
-	var live *analyzer.LiveAnalyzer
+	// Live analysis follows each automatic recording (the lab, and the VPN
+	// when it is on) with one long Zeek each; the offline pass below
+	// analyzes every segment they do not cover.
+	var live, liveVPN *analyzer.LiveAnalyzer
+	var liveRunning sync.WaitGroup
 	liveDone := make(chan struct{})
 	if engine == analyzer.EngineZeek && len(os.Args) == 1 && liveEnabled(os.Getenv("SHAKERPROXY_ZEEK_LIVE")) {
 		coverage, coverageErr := analyzer.NewLiveCoverage(runner.State, config.CaptureRoot, time.Now)
@@ -138,12 +141,20 @@ func main() {
 			os.Exit(1)
 		}
 		runner.Live = coverage
-		live = analyzer.NewLiveAnalyzer(runner, coverage, logger)
+		live = analyzer.NewLiveAnalyzer(runner, coverage, logger, capture.LabRecordingName)
+		liveVPN = analyzer.NewLiveAnalyzer(runner, coverage, logger, capture.VPNRecordingName)
+		for _, follower := range []*analyzer.LiveAnalyzer{live, liveVPN} {
+			liveRunning.Add(1)
+			go func() {
+				defer liveRunning.Done()
+				follower.Run(ctx)
+			}()
+		}
 		go func() {
-			defer close(liveDone)
-			live.Run(ctx)
+			liveRunning.Wait()
+			close(liveDone)
 		}()
-		logger.Info("live analysis of the lab recording enabled", "engine", engine)
+		logger.Info("live analysis of the lab and VPN recordings enabled", "engine", engine)
 	} else {
 		close(liveDone)
 	}
@@ -152,9 +163,13 @@ func main() {
 	refreshLive := func() {
 		switch {
 		case live != nil:
-			snapshot := live.Status()
+			snapshot, vpnSnapshot := live.Status(), liveVPN.Status()
 			status.Live = &snapshot
-			status.DeliveredEvents += live.TakeDelivered()
+			status.LiveVPN = nil
+			if vpnSnapshot.State != analyzer.LiveStateIdle || vpnSnapshot.EventsDelivered > 0 {
+				status.LiveVPN = &vpnSnapshot
+			}
+			status.DeliveredEvents += live.TakeDelivered() + liveVPN.TakeDelivered()
 		case engine == analyzer.EngineZeek:
 			status.Live = &analyzer.LiveStatus{State: analyzer.LiveStateOff}
 		}

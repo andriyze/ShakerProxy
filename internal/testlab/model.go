@@ -13,6 +13,14 @@ const (
 	DefaultNormalClient = "198.18.240.10"
 	DefaultBypassClient = "198.18.240.20"
 	DefaultDNSClient    = "198.18.240.30"
+
+	// The visibility coverage check adds IPv6 from a unique-local prefix
+	// (internal/coverage), on the same bridges and namespaces.
+	DefaultClientIPv6CIDR   = "fd8a:6c1e:4b37:f0::/64"
+	DefaultGatewayIPv6      = "fd8a:6c1e:4b37:f0::1"
+	DefaultNormalClientIPv6 = "fd8a:6c1e:4b37:f0::10"
+	DefaultBypassClientIPv6 = "fd8a:6c1e:4b37:f0::20"
+	DefaultDNSClientIPv6    = "fd8a:6c1e:4b37:f0::30"
 )
 
 type State string

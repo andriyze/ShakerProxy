@@ -336,7 +336,7 @@ func (s *Server) coverageEvents(ctx context.Context, captureID string, since tim
 	if s.eventReader == nil {
 		return nil, errors.New("normalized event storage is not configured")
 	}
-	scope := "(source:HOST AND src.ip:" + coverage.ClientCIDR + ")"
+	scope := "(source:HOST AND (src.ip:" + coverage.ClientCIDR + " OR src.ip:" + coverage.ClientIPv6CIDR + "))"
 	if captureID != "" {
 		scope = "(capture.id:" + captureID + " OR " + scope + ")"
 	}
@@ -398,9 +398,18 @@ func (s *Server) inspectCoverageRouting(ctx context.Context) []coverage.Finding 
 	if s.gateway.Call(ctx, "GetLabOnboarding", gatewayprotocol.EmptyParams{}, &onboarding) == nil {
 		input.GatewayIPv4 = onboarding.GatewayIPv4
 	}
+	own := map[netip.Addr]bool{}
+	for _, value := range []string{input.GatewayIPv4, status.LabIPv6Gateway} {
+		if address, err := netip.ParseAddr(value); err == nil {
+			own[address] = true
+		}
+	}
 	var inspection gatewayprotocol.HostInspection
 	if s.gateway.Call(ctx, "InspectHost", gatewayprotocol.EmptyParams{}, &inspection) == nil {
 		input.LabIPv6 = labHasForeignIPv6(inspection, status.LabInterface, status.LabIPv6Prefix)
+		for address := range hostAddresses(inspection) {
+			own[address] = true
+		}
 	}
 	var policy trafficpolicy.Document
 	if s.gateway.Call(ctx, "GetTrafficPolicy", gatewayprotocol.EmptyParams{}, &policy) == nil {
@@ -408,9 +417,31 @@ func (s *Server) inspectCoverageRouting(ctx context.Context) []coverage.Finding 
 		input.PolicyAvailable = true
 		input.BlockDoT, input.BlockDoQ, input.BlockKnownDoH, input.RedirectPlainDNS = dns.BlockDoT, dns.BlockDoQ, dns.BlockKnownDoH, dns.RedirectPlainDNS
 	}
-	input.ForeignRouterAdverts = s.coverageForeignSources(ctx, "protocol:icmp AND src.port:134 AND time:last_24h", status.LabIPv6Gateway)
-	input.ForeignDHCPServers = s.coverageForeignSources(ctx, "protocol:udp AND src.port:67 AND time:last_24h", input.GatewayIPv4)
+	var vpnStatus gatewayprotocol.VPNStatus
+	if s.gateway.Call(ctx, "GetVPN", gatewayprotocol.EmptyParams{}, &vpnStatus) == nil && vpnStatus.Enabled && vpnStatus.Up && !status.EmergencyBypass {
+		input.VPN, input.VPNDevices, input.VPNPeerToPeer, input.VPNIPv6Routed = true, len(vpnStatus.Peers), vpnStatus.AllowPeerToPeer, vpnStatus.IPv6Routed
+	}
+	// Zeek records an ICMPv6 router advertisement (type 134) as an icmp
+	// connection with the type as its source port.
+	input.ForeignRouterAdverts, input.RouterAdvertsSearched = s.coverageForeignSources(ctx, "protocol:icmp AND src.port:134 AND time:last_24h", own)
+	input.ForeignDHCPServers, _ = s.coverageForeignSources(ctx, "protocol:udp AND src.port:67 AND time:last_24h", own)
 	return coverage.InspectRouting(input)
+}
+
+// hostAddresses is every address on the appliance's interfaces, including
+// the link-local ones its own router advertisements come from.
+func hostAddresses(inspection gatewayprotocol.HostInspection) map[netip.Addr]bool {
+	addresses := map[netip.Addr]bool{}
+	for _, observed := range inspection.Interfaces {
+		for _, value := range observed.Addresses {
+			if prefix, err := netip.ParsePrefix(value); err == nil {
+				addresses[prefix.Addr().WithZone("").Unmap()] = true
+			} else if address, err := netip.ParseAddr(value); err == nil {
+				addresses[address.WithZone("").Unmap()] = true
+			}
+		}
+	}
+	return addresses
 }
 
 // labHasForeignIPv6 reports IPv6 on the lab interface that ShakerProxy did
@@ -445,29 +476,34 @@ func labHasForeignIPv6(inspection gatewayprotocol.HostInspection, labInterface, 
 }
 
 // coverageForeignSources lists the senders of matching recorded traffic
-// that are not ShakerProxy itself.
-func (s *Server) coverageForeignSources(ctx context.Context, text, own string) []string {
+// that are not ShakerProxy itself, and reports whether the recorded traffic
+// could be searched at all.
+func (s *Server) coverageForeignSources(ctx context.Context, text string, own map[netip.Addr]bool) ([]string, bool) {
 	if s.eventReader == nil {
-		return nil
+		return nil, false
 	}
 	query, err := ingest.ParseRecentEventQuery(url.Values{"limit": {"50"}, "q": {text}})
 	if err != nil {
-		return nil
+		s.logger.Warn("coverage routing query is invalid", "query", text, "error", err)
+		return nil, false
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	result, err := s.eventReader.QueryRecent(queryCtx, query)
 	if err != nil {
-		return nil
+		return nil, false
 	}
-	ownAddress, _ := netip.ParseAddr(own)
 	sources := []string{}
 	for _, event := range result.Events {
 		address, err := netip.ParseAddr(event.SourceIP)
-		if err != nil || address == ownAddress || address.IsUnspecified() {
+		if err != nil {
+			continue
+		}
+		address = address.WithZone("").Unmap()
+		if own[address] || address.IsUnspecified() {
 			continue
 		}
 		sources = append(sources, address.String())
 	}
-	return sources
+	return sources, true
 }

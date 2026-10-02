@@ -29,6 +29,8 @@ const (
 	LabRecordingMaxFiles      = 120
 	LabRecordingSegmentMiB    = 4
 	labRecordingDescription   = "Recorded automatically while the lab routes. A manual capture replaces it until the manual capture ends."
+	VPNRecordingName          = "VPN traffic"
+	vpnRecordingDescription   = "Recorded automatically while VPN mode is on."
 	labRecordingStartReason   = "automatic lab recording"
 	labRecordingInterrupted   = "interrupted before it finished (host restart)"
 )
@@ -37,12 +39,22 @@ const (
 // Every call gets a fresh idempotency key: an earlier recording must never be
 // returned in place of a new one.
 func LabRecordingRequest(planHash string) StartRequest {
-	scope := strings.ToLower(planHash)
+	return automaticRecordingRequest(LabRecordingName, labRecordingDescription, planHash)
+}
+
+// VPNRecordingRequest records the WireGuard VPN interface beside the lab:
+// VPN devices' traffic, before NAT, with their VPN addresses.
+func VPNRecordingRequest(revision string) StartRequest {
+	return automaticRecordingRequest(VPNRecordingName, vpnRecordingDescription, revision)
+}
+
+func automaticRecordingRequest(name, description, revision string) StartRequest {
+	scope := strings.ToLower(revision)
 	if len(scope) > 16 {
 		scope = scope[:16]
 	}
 	return StartRequest{
-		Name: LabRecordingName, Description: labRecordingDescription, Mode: ModeFull,
+		Name: name, Description: description, Mode: ModeFull,
 		SegmentSeconds: LabRecordingSegmentSecs, MaxFiles: LabRecordingMaxFiles, SegmentSizeMiB: LabRecordingSegmentMiB,
 		StopAfterSeconds: int(LabRecordingDuration / time.Second),
 		Administrator:    LabRecordingAdministrator, StartReason: labRecordingStartReason,
@@ -83,8 +95,11 @@ func (m *Manager) TidyLabRecordings(ctx context.Context, keep int) error {
 		finished = append(finished, view)
 	}
 	sort.Slice(finished, func(i, j int) bool { return finished[i].Session.StartedAt.After(finished[j].Session.StartedAt) })
-	for index, view := range finished {
-		if index < keep {
+	kept := map[string]int{}
+	for _, view := range finished {
+		// Each recorded interface (the lab, the VPN) keeps its own newest.
+		if kept[view.Session.Source.InterfaceName] < keep {
+			kept[view.Session.Source.InterfaceName]++
 			continue
 		}
 		if err := m.deleteLabRecording(ctx, view.Session.ID); err != nil {

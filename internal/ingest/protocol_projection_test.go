@@ -107,6 +107,19 @@ func TestProjectEventLeavesNonTrafficRecordsUnclassified(t *testing.T) {
 	}
 }
 
+// Zeek logs ICMPv6, router advertisements included, as proto icmp with the
+// message type as the originator port.
+func TestProjectEventNamesZeekICMPv6(t *testing.T) {
+	advert := projectFixture(SourceZeek, "zeek.conn", `{"id.orig_h":"fe80::be24:11ff:fe00:1","id.resp_h":"ff02::1","id.orig_p":134,"id.resp_p":133,"proto":"icmp"}`)
+	if advert.Network.Protocol != "icmp" || advert.Network.SourcePort != 134 || advert.Protocol.AppProtocol != "icmpv6" {
+		t.Fatalf("router advertisement = %#v / %#v", advert.Network, advert.Protocol)
+	}
+	ping := projectFixture(SourceZeek, "zeek.conn", `{"id.orig_h":"10.77.0.20","id.resp_h":"1.1.1.1","id.orig_p":8,"id.resp_p":0,"proto":"icmp"}`)
+	if ping.Protocol.AppProtocol != "icmp" {
+		t.Fatalf("IPv4 ping = %#v", ping.Protocol)
+	}
+}
+
 func TestBroadcastDestinations(t *testing.T) {
 	for value, want := range map[string]bool{
 		"255.255.255.255": true, "233.89.188.1": true, "224.0.0.251": true, "192.168.200.255": true, "ff02::fb": true,
