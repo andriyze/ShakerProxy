@@ -223,6 +223,12 @@ func (p OSProbe) IPv4Forwarding(ctx context.Context, staged networkplan.StagedPl
 		if readErr != nil || strings.TrimSpace(string(bridged)) != "1" {
 			return errors.New("bridged traffic does not pass through the firewall (bridge-nf-call-iptables is off)")
 		}
+		if staged.Preview.FirewallRestoreIPv6 != "" {
+			bridged6, readErr := p.readFile("/proc/sys/net/bridge/bridge-nf-call-ip6tables")
+			if readErr != nil || strings.TrimSpace(string(bridged6)) != "1" {
+				return errors.New("bridged IPv6 does not pass through the firewall (bridge-nf-call-ip6tables is off)")
+			}
+		}
 	}
 	runner := p.Firewall
 	if runner == nil {

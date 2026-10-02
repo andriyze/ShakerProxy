@@ -67,6 +67,9 @@ func (m *fakeApplyMachine) SetIPv4SendRedirects(_ context.Context, interfaceName
 func (m *fakeApplyMachine) SetBridgeNFCallIPTables(_ context.Context, value int) error {
 	return m.record("bridge-nf:" + string(rune('0'+value)))
 }
+func (m *fakeApplyMachine) SetBridgeNFCallIP6Tables(_ context.Context, value int) error {
+	return m.record("bridge-nf6:" + string(rune('0'+value)))
+}
 func (m *fakeApplyMachine) ApplyNetplan(context.Context) error { return m.record("netplan-apply") }
 func (m *fakeApplyMachine) LoadShakerProxyFirewall(_ context.Context, path, restore string) error {
 	return m.record("firewall:" + path + ":" + digest(restore))

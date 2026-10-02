@@ -113,6 +113,15 @@ func (s Snapshotter) Capture(staged networkplan.StagedPlan) (networktransaction.
 		default:
 			return networktransaction.RollbackSpec{}, errors.New("bridge netfilter state is not zero or one")
 		}
+		// Bridged IPv6 is sent through ip6tables when the host has IPv6
+		// (the preview then carries the bridge's IPv6 forward rule).
+		if staged.Preview.FirewallRestoreIPv6 != "" {
+			value, readErr := readBinarySysctl(s.HostRoot, bridgeNFCallIP6TablesPath)
+			if readErr != nil {
+				return networktransaction.RollbackSpec{}, fmt.Errorf("read bridge IPv6 netfilter state: %w", readErr)
+			}
+			spec.BridgeNetfilterIPv6, spec.BridgeNFCallIP6Tables = true, value
+		}
 	}
 	if spec.IPv6, err = captureIPv6State(s.HostRoot, staged, directory); err != nil {
 		return networktransaction.RollbackSpec{}, err

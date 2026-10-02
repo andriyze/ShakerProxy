@@ -47,6 +47,10 @@ type RollbackSpec struct {
 	// inline bridge turned it on, so rollback can put it back.
 	BridgeNetfilter      bool `json:"bridge_netfilter,omitempty"`
 	BridgeNFCallIPTables int  `json:"bridge_nf_call_iptables,omitempty"`
+	// BridgeNetfilterIPv6 records net.bridge.bridge-nf-call-ip6tables the
+	// same way, when an inline bridge on a host with IPv6 turned it on.
+	BridgeNetfilterIPv6   bool `json:"bridge_netfilter_ipv6,omitempty"`
+	BridgeNFCallIP6Tables int  `json:"bridge_nf_call_ip6tables,omitempty"`
 
 	// IPv6 records the prior IPv6 state; it is zero for IPv4-only applies.
 	IPv6 IPv6RollbackSpec `json:"ipv6,omitzero"`
@@ -142,6 +146,9 @@ func (r RollbackSpec) Validate() error {
 	}
 	if r.BridgeNFCallIPTables != 0 && (!r.BridgeNetfilter || r.BridgeNFCallIPTables != 1) {
 		return errors.New("bridge netfilter snapshot is invalid")
+	}
+	if r.BridgeNetfilterIPv6 && !r.BridgeNetfilter || r.BridgeNFCallIP6Tables != 0 && (!r.BridgeNetfilterIPv6 || r.BridgeNFCallIP6Tables != 1) {
+		return errors.New("bridge IPv6 netfilter snapshot is invalid")
 	}
 	if err := r.IPv6.Validate(); err != nil {
 		return err

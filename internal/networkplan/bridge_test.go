@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"shakerproxy.dev/shakerproxy/internal/firewall"
 )
 
 // The plan file in docs/bridge-mode.md must stay valid.
@@ -145,10 +147,71 @@ func TestInlineBridgePreviewBridgesBothPortsWithSTPAndNoNAT(t *testing.T) {
 	if preview.FirewallRestoreIPv4 != "*filter\n:SHAKERPROXY-FORWARD - [0:0]\n-A SHAKERPROXY-FORWARD -i spbr0 -o spbr0 -j ACCEPT\nCOMMIT\n" {
 		t.Fatalf("firewall = %q", preview.FirewallRestoreIPv4)
 	}
-	if preview.KeaDHCP4JSON != "" || preview.RadvdConf != "" || preview.FirewallRestoreIPv6 != "" || strings.Contains(preview.FirewallRestoreIPv4, "nat") {
-		t.Fatal("an inline bridge preview must not run DHCP, router advertisements, IPv6 rules or NAT")
+	// Bridged IPv6 crosses ip6tables FORWARD too, so it gets the same rule.
+	if preview.FirewallRestoreIPv6 != preview.FirewallRestoreIPv4 || LabIPv6FirewallMode(preview) != "BLOCK" {
+		t.Fatalf("IPv6 firewall = %q", preview.FirewallRestoreIPv6)
 	}
-	if !strings.Contains(strings.Join(preview.ChangedObjects, "\n"), "net.bridge.bridge-nf-call-iptables") {
-		t.Fatalf("changed objects = %v", preview.ChangedObjects)
+	if preview.KeaDHCP4JSON != "" || preview.RadvdConf != "" || strings.Contains(preview.FirewallRestoreIPv4, "nat") {
+		t.Fatal("an inline bridge preview must not run DHCP, router advertisements or NAT")
+	}
+	changed := strings.Join(preview.ChangedObjects, "\n")
+	for _, want := range []string{"net.bridge.bridge-nf-call-iptables", "net.bridge.bridge-nf-call-ip6tables", "ip6tables filter/SHAKERPROXY-FORWARD"} {
+		if !strings.Contains(changed, want) {
+			t.Fatalf("changed objects lack %s: %v", want, preview.ChangedObjects)
+		}
+	}
+	attached := false
+	for _, command := range preview.AttachmentCommands {
+		if command.Executable == defaultIp6tablesPath && strings.Join(command.Arguments, " ") == "-w 5 -I DOCKER-USER 1 -j SHAKERPROXY-FORWARD" {
+			attached = true
+		}
+	}
+	if !attached {
+		t.Fatalf("the IPv6 bridge rule is not attached: %+v", preview.AttachmentCommands)
+	}
+}
+
+// DNS over IPv6 can be answered only when ShakerProxy has an IPv6 address
+// on the bridge, from the router's advertisements.
+func TestInlineBridgeIPv6DNSNeedsAnAddressFromTheRouter(t *testing.T) {
+	plan := validInlineBridgePlan()
+	result := Validate(plan)
+	if !result.Valid || !hasIssue(result.Warnings, "BRIDGE_IPV6_DNS_NOT_FORCED") || InlineBridgeIPv6Address(plan) {
+		t.Fatalf("without SLAAC: valid=%v warnings=%+v", result.Valid, result.Warnings)
+	}
+	if impact := strings.Join(BuildPreview(plan, time.Unix(0, 0)).Impact, "\n"); !strings.Contains(impact, "not answered by ShakerProxy") {
+		t.Fatalf("impact = %s", impact)
+	}
+	plan.WAN.IPv6Mode = WANIPv6SLAAC
+	result = Validate(plan)
+	if !result.Valid || hasIssue(result.Warnings, "BRIDGE_IPV6_DNS_NOT_FORCED") || !InlineBridgeIPv6Address(plan) {
+		t.Fatalf("with SLAAC: valid=%v warnings=%+v", result.Valid, result.Warnings)
+	}
+	preview := BuildPreview(plan, time.Unix(0, 0))
+	if !strings.Contains(preview.NetplanYAML, "      dhcp6: false\n      accept-ra: true\n") || !strings.Contains(strings.Join(preview.Impact, "\n"), "over IPv6 is answered by ShakerProxy") {
+		t.Fatalf("SLAAC bridge preview:\n%s\n%v", preview.NetplanYAML, preview.Impact)
+	}
+}
+
+func TestInlineBridgeIPv6ArtifactsFollowTheHost(t *testing.T) {
+	plan := validInlineBridgePlan()
+	preview := BuildPreview(plan, time.Unix(0, 0))
+	preview.FirewallEnvironment = firewall.Inspection{IPv6Available: true, IPv6FirewallReady: true, IptablesPath: "/usr/sbin/iptables", Ip6tablesPath: "/usr/sbin/ip6tables"}
+	if err := CheckIPv6Artifacts(plan, preview); err != nil {
+		t.Fatal(err)
+	}
+	missing := preview
+	missing.FirewallRestoreIPv6 = ""
+	if err := CheckIPv6Artifacts(plan, missing); err == nil {
+		t.Fatal("an inline bridge without its IPv6 forward rule was accepted")
+	}
+	noIPv6 := BuildPreview(plan, time.Unix(0, 0))
+	noIPv6.FirewallEnvironment = firewall.Inspection{IptablesPath: "/usr/sbin/iptables"}
+	BindIPv6HostEvidence(&noIPv6)
+	if noIPv6.FirewallRestoreIPv6 != "" || strings.Contains(strings.Join(noIPv6.ChangedObjects, "\n"), "ip6tables") {
+		t.Fatalf("a host without IPv6 still gets IPv6 bridge artifacts: %+v", noIPv6.ChangedObjects)
+	}
+	if err := CheckIPv6Artifacts(plan, noIPv6); err != nil {
+		t.Fatal(err)
 	}
 }

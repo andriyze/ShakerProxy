@@ -43,6 +43,11 @@ func (m *fakeRollbackMachine) SetBridgeNFCallIPTables(_ context.Context, value i
 	return m.sysctlError
 }
 
+func (m *fakeRollbackMachine) SetBridgeNFCallIP6Tables(_ context.Context, value int) error {
+	m.calls = append(m.calls, "bridge-nf6:"+string(rune('0'+value)))
+	return m.sysctlError
+}
+
 func rollbackFixture(t *testing.T, original []byte, forwarding string) (RollbackExecutor, networktransaction.WatchdogManifest, string, *fakeRollbackMachine, *fakeDHCP4Service) {
 	t.Helper()
 	now := time.Unix(5000, 0)

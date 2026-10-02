@@ -18,6 +18,7 @@ type ApplyMachine interface {
 	SetIPv4Forwarding(context.Context, int) error
 	SetIPv4SendRedirects(context.Context, string, int) error
 	SetBridgeNFCallIPTables(context.Context, int) error
+	SetBridgeNFCallIP6Tables(context.Context, int) error
 	ApplyNetplan(context.Context) error
 	LoadShakerProxyFirewall(context.Context, string, string) error
 	EnsureShakerProxyAttachments(context.Context, string, bool) error
@@ -123,6 +124,13 @@ func (a Applier) Apply(ctx context.Context, staged networkplan.StagedPlan) error
 		if err := a.Machine.SetBridgeNFCallIPTables(ctx, 1); err != nil {
 			return fmt.Errorf("enable bridge netfilter: %w", err)
 		}
+		// Bridged IPv6 likewise, when the host has IPv6: DNS forcing,
+		// encrypted-DNS blocks and device rules then cover it.
+		if manifest.Rollback.BridgeNetfilterIPv6 {
+			if err := a.Machine.SetBridgeNFCallIP6Tables(ctx, 1); err != nil {
+				return fmt.Errorf("enable bridge IPv6 netfilter: %w", err)
+			}
+		}
 	}
 	if err := a.Machine.ApplyNetplan(ctx); err != nil {
 		return fmt.Errorf("apply Netplan: %w", err)
@@ -181,6 +189,10 @@ func (OSApplyMachine) SetIPv4SendRedirects(ctx context.Context, interfaceName st
 
 func (OSApplyMachine) SetBridgeNFCallIPTables(ctx context.Context, value int) error {
 	return (OSRollbackMachine{}).SetBridgeNFCallIPTables(ctx, value)
+}
+
+func (OSApplyMachine) SetBridgeNFCallIP6Tables(ctx context.Context, value int) error {
+	return (OSRollbackMachine{}).SetBridgeNFCallIP6Tables(ctx, value)
 }
 
 func (OSApplyMachine) ApplyNetplan(ctx context.Context) error {
