@@ -77,7 +77,7 @@ func TestUnsearchedRecordingLeavesIPv6Unknown(t *testing.T) {
 }
 
 func TestAWiFiLabWithEncryptedDNSBlockedHasNoGaps(t *testing.T) {
-	list := InspectRouting(RoutingInput{Routing: true, Topology: "TWO_NIC", IPv6Strategy: "DISABLED", WirelessAccessPoint: true, RouterAdvertsSearched: true,
+	list := InspectRouting(RoutingInput{Routing: true, Topology: "TWO_NIC", IPv6Strategy: "DISABLED", WirelessAccessPoint: true, WirelessClients: "BRIDGED", RouterAdvertsSearched: true,
 		PolicyAvailable: true, BlockDoT: true, BlockDoQ: true, BlockKnownDoH: true, RedirectPlainDNS: true})
 	if gaps := CountGaps(list); gaps != 0 {
 		t.Fatalf("gaps = %d: %+v", gaps, list)
@@ -107,5 +107,31 @@ func TestVPNDevicesHaveNoBypass(t *testing.T) {
 	withLab := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: "SINGLE_ARM", VPN: true, VPNPeerToPeer: true, VPNIPv6Routed: true}))
 	if withLab[FindingDHCP].Status != FindingGap || withLab[FindingVPN].Status != FindingUnknown || withLab[FindingVPN].Fix == "" || !strings.Contains(withLab[FindingVPN].Detail, "IPv6 is routed") {
 		t.Fatalf("lab and VPN findings = %+v", withLab)
+	}
+}
+
+// Traffic between two Wi-Fi devices is recorded only when the access point
+// hands it to a bridge; Wi-Fi as the whole lab switches it inside the adapter.
+func TestWiFiDeviceToDeviceFindingFollowsHowClientTrafficTravels(t *testing.T) {
+	for _, test := range []struct {
+		topology, clients string
+		status            FindingStatus
+		detail            string
+	}{
+		{"TWO_NIC", "BRIDGED", FindingOK, "hands their traffic to the bridge"},
+		{"TWO_NIC", "ISOLATED", FindingOK, "cannot reach each other"},
+		{"TWO_NIC", "INSIDE_ACCESS_POINT", FindingGap, "switched inside ShakerProxy's access point and is not recorded"},
+		{"TWO_NIC", "", FindingGap, "switched inside ShakerProxy's access point and is not recorded"},
+		{"TRANSPARENT_BRIDGE", "BRIDGED", FindingOK, "hands traffic between two Wi-Fi devices to the bridge"},
+		{"TRANSPARENT_BRIDGE", "ISOLATED", FindingOK, "client isolation is on"},
+		{"TRANSPARENT_BRIDGE", "", FindingOK, "forwarded inside the access point"},
+	} {
+		peer := findingsByID(InspectRouting(RoutingInput{Routing: true, Topology: test.topology, IPv6Strategy: "DISABLED", WirelessAccessPoint: true, WirelessClients: test.clients}))[FindingPeerToPeer]
+		if peer.Status != test.status || !strings.Contains(peer.Detail, test.detail) {
+			t.Errorf("%s %q: %+v", test.topology, test.clients, peer)
+		}
+		if test.status == FindingGap && peer.Fix == "" {
+			t.Errorf("%s %q: a gap without a fix", test.topology, test.clients)
+		}
 	}
 }

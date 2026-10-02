@@ -407,6 +407,7 @@ func (s *Server) inspectCoverageRouting(ctx context.Context) []coverage.Finding 
 		IPv6Strategy:        status.LabIPv6Strategy,
 		LabInterface:        status.LabInterface,
 		WirelessAccessPoint: status.LabWiFi,
+		WirelessClients:     status.LabWiFiClientTraffic,
 	}
 	var onboarding gatewayprotocol.LabOnboarding
 	if s.gateway.Call(ctx, "GetLabOnboarding", gatewayprotocol.EmptyParams{}, &onboarding) == nil {

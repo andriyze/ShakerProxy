@@ -230,6 +230,11 @@ type Status struct {
 	LabScopePlanHash     string                    `json:"lab_scope_plan_hash,omitempty"`
 	LabTopology          string                    `json:"lab_topology,omitempty"`
 	LabWiFi              bool                      `json:"lab_wifi,omitempty"`
+	// LabWiFiClientTraffic says how traffic between two Wi-Fi devices on
+	// ShakerProxy's access point travels (networkplan.WiFiClientTraffic):
+	// BRIDGED (through ShakerProxy, recorded), ISOLATED, or
+	// INSIDE_ACCESS_POINT (switched by the adapter, not recorded).
+	LabWiFiClientTraffic string `json:"lab_wifi_client_traffic,omitempty"`
 	LabIPv6Strategy      string                    `json:"lab_ipv6_strategy,omitempty"`
 	LabIPv6Prefix        string                    `json:"lab_ipv6_prefix,omitempty"`
 	LabIPv6Gateway       string                    `json:"lab_ipv6_gateway,omitempty"`

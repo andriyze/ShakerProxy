@@ -364,6 +364,7 @@ func setLabIPv6Status(status *gatewayprotocol.Status, plan networkplan.Plan) {
 	// around ShakerProxy a lab leaves open.
 	status.LabTopology = string(plan.Topology)
 	status.LabWiFi = networkplan.WiFiEnabled(plan)
+	status.LabWiFiClientTraffic = networkplan.WiFiClientTraffic(plan)
 	status.LabIPv6Strategy = string(plan.IPv6.Strategy)
 	if labIPv6, ok := networkplan.LabIPv6Routing(plan); ok {
 		status.LabIPv6Prefix = labIPv6.Prefix.String()
