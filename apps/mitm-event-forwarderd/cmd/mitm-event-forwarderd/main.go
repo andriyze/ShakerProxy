@@ -41,7 +41,7 @@ type configuration struct {
 	Timeout         time.Duration
 	// Source is the only event source this spool may deliver: MITMPROXY
 	// (the interception addon, the default) or HOST (shakerproxy-dnsd's
-	// lookups, kind hostDNSKind only).
+	// lookups and shakerproxy-gatewayd's connection openings only).
 	Source string
 }
 
@@ -49,6 +49,7 @@ const (
 	sourceMitmproxy = "MITMPROXY"
 	sourceHost      = "HOST"
 	hostDNSKind     = "shakerproxy.dns"
+	hostConnKind    = "shakerproxy.conn"
 )
 
 func (c configuration) source() string {
@@ -334,8 +335,9 @@ func decodeEnvelope(data []byte) (eventEnvelope, error) {
 }
 
 // decodeSpooledEnvelope accepts only events of the spool's own source. The
-// DNS spool is writable by shakerproxy-dnsd, so it may carry lookup events
-// and nothing else (in particular no HOST detections).
+// host event spool is writable by shakerproxy-dnsd and shakerproxy-gatewayd,
+// so it may carry lookups and connection openings and nothing else (in
+// particular no HOST detections).
 func decodeSpooledEnvelope(data []byte, source string) (eventEnvelope, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -346,8 +348,8 @@ func decodeSpooledEnvelope(data []byte, source string) (eventEnvelope, error) {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return eventEnvelope{}, errors.New("event contains trailing data")
 	}
-	if source == sourceHost && envelope.Kind != hostDNSKind {
-		return eventEnvelope{}, errors.New("the DNS event spool accepts only lookup events")
+	if source == sourceHost && envelope.Kind != hostDNSKind && envelope.Kind != hostConnKind {
+		return eventEnvelope{}, errors.New("the host event spool accepts only lookup and connection events")
 	}
 	if envelope.Schema != 1 || !strings.HasPrefix(envelope.EventID, "evt_") || envelope.Source != source || envelope.Kind == "" || envelope.OccurredAt.IsZero() || envelope.SourceVersion == "" || envelope.ParserVersion == "" || envelope.Confidence < 0 || envelope.Confidence > 100 || envelope.Payload == nil {
 		return eventEnvelope{}, errors.New("event envelope fields are invalid")

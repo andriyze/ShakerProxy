@@ -74,6 +74,21 @@ When a capture records the same lookup through Zeek, Traffic shows the
 forwarder's row and hides Zeek's copy with the other analyzer duplicates; the
 device report counts each name once.
 
+### Connections as they open
+
+`shakerproxy-gatewayd` also reports every connection a lab device opens through
+the gateway (kind `shakerproxy.conn`) within about a second, from the kernel's
+connection tracking, without waiting for the packet recording to be analyzed.
+It writes them to the same spool, and the same forwarder delivers them. Only
+connections from the confirmed lab network to somewhere other than the gateway
+are reported; lookups to the gateway are the forwarder's own rows. Ingest names
+each connection from the same client's DNS answers of the previous 30 minutes
+(`dns_name`), so Traffic shows `github.com · 140.82.121.4:443` at once. When the
+recording's analysis of that connection arrives, its server name and size fill
+in the same Traffic row instead of adding another. Set
+`SHAKERPROXY_CONNECTION_EVENT_SPOOL=off` in gatewayd's environment to stop
+reporting connections.
+
 Earlier releases decoded that document with the wrong schema and answered
 every query with SERVFAIL as soon as "Force plain DNS" was applied; a
 cross-component test now checks that the forwarder accepts exactly what the

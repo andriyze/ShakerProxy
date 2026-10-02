@@ -53,9 +53,9 @@ require_exact 'MemoryDenyWriteExecute=true'
 require_exact 'RestrictSUIDSGID=true'
 require_exact 'RestrictNamespaces=true'
 require_exact 'CapabilityBoundingSet=CAP_NET_ADMIN'
-require_exact 'SupplementaryGroups=shakerproxy-capture shakerproxy-cloud'
+require_exact 'SupplementaryGroups=shakerproxy-capture shakerproxy-cloud shakerproxy-dns'
 require_exact 'RuntimeDirectory=shakerproxy shakerproxy-cloud-policy'
-require_exact 'ReadWritePaths=/run/shakerproxy /run/shakerproxy-cloud-policy /run/lock/shakerproxy /var/lib/shakerproxy/gatewayd /var/lib/shakerproxy/traffic -/var/lib/shakerproxy/onboarding /var/lib/shakerproxy/pcap /etc/netplan /etc/kea /etc/systemd/system -/etc/shakerproxy/hostapd -/etc/shakerproxy/radvd'
+require_exact 'ReadWritePaths=/run/shakerproxy /run/shakerproxy-cloud-policy /run/lock/shakerproxy /var/lib/shakerproxy/gatewayd /var/lib/shakerproxy/traffic -/var/lib/shakerproxy/onboarding /var/lib/shakerproxy/pcap -/var/lib/shakerproxy/dns-events/pending /etc/netplan /etc/kea /etc/systemd/system -/etc/shakerproxy/hostapd -/etc/shakerproxy/radvd'
 require_exact 'RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6'
 
 grep -Fq -- '"--property=ReadWritePaths=/run/lock/shakerproxy "+DefaultTransactionRoot+" /etc/netplan /etc/kea /etc/systemd/system /run/systemd/system /run/systemd/network /run/udev/rules.d -/etc/shakerproxy/hostapd -/etc/shakerproxy/radvd"' "$WATCHDOG_POLICY_SOURCE" || {

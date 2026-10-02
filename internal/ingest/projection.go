@@ -58,8 +58,16 @@ func ProjectNetworkFields(envelope Envelope) NetworkProjection {
 		projection.Protocol = projectionText(fields["protocol"])
 		projection.Service = projectionText(fields["service"])
 	case SourceHost:
-		// Only ShakerProxy's DNS forwarder lookups describe a device's
-		// traffic; other HOST events (detections) keep no network fields.
+		// Only the DNS forwarder's lookups and the gateway's connection
+		// openings describe a device's traffic; other HOST events
+		// (detections) keep no network fields.
+		if envelope.Kind == HostConnKind {
+			projection.SourceIP = projectionIP(fields["source_ip"])
+			projection.SourcePort = projectionPort(fields["source_port"])
+			projection.DestinationIP = projectionIP(fields["destination_ip"])
+			projection.DestinationPort = projectionPort(fields["destination_port"])
+			projection.Protocol = projectionText(fields["protocol"])
+		}
 		if envelope.Kind == HostDNSKind {
 			projection.SourceIP = projectionIP(fields["source_ip"])
 			projection.SourcePort = projectionPort(fields["source_port"])
@@ -77,6 +85,15 @@ const HostDNSKind = "shakerproxy.dns"
 
 func isHostDNS(envelope Envelope) bool {
 	return envelope.Source == SourceHost && envelope.Kind == HostDNSKind
+}
+
+// HostConnKind is a connection a lab device opened through the gateway,
+// reported by shakerproxy-gatewayd from conntrack within about a second;
+// the packet recording's analysis of it follows later.
+const HostConnKind = "shakerproxy.conn"
+
+func isHostConn(envelope Envelope) bool {
+	return envelope.Source == SourceHost && envelope.Kind == HostConnKind
 }
 
 func projectionIP(raw json.RawMessage) string {

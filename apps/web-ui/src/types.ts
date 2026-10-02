@@ -908,6 +908,8 @@ export type RecentEvent = {
   dns_answer_count?: number
   // What the lookup resolved to (IP addresses and CNAME targets), at most 8.
   dns_answers?: string[]
+  // For a connection the gateway reported: the name the client looked up.
+  dns_name?: string
   detection_type?: string
   detection_severity?: string
   detection_state?: string

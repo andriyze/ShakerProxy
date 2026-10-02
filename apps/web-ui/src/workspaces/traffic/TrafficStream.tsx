@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { foldSplitConnections, forwardedLookups, isAnalyzerDuplicate } from "../../lib/eventSummary"
 import { eventDeviceTitle, splitDeviceTitle, type DeviceDirectory } from "../../lib/deviceTitle"
-import { collapseRepeats, streamLine } from "../../lib/liveTraffic"
+import { collapseRepeats, mergeInstantConnections, streamLine } from "../../lib/liveTraffic"
 import type { RecentEvent } from "../../types"
 
 // TrafficStream lists events newest first, one line each. Rows that arrive
@@ -22,7 +22,10 @@ export function TrafficStream({
   const [showDuplicates, setShowDuplicates] = useState(false)
   const forwarded = useMemo(() => forwardedLookups(allEvents), [allEvents])
   const events = useMemo(
-    () => (showDuplicates ? allEvents : foldSplitConnections(allEvents.filter((event) => !isAnalyzerDuplicate(event, forwarded)))),
+    () =>
+      showDuplicates
+        ? allEvents
+        : mergeInstantConnections(foldSplitConnections(allEvents.filter((event) => !isAnalyzerDuplicate(event, forwarded)))),
     [allEvents, forwarded, showDuplicates],
   )
   const hidden = allEvents.length - events.length
@@ -67,7 +70,7 @@ export function TrafficStream({
               role="row"
               tabIndex={0}
               aria-selected={event.record_id === selectedRecordID}
-              className={`stream-row ${line.kind}${fresh.has(event.record_id) ? " fresh" : ""}${line.problem ? " problem" : ""}${event.record_id === selectedRecordID ? " selected" : ""}`}
+              className={`stream-row ${line.kind}${fresh.has(event.record_id) ? " fresh" : ""}${line.problem ? " problem" : ""}${line.pending ? " pending" : ""}${event.record_id === selectedRecordID ? " selected" : ""}`}
               onClick={() => select(event.record_id)}
               onKeyDown={(keyboard) => {
                 if (keyboard.key === "Enter" || keyboard.key === " ") {
@@ -87,8 +90,8 @@ export function TrafficStream({
                 {line.name}
                 {count > 1 && <span className="stream-count">×{count}</span>}
               </strong>
-              <span className="stream-detail" title={line.detail}>
-                {line.detail}
+              <span className="stream-detail" title={line.pending ? "Opened just now; the server name and size follow once the recording is analyzed" : line.detail}>
+                {line.pending ? "opened" : line.detail}
               </span>
               <span className="stream-peer" title={line.peer}>
                 {line.peer}

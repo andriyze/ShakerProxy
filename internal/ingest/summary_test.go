@@ -44,3 +44,27 @@ func TestEventSummaryIsBoundedAndSingleLine(t *testing.T) {
 		t.Fatalf("summary leaked a query string or newline: %q", summary)
 	}
 }
+
+func TestGatewayConnectionsReadAsConnections(t *testing.T) {
+	named := RecentEvent{Source: SourceHost, Kind: HostConnKind, SourceIP: "192.168.10.201", DestinationIP: "140.82.121.4", DestinationPort: 443, Protocol: "tcp", DNSName: "github.com"}
+	if got := EventSummary(named); got != "Connection to github.com (140.82.121.4:443/tcp)" {
+		t.Fatalf("summary = %q", got)
+	}
+	unnamed := RecentEvent{Source: SourceHost, Kind: HostConnKind, SourceIP: "fd00::201", DestinationIP: "2a00:1450::1", DestinationPort: 443, Protocol: "udp"}
+	if got := EventSummary(unnamed); got != "Connection to [2a00:1450::1]:443/udp" {
+		t.Fatalf("summary = %q", got)
+	}
+}
+
+func TestGatewayConnectionsProjectBothEndpoints(t *testing.T) {
+	envelope := Envelope{Source: SourceHost, Kind: HostConnKind, Payload: []byte(`{"source_ip":"192.168.10.201","source_port":37064,"destination_ip":"140.82.121.4","destination_port":443,"protocol":"tcp"}`)}
+	projection := ProjectNetworkFields(envelope)
+	if projection.SourceIP != "192.168.10.201" || projection.SourcePort != 37064 || projection.DestinationIP != "140.82.121.4" || projection.DestinationPort != 443 || projection.Protocol != "tcp" {
+		t.Fatalf("projection = %#v", projection)
+	}
+	// Other HOST events (detections) still carry no network fields.
+	detection := Envelope{Source: SourceHost, Kind: "shakerproxy.detection.beaconing", Payload: []byte(`{"source_ip":"192.168.10.201","destination_ip":"140.82.121.4"}`)}
+	if got := ProjectNetworkFields(detection); got.SourceIP != "" || got.DestinationIP != "" {
+		t.Fatalf("a detection got network fields: %#v", got)
+	}
+}

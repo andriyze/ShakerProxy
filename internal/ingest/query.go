@@ -63,6 +63,7 @@ type RecentEvent struct {
 	DNSResponseCode                  string               `json:"dns_response_code,omitempty"`
 	DNSAnswerCount                   *int                 `json:"dns_answer_count,omitempty"`
 	DNSAnswers                       []string             `json:"dns_answers,omitempty"`
+	DNSName                          string               `json:"dns_name,omitempty"` // a gateway-reported connection's looked-up name
 	DetectionType                    string               `json:"detection_type,omitempty"`
 	DetectionSeverity                string               `json:"detection_severity,omitempty"`
 	DetectionState                   string               `json:"detection_state,omitempty"`
