@@ -13,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"shakerproxy.dev/shakerproxy/internal/trafficpolicy"
 )
 
 const (
@@ -213,7 +215,13 @@ func (s *Server) exchange(ctx context.Context, network string, query []byte, cli
 	if name, nameErr := QuestionName(query); nameErr == nil {
 		if deviceID, domain, blocked := runtime.Blocked(client.Unmap(), name); blocked {
 			s.logBlocked(deviceID, domain, name)
-			return nxdomain(query), answerNote{blocked: true, domain: domain}, nil
+			return nxdomain(query), answerNote{blocked: true, domain: domain, reason: trafficpolicy.BlockReasonDeviceDomain}, nil
+		}
+		// Refusing resolver names makes browsers and phones fall back from
+		// DNS over HTTPS/TLS to the plain DNS ShakerProxy answers and sees.
+		if refused, reason, blocked := runtime.BlockedResolverName(name); blocked {
+			s.logBlocked(client.Unmap().String(), refused, name)
+			return nxdomain(query), answerNote{blocked: true, domain: refused, reason: reason}, nil
 		}
 	}
 	if len(runtime.Upstreams) == 0 {
@@ -233,7 +241,7 @@ func (s *Server) observe(network string, client netip.AddrPort, query, response 
 	if err != nil {
 		return
 	}
-	lookup.Blocked, lookup.BlockedDomain = note.blocked, note.domain
+	lookup.Blocked, lookup.BlockedDomain, lookup.BlockedReason = note.blocked, note.domain, note.reason
 	s.Observer.ObserveLookup(lookup)
 }
 

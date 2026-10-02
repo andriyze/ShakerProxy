@@ -29,11 +29,31 @@ const (
 	maxListItems            = 512
 )
 
+// DefaultPolicyName names the default policy; LegacyDefaultPolicyName the
+// observe-only default written before 2026-10.
+const (
+	DefaultPolicyName       = "Default visibility policy"
+	LegacyDefaultPolicyName = "Default observe-only policy"
+)
+
+// DefaultPolicy is maximum visibility: once a lab is confirmed, every lab
+// client's plain DNS is answered by ShakerProxy and encrypted DNS (DoT, DoQ,
+// catalog DoH by address and by name) is blocked so devices fall back to
+// plain DNS. Without a confirmed lab it installs nothing.
 func DefaultPolicy() Policy {
+	policy := LegacyDefaultPolicy()
+	policy.Name = DefaultPolicyName
+	policy.EncryptedDNS = policy.EncryptedDNS.WithSwitches(true, true)
+	return policy
+}
+
+// LegacyDefaultPolicy is the observe-only default earlier releases wrote.
+// It is kept to recognize an untouched installation for migration.
+func LegacyDefaultPolicy() Policy {
 	return Policy{
 		Schema:   SchemaVersion,
 		Revision: 1,
-		Name:     "Default observe-only policy",
+		Name:     LegacyDefaultPolicyName,
 		EncryptedDNS: EncryptedDNSPolicy{
 			Mode:            EncryptedDNSObserve,
 			LocalListenPort: DefaultDNSListenPort,
@@ -43,6 +63,74 @@ func DefaultPolicy() Policy {
 			AutoBypassTTLSeconds: DefaultPinnedBypassTTL,
 			MaxDynamicBypasses:   DefaultMaxDynamicBypass,
 		},
+	}
+}
+
+// IsUntouchedLegacyDefault reports a document nobody has changed since an
+// earlier release wrote the observe-only default: revision 1, no previous
+// policy, and exactly the legacy default's content. Anything an
+// administrator applied has a higher revision and is never migrated.
+func IsUntouchedLegacyDefault(document Document) bool {
+	if document.Policy.Revision != 1 || document.Previous != nil {
+		return false
+	}
+	legacy, err := Digest(LegacyDefaultPolicy())
+	if err != nil {
+		return false
+	}
+	current, err := Digest(document.Policy)
+	return err == nil && current == legacy
+}
+
+// MigrateUntouchedDefault returns the policy that replaces an untouched
+// legacy default: the visibility default at the next revision.
+func MigrateUntouchedDefault(document Document) (Policy, bool) {
+	if !IsUntouchedLegacyDefault(document) {
+		return Policy{}, false
+	}
+	policy := DefaultPolicy()
+	policy.Revision = document.Policy.Revision + 1
+	return policy, true
+}
+
+// ForcePlainDNS reports the "Force plain DNS through ShakerProxy" switch.
+func (p EncryptedDNSPolicy) ForcePlainDNS() bool { return p.RedirectPlainDNS }
+
+// BlockEncryptedDNS reports the "Block encrypted DNS" switch: DoT and DoQ on
+// port 853, catalog DoH resolvers by address over TCP and UDP 443, and their
+// hostnames (plus the opt-out canaries) answered with NXDOMAIN.
+func (p EncryptedDNSPolicy) BlockEncryptedDNS() bool {
+	return p.BlockDoT && p.BlockDoQ && p.BlockKnownDoH && p.BlockKnownDoH3 && p.BlockDoHNames
+}
+
+// WithSwitches sets both visibility switches and the matching mode, keeping
+// upstreams, exclusions and the listener port.
+func (p EncryptedDNSPolicy) WithSwitches(forcePlainDNS, blockEncryptedDNS bool) EncryptedDNSPolicy {
+	p.RedirectPlainDNS = forcePlainDNS
+	p.BlockDoT, p.BlockDoQ, p.BlockKnownDoH, p.BlockKnownDoH3, p.BlockDoHNames = blockEncryptedDNS, blockEncryptedDNS, blockEncryptedDNS, blockEncryptedDNS, blockEncryptedDNS
+	switch {
+	case forcePlainDNS:
+		p.Mode = EncryptedDNSEnforceLocal
+	case blockEncryptedDNS:
+		p.Mode = EncryptedDNSBlockKnown
+	default:
+		p.Mode = EncryptedDNSObserve
+	}
+	return p
+}
+
+// EffectiveMode is the mode the switches put into effect. The stored mode
+// is kept as written so earlier documents keep their digest; a policy that
+// redirects plain DNS enforces locally whatever it says, and one that blocks
+// anything is at least BLOCK_KNOWN.
+func (p EncryptedDNSPolicy) EffectiveMode() EncryptedDNSMode {
+	switch {
+	case p.RedirectPlainDNS:
+		return EncryptedDNSEnforceLocal
+	case p.Mode == EncryptedDNSObserve && (p.BlockDoT || p.BlockDoQ || p.BlockKnownDoH || p.BlockKnownDoH3 || p.BlockDoHNames):
+		return EncryptedDNSBlockKnown
+	default:
+		return p.Mode
 	}
 }
 
@@ -92,13 +180,9 @@ func Validate(policy Policy) error {
 	if !validUnprivilegedPort(policy.EncryptedDNS.LocalListenPort) {
 		return errors.New("local DNS listener port must be between 1024 and 65535")
 	}
-	if policy.EncryptedDNS.Mode == EncryptedDNSEnforceLocal {
-		if !policy.EncryptedDNS.RedirectPlainDNS {
-			return errors.New("ENFORCE_LOCAL requires plain DNS redirection")
-		}
-		if len(policy.EncryptedDNS.UpstreamServers) == 0 {
-			return errors.New("ENFORCE_LOCAL requires at least one upstream DNS server")
-		}
+	// Without upstream servers the forwarder uses the host's own resolvers.
+	if policy.EncryptedDNS.Mode == EncryptedDNSEnforceLocal && !policy.EncryptedDNS.RedirectPlainDNS {
+		return errors.New("ENFORCE_LOCAL requires plain DNS redirection")
 	}
 	if len(policy.EncryptedDNS.UpstreamServers) > 16 {
 		return errors.New("too many upstream DNS servers")

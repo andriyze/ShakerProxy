@@ -210,6 +210,7 @@ type lookupEventPayload struct {
 	Answers         []lookupEntry `json:"answers"`
 	Blocked         bool          `json:"blocked"`
 	BlockedDomain   string        `json:"blocked_domain,omitempty"`
+	BlockedReason   string        `json:"blocked_reason,omitempty"`
 }
 
 type lookupEntry struct {
@@ -237,7 +238,7 @@ func LookupEvent(id string, lookup Lookup) ([]byte, error) {
 	payload, err := json.Marshal(lookupEventPayload{
 		SourceIP: lookup.Client.Addr().String(), SourcePort: int(lookup.Client.Port()), DestinationPort: 53,
 		Protocol: lookup.Transport, Service: "dns", Query: name, QueryType: lookup.Type, ResponseCode: lookup.Rcode,
-		AnswerCount: lookup.AnswerCount, Answers: answers, Blocked: lookup.Blocked, BlockedDomain: lookup.BlockedDomain,
+		AnswerCount: lookup.AnswerCount, Answers: answers, Blocked: lookup.Blocked, BlockedDomain: lookup.BlockedDomain, BlockedReason: lookup.BlockedReason,
 	})
 	if err != nil {
 		return nil, err

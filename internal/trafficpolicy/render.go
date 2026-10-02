@@ -227,15 +227,14 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 		}
 		dnsDevices = append(dnsDevices, control.DeviceID)
 		for _, selector := range f.selectors(control.DeviceID) {
-			forward = append(forward,
-				fmt.Sprintf("-A SHAKERPROXY-FORWARD %s%s -p tcp --dport 853 -j REJECT --reject-with tcp-reset", selector, f.outbound()),
-				fmt.Sprintf("-A SHAKERPROXY-FORWARD %s%s -p udp --dport 853 -j REJECT --reject-with %s", selector, f.outbound(), f.unreachable),
-			)
+			forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s%s -p tcp --dport 853", selector, f.outbound()), "SHAKERPROXY_EDNS_DOT ", "REJECT --reject-with tcp-reset")
+			forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s%s -p udp --dport 853", selector, f.outbound()), "SHAKERPROXY_EDNS_DOQ ", "REJECT --reject-with "+f.unreachable)
 		}
 	}
 
-	// 3. Policy-wide encrypted DNS blocks with bounded kernel logging. Each
-	// LOG rule must precede its REJECT rule, so this list is never sorted.
+	// 3. Policy-wide encrypted DNS blocks, each attempt reported to the
+	// gateway through NFLOG (bounded per rule). Each NFLOG rule must precede
+	// its REJECT rule, so this list is never sorted.
 	dns := policy.EncryptedDNS
 	if dns.BlockDoT {
 		forward = appendLoggedEncryptedDNSBlock(forward, fmt.Sprintf("-A SHAKERPROXY-FORWARD %s%s -p tcp --dport 853", f.scope(), f.outbound()), "SHAKERPROXY_EDNS_DOT ", "REJECT --reject-with tcp-reset")
@@ -360,7 +359,7 @@ func renderFamily(policy Policy, f familyRenderer, ports listenerPorts) ([]strin
 		// Enforcement also answers queries sent to resolvers outside the
 		// lab; DNS between two lab devices is left alone.
 		dnsScopes := []string{}
-		if dns.Mode == EncryptedDNSEnforceLocal && dns.RedirectPlainDNS {
+		if dns.RedirectPlainDNS {
 			dnsScopes = append(dnsScopes, f.scope())
 		} else {
 			for _, deviceID := range dnsDevices {
@@ -427,27 +426,30 @@ func baselineInput(_ bool, ports listenerPorts) []string {
 	}
 }
 
+// appendLoggedEncryptedDNSBlock reports each blocked attempt to the gateway
+// over NFLOG (group EncryptedDNSLogGroup, the prefix names what was blocked,
+// at most 10 a second per rule), then applies the verdict.
 func appendLoggedEncryptedDNSBlock(rules []string, match, prefix, verdict string) []string {
-	rules = append(rules, fmt.Sprintf(`%s -m limit --limit 10/second --limit-burst 20 -j LOG --log-prefix %q`, match, prefix))
+	rules = append(rules, fmt.Sprintf(`%s -m limit --limit 10/second --limit-burst 20 -j NFLOG --nflog-group %d --nflog-prefix %q --nflog-size 128`, match, EncryptedDNSLogGroup, prefix))
 	return append(rules, fmt.Sprintf("%s -j %s", match, verdict))
 }
 
+// needsLabContext reports client packet rules that make no sense without a
+// confirmed lab: device controls and TLS interception. The DNS visibility
+// switches (plain DNS redirection, encrypted DNS blocking) are lab-wide
+// defaults instead: they apply as soon as a lab is confirmed and install
+// nothing before.
 func needsLabContext(policy Policy) bool {
 	for _, control := range policy.DeviceControls {
 		if control.Effective() {
 			return true
 		}
 	}
-	return policy.EncryptedDNS.BlockDoT ||
-		policy.EncryptedDNS.BlockDoQ ||
-		policy.EncryptedDNS.BlockKnownDoH ||
-		policy.EncryptedDNS.BlockKnownDoH3 ||
-		policy.EncryptedDNS.Mode == EncryptedDNSEnforceLocal ||
-		policy.TLS.Enabled
+	return policy.TLS.Enabled
 }
 
-// NeedsLabContext reports whether a policy installs any client packet rule
-// and therefore requires a confirmed routed lab interface.
+// NeedsLabContext reports whether a policy installs client packet rules
+// that require a confirmed routed lab interface.
 func NeedsLabContext(policy Policy) bool { return needsLabContext(policy) }
 
 // HasRuleForChain reports whether any rule appends to chain.

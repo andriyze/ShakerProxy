@@ -45,6 +45,11 @@ type StandaloneProxyDNS struct {
 	// BlockedDomains maps device IDs to names the forwarder answers with
 	// NXDOMAIN, including their subdomains.
 	BlockedDomains map[string][]string `json:"blocked_domains,omitempty"`
+	// BlockedResolverNames are DNS-over-HTTPS/TLS resolver hostnames and
+	// encrypted-DNS canaries answered with NXDOMAIN for every lab client
+	// (each also covers its subdomains), set while "Block encrypted DNS" is
+	// on.
+	BlockedResolverNames []string `json:"blocked_resolver_names,omitempty"`
 }
 
 type StandaloneProxyTLS struct {
@@ -132,15 +137,19 @@ func ProjectStandaloneProxyRuntimeWithIdentity(input Policy, devices StandaloneD
 	}
 
 	dnsMode := "observe"
-	switch policy.EncryptedDNS.Mode {
+	switch policy.EncryptedDNS.EffectiveMode() {
 	case EncryptedDNSBlockKnown:
 		dnsMode = "block"
 	case EncryptedDNSEnforceLocal:
 		dnsMode = "strict"
 	}
 	upstreams := []string{}
-	if policy.EncryptedDNS.Mode == EncryptedDNSEnforceLocal {
+	if policy.EncryptedDNS.EffectiveMode() == EncryptedDNSEnforceLocal {
 		upstreams = append(upstreams, policy.EncryptedDNS.UpstreamServers...)
+	}
+	var blockedResolverNames []string
+	if policy.EncryptedDNS.BlockDoHNames {
+		blockedResolverNames = BlockedResolverNames(policy)
 	}
 	var blockedDomains map[string][]string
 	bypassRules := []TLSBypassRule{}
@@ -171,11 +180,12 @@ func ProjectStandaloneProxyRuntimeWithIdentity(input Policy, devices StandaloneD
 		Revision:      policy.Revision,
 		Enabled:       policy.TLS.Enabled,
 		EncryptedDNS: StandaloneProxyDNS{
-			BlockKnownDoH:    policy.EncryptedDNS.BlockKnownDoH,
-			Mode:             dnsMode,
-			RedirectPlainDNS: (policy.EncryptedDNS.Mode == EncryptedDNSEnforceLocal && policy.EncryptedDNS.RedirectPlainDNS) || len(blockedDomains) != 0,
-			UpstreamServers:  upstreams,
-			BlockedDomains:   blockedDomains,
+			BlockKnownDoH:        policy.EncryptedDNS.BlockKnownDoH,
+			Mode:                 dnsMode,
+			RedirectPlainDNS:     policy.EncryptedDNS.RedirectPlainDNS || len(blockedDomains) != 0,
+			UpstreamServers:      upstreams,
+			BlockedDomains:       blockedDomains,
+			BlockedResolverNames: blockedResolverNames,
 		},
 		TLS: StandaloneProxyTLS{
 			Mode:                         tlsMode,

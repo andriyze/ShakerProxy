@@ -3,7 +3,7 @@ package trafficpolicy
 import "testing"
 
 func TestLocalTLSSelectedDeviceValidation(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.TLS.Enabled = true
 	policy.TLS.SelectedDeviceIDs = []string{
 		"device-22222222222222222222222222222222",
@@ -20,7 +20,7 @@ func TestLocalTLSSelectedDeviceValidation(t *testing.T) {
 }
 
 func TestLocalTLSSelectedDevicesRequireInterception(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.TLS.SelectedDeviceIDs = []string{"device-11111111111111111111111111111111"}
 	if _, err := Normalize(policy); err == nil {
 		t.Fatal("disabled TLS policy accepted selected device identities")
@@ -28,7 +28,7 @@ func TestLocalTLSSelectedDevicesRequireInterception(t *testing.T) {
 }
 
 func TestLocalTLSSelectedDevicesRejectNonCanonicalID(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.TLS.Enabled = true
 	policy.TLS.SelectedDeviceIDs = []string{"living-room-tv"}
 	if _, err := Normalize(policy); err == nil {
@@ -37,7 +37,7 @@ func TestLocalTLSSelectedDevicesRejectNonCanonicalID(t *testing.T) {
 }
 
 func TestSelectiveRuntimeWithNoIdentityEvidenceFailsOpen(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.TLS.Enabled = true
 	policy.TLS.SelectedDeviceIDs = []string{"device-11111111111111111111111111111111"}
 	runtime, err := ProjectStandaloneProxyRuntimeWithDevices(policy, EmptyStandaloneDeviceRuntime())

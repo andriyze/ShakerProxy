@@ -7,7 +7,7 @@ import (
 )
 
 func TestNormalizeAndDigestAreDeterministic(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "  Lab policy  "
 	policy.EncryptedDNS.Mode = EncryptedDNSEnforceLocal
@@ -38,7 +38,7 @@ func TestNormalizeAndDigestAreDeterministic(t *testing.T) {
 }
 
 func TestEnforceLocalRequiresRedirectAndUpstream(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.EncryptedDNS.Mode = EncryptedDNSEnforceLocal
 	if err := Validate(policy); err == nil {
 		t.Fatal("ENFORCE_LOCAL without redirect/upstream was accepted")
@@ -46,7 +46,7 @@ func TestEnforceLocalRequiresRedirectAndUpstream(t *testing.T) {
 }
 
 func TestMobilePinningScopeAcceptsOnlyCanonicalMobileIPv4(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.TLS.MobileClients = []TLSMobileClient{{CIDR: "10.44.0.15/24", Platform: " iOS "}}
 	normalized, err := Normalize(policy)
 	if err != nil {
@@ -77,7 +77,7 @@ func TestCatalogClassifiesKnownResolverAndPort(t *testing.T) {
 }
 
 func TestRenderFirewallOrdersBypassesBeforeTLSRedirect(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Enforcement"
 	policy.EncryptedDNS.Mode = EncryptedDNSEnforceLocal
@@ -105,7 +105,7 @@ func TestRenderFirewallOrdersBypassesBeforeTLSRedirect(t *testing.T) {
 	}
 	filter := strings.Join(rules.FilterRules, "\n")
 	for _, prefix := range []string{"SHAKERPROXY_EDNS_DOT ", "SHAKERPROXY_EDNS_DOQ ", "SHAKERPROXY_EDNS_DOH_TCP "} {
-		if !strings.Contains(filter, `--limit 10/second --limit-burst 20 -j LOG --log-prefix "`+prefix+`"`) {
+		if !strings.Contains(filter, `--limit 10/second --limit-burst 20 -j NFLOG --nflog-group 853 --nflog-prefix "`+prefix+`" --nflog-size 128`) {
 			t.Fatalf("encrypted DNS block lacks bounded metadata logging for %q:\n%s", prefix, filter)
 		}
 	}
@@ -114,7 +114,7 @@ func TestRenderFirewallOrdersBypassesBeforeTLSRedirect(t *testing.T) {
 func TestStoreApplyAndRollbackUseMonotonicRevisions(t *testing.T) {
 	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	store := Store{Path: t.TempDir() + "/policy.json", Now: func() time.Time { return now }}
-	first := DefaultPolicy()
+	first := LegacyDefaultPolicy()
 	first.Revision = 1
 	if _, err := store.Apply(first, 0); err != nil {
 		t.Fatal(err)

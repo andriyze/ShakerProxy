@@ -47,6 +47,28 @@ type Runtime struct {
 	deviceByIP   map[netip.Addr]string
 	blocked      map[string][]string
 	labSources   []netip.Prefix
+	// resolverNames are refused for every lab client while encrypted DNS
+	// is blocked (resolver hostnames and canaries, with subdomains).
+	resolverNames []string
+}
+
+// BlockedResolverName reports whether name is a DNS-over-HTTPS/TLS resolver
+// hostname or an encrypted-DNS canary refused for every lab client, with the
+// matched name and the reason (trafficpolicy.BlockReasonDoHName or
+// trafficpolicy.BlockReasonCanary).
+func (r *Runtime) BlockedResolverName(name string) (string, string, bool) {
+	if r == nil {
+		return "", "", false
+	}
+	for _, refused := range r.resolverNames {
+		if trafficpolicy.DomainCovers(refused, name) {
+			if trafficpolicy.IsEncryptedDNSCanary(refused) {
+				return refused, trafficpolicy.BlockReasonCanary, true
+			}
+			return refused, trafficpolicy.BlockReasonDoHName, true
+		}
+	}
+	return "", "", false
 }
 
 var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
@@ -131,10 +153,11 @@ type runtimeDocument struct {
 }
 
 type runtimeDNSDocument struct {
-	Mode             string              `json:"mode"`
-	RedirectPlainDNS bool                `json:"redirect_plain_dns"`
-	UpstreamServers  []string            `json:"upstream_servers"`
-	BlockedDomains   map[string][]string `json:"blocked_domains"`
+	Mode                 string              `json:"mode"`
+	RedirectPlainDNS     bool                `json:"redirect_plain_dns"`
+	UpstreamServers      []string            `json:"upstream_servers"`
+	BlockedDomains       map[string][]string `json:"blocked_domains"`
+	BlockedResolverNames []string            `json:"blocked_resolver_names"`
 }
 
 // Upstreams is retained for callers that only need forwarding targets.
@@ -233,6 +256,16 @@ func ParseRuntime(data []byte) (*Runtime, error) {
 			}
 			runtime.blocked[deviceID] = append(runtime.blocked[deviceID], domain)
 		}
+	}
+	if len(dns.BlockedResolverNames) > trafficpolicy.MaxBlockedResolverNames {
+		return nil, errors.New("DNS runtime policy refuses too many resolver names")
+	}
+	for _, raw := range dns.BlockedResolverNames {
+		name, err := trafficpolicy.NormalizeDomain(raw)
+		if err != nil {
+			return nil, errors.New("DNS runtime policy contains an invalid resolver name")
+		}
+		runtime.resolverNames = append(runtime.resolverNames, name)
 	}
 	if len(document.LabSources) > 16 {
 		return nil, errors.New("DNS runtime policy lists too many lab prefixes")

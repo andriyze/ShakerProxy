@@ -13,7 +13,7 @@ const (
 )
 
 func renderPolicy(mutate func(*Policy)) Policy {
-	policy := DefaultPolicy()
+	policy := LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.Name = "Render test"
 	mutate(&policy)
@@ -164,7 +164,7 @@ func TestEncryptedDNSLogPrecedesReject(t *testing.T) {
 		p.EncryptedDNS.Mode = EncryptedDNSBlockKnown
 		p.EncryptedDNS.BlockDoT = true
 	}), renderContext())
-	log := indexOf(t, rules.FilterRules, `--dport 853 -m limit --limit 10/second --limit-burst 20 -j LOG --log-prefix "SHAKERPROXY_EDNS_DOT "`)
+	log := indexOf(t, rules.FilterRules, `--dport 853 -m limit --limit 10/second --limit-burst 20 -j NFLOG --nflog-group 853 --nflog-prefix "SHAKERPROXY_EDNS_DOT " --nflog-size 128`)
 	reject := indexOf(t, rules.FilterRules, "-s 10.77.0.0/24 ! -d 10.77.0.0/24 -p tcp --dport 853 -j REJECT")
 	if log > reject {
 		t.Fatal("LOG rule is unreachable after its REJECT")
@@ -192,7 +192,7 @@ func TestConfirmedLabAlwaysAnswersDNSSentToShakerProxy(t *testing.T) {
 	// observe-only policy must answer those queries.
 	context := renderContext()
 	context.Devices = nil
-	rules := mustRender(t, DefaultPolicy(), context)
+	rules := mustRender(t, LegacyDefaultPolicy(), context)
 	for _, protocol := range []string{"udp", "tcp"} {
 		indexOf(t, rules.NATRules, "-A SHAKERPROXY-PREROUTING -i lab0 -s 10.77.0.0/24 -d 10.77.0.1 -p "+protocol+" --dport 53 -j REDIRECT --to-ports 1053")
 		indexOf(t, rules.FilterRules, "-A SHAKERPROXY-INPUT -i lab0 -s 10.77.0.0/24 -p "+protocol+" --dport 1053 -m conntrack --ctstate DNAT -j ACCEPT")
