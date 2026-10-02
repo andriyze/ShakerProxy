@@ -2702,6 +2702,7 @@ components:
         dns_record_type: {type: string, minLength: 1, maxLength: 32}
         dns_response_code: {type: string, minLength: 1, maxLength: 32}
         dns_answer_count: {type: integer, minimum: 0, maximum: 10000}
+        dns_answers: {type: array, maxItems: 8, items: {type: string, minLength: 1, maxLength: 255}, description: "What the lookup resolved to, in answer order: IP addresses in canonical form and lower-case DNS names (CNAME targets). At most 8; other record data is not included."}
         detection_type: {type: string, enum: [ROGUE_DHCP, ROGUE_RA, GATEWAY_SPOOF_SUSPECTED, CLOCK_DRIFT, CAPTURE_DEGRADED, STORAGE_PRESSURE, CPU_PRESSURE, MEMORY_PRESSURE]}
         detection_severity: {type: string, enum: [WARNING, HIGH, CRITICAL]}
         detection_state: {type: string, enum: [OPEN, RESOLVED]}
