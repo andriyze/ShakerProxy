@@ -116,6 +116,15 @@ func init() {
 				`  device.name:"Living room TV"     One device by name`,
 			examples: []string{"shakerproxy search dns.query:*.samsungcloud.com", "shakerproxy search 'tls.state:FAILED' --window 24h --device tv"},
 			run:      (*cli).searchCommand},
+		{name: "dns", group: groupTraffic, summary: "See every lookup: force plain DNS, block encrypted DNS",
+			usage: []string{"dns [status]", "dns enforce on|off", "dns block-encrypted on|off"},
+			details: "enforce: every lab device's plain DNS (port 53, to any resolver) is answered by ShakerProxy.\n" +
+				"block-encrypted: DNS over TLS/QUIC and known DNS-over-HTTPS resolvers (1.1.1.1, 8.8.8.8, ...) are refused\n" +
+				"and their names answered with NXDOMAIN, so devices fall back to plain DNS. Both are on by default and apply\n" +
+				"to the whole lab. Blocked attempts appear in `shakerproxy watch` and Traffic. Android Private DNS set to a\n" +
+				"specific provider loses internet while blocking is on: set it to Automatic or Off.",
+			examples: []string{"shakerproxy dns", "shakerproxy dns block-encrypted off", "shakerproxy dns enforce on --json"},
+			run:      (*cli).dnsCommand},
 		{name: "protocols", aliases: []string{"protocol", "proto"}, group: groupTraffic, summary: "Which protocols devices speak (MQTT, RTSP, QUIC, ...)",
 			usage:    []string{"protocols [<ref>] [--exotic] [--window 24h]"},
 			details:  "--exotic shows only unusual protocols worth a closer look.\n" + refNote,

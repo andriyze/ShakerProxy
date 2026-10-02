@@ -33,7 +33,7 @@ var (
 // forwarder lookups, Zeek and Suricata DNS logs, detected encrypted DNS, and
 // DNS over HTTPS (interception audit #9).
 const (
-	dnsBaseQuery = "kind:shakerproxy.dns OR kind:zeek.dns OR kind:suricata.dns OR kind:encrypted_dns_detected OR service:doh"
+	dnsBaseQuery = "kind:shakerproxy.dns OR kind:zeek.dns OR kind:suricata.dns OR kind:encrypted_dns_detected OR service:doh OR kind:shakerproxy.blocked"
 	tlsBaseQuery = "source:MITMPROXY AND (tls.state:FAILED OR tls.state:BYPASSED)"
 )
 

@@ -53,7 +53,7 @@ func TestDNSLookupsCoverAnalyzerLogsAndEncryptedDNS(t *testing.T) {
 		t.Fatal(err)
 	}
 	query := backend.lastSearch().Query
-	for _, fragment := range []string{"(kind:shakerproxy.dns OR kind:zeek.dns OR kind:suricata.dns OR kind:encrypted_dns_detected OR service:doh)", "device.id:" + tvID, "(dns.query:samsungacr.com OR dns.query:*.samsungacr.com)", "time:last_1h"} {
+	for _, fragment := range []string{"(kind:shakerproxy.dns OR kind:zeek.dns OR kind:suricata.dns OR kind:encrypted_dns_detected OR service:doh OR kind:shakerproxy.blocked)", "device.id:" + tvID, "(dns.query:samsungacr.com OR dns.query:*.samsungacr.com)", "time:last_1h"} {
 		if !strings.Contains(query, fragment) {
 			t.Fatalf("DNS query %q lacks %q", query, fragment)
 		}

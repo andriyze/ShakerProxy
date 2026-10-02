@@ -43,6 +43,7 @@ type Backend interface {
 	TrafficSearch(context.Context, agentapi.TrafficSearchRequest) (agentapi.EventPage, error)
 	HTTPActivity(context.Context, agentapi.HTTPActivityRequest) (ingest.HTTPActivityPage, error)
 	EventMetadata(context.Context, string) (ingest.EventDetail, error)
+	DNSVisibility(context.Context) (agentapi.DNSVisibility, error)
 }
 
 type Service struct {
@@ -76,6 +77,7 @@ const (
 	toolHTTPRequests   = "http_requests"
 	toolTestSessions   = "test_sessions"
 	toolSystemStatus   = "system_status"
+	toolDNSVisibility  = "dns_visibility"
 )
 
 // QuerySyntax is the cheat sheet embedded in search_traffic.
@@ -115,6 +117,8 @@ func New(backend Backend) (*mcp.Server, error) {
 		`List test sessions (named test runs with a time range) to use with device_report or compare_runs. Example: {"device":"tv"} or {"state":"RUNNING"}.`), service.testSessions)
 	mcp.AddTool(server, readOnlyTool(toolSystemStatus, "System status",
 		`Check whether ShakerProxy is ready to collect evidence: gateway mode, analyzers, ingestion, and limitations. Example: {}.`), service.systemStatus)
+	mcp.AddTool(server, readOnlyTool(toolDNSVisibility, "DNS visibility",
+		`Check whether every DNS lookup on the lab is visible: plain DNS forced through ShakerProxy, and encrypted DNS (DoH, DoT, DoQ) blocked so devices fall back to plain DNS; lists the blocked resolvers and names. Example: {}.`), service.dnsVisibility)
 	return server, nil
 }
 

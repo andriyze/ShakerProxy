@@ -87,6 +87,12 @@ func (f *fakeBackend) SystemOverview(context.Context) (agentapi.SystemOverview, 
 	return f.overview, nil
 }
 
+func (f *fakeBackend) DNSVisibility(context.Context) (agentapi.DNSVisibility, error) {
+	return agentapi.DNSVisibility{Schema: 1, PolicyRevision: 2, ForcePlainDNS: true, BlockEncryptedDNS: true, Mode: "ENFORCE_LOCAL", UpstreamServers: []string{},
+		BlockedResolvers: []agentapi.DNSVisibilityResolver{{ID: "google", Provider: "Google Public DNS", Hostnames: []string{"dns.google"}, IPv4: []string{"8.8.8.8"}, IPv6: []string{}}},
+		BlockedAddresses: 1, BlockedNames: []string{"dns.google", "use-application-dns.net"}, Canaries: []string{"use-application-dns.net"}, Notes: []string{}}, nil
+}
+
 func (f *fakeBackend) DevicesList(_ context.Context, request agentapi.DeviceListRequest) (agentapi.DevicePage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
