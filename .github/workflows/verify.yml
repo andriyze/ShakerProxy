@@ -45,6 +45,39 @@ jobs:
       - run: go test -race ./...
       - run: go build ./apps/shakerproxy-mcp/cmd/shakerproxy-mcp
 
+  netlab:
+    # Network namespace proofs: routing, single-arm, IPv6, DNS forwarding,
+    # the coverage probes, WireGuard VPN mode and Wi-Fi visibility with
+    # simulated radios (mac80211_hwsim).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: {go-version: "1.25.1", cache: true}
+      - name: Install lab tools
+        run: |
+          echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            iproute2 iptables nftables tcpdump wireshark-common radvd conntrack dnsutils \
+            wireguard-tools iputils-ping netcat-openbsd socat hostapd wpasupplicant iw \
+            "linux-modules-extra-$(uname -r)"
+          sudo modprobe wireguard
+          sudo modprobe mac80211_hwsim radios=0
+          sudo rmmod mac80211_hwsim
+      - name: Network namespace lab
+        run: |
+          for test in run.sh single-arm.sh ipv6-lab.sh dns-forwarding.sh coverage-probes.sh vpn-mode.sh wifi-hwsim.sh; do
+            echo "::group::$test"
+            sudo env "PATH=$PATH" "GOCACHE=$GOCACHE" "GOMODCACHE=$GOMODCACHE" "GOPATH=$GOPATH" SHAKERPROXY_NETLAB_REQUIRE=1 "./tests/netlab/$test"
+            echo "::endgroup::"
+          done
+        env:
+          GOCACHE: /home/runner/.cache/go-build
+          GOMODCACHE: /home/runner/go/pkg/mod
+          GOPATH: /home/runner/go
+
   web:
     runs-on: ubuntu-24.04
     defaults:
