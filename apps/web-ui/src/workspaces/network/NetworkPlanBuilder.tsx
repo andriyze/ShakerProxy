@@ -306,10 +306,15 @@ export function NetworkPlanBuilder({
       topology === "TRANSPARENT_BRIDGE"
         ? {
             ...common,
-            ...inlineBridgeFields(String(data.get("bridge_address")), String(data.get("bridge_router")), {
-              workingConnection: data.get("allow_working_wan_change") === "on",
-              cloudInit: data.get("allow_cloud_init_override") === "on",
-            }),
+            ...inlineBridgeFields(
+              String(data.get("bridge_address")),
+              String(data.get("bridge_router") ?? ""),
+              {
+                workingConnection: data.get("allow_working_wan_change") === "on",
+                cloudInit: data.get("allow_cloud_init_override") === "on",
+              },
+              data.get("bridge_dhcp") === "on" ? "DHCP" : "STATIC",
+            ),
           }
         : nextPlan
     if (useExtensions) {
@@ -553,8 +558,14 @@ export function NetworkPlanBuilder({
                       name="bridge_router"
                       defaultValue={routerGuess(selectedIPv4HostCIDR)}
                       placeholder="192.168.1.1"
-                      required
                     />
+                  </label>
+                  <label className="check">
+                    <input name="bridge_dhcp" type="checkbox" />
+                    <span>
+                      Keep getting this address from your router (DHCP) instead of fixing it. The bridge asks with the
+                      same MAC, so the router normally hands the same address back; a DHCP reservation keeps it fixed.
+                    </span>
                   </label>
                   <label className="check">
                     <input name="allow_working_wan_change" type="checkbox" required />

@@ -71,6 +71,16 @@ port role `LAB`; ShakerProxy's address is the static `wan.ipv4_address`, and
 }
 ```
 
+To keep getting ShakerProxy's address from your router instead (on the
+Network page: "Keep getting this address from your router"), set
+`"ipv4_mode": "DHCP"` and leave out `ipv4_address` and `ipv4_gateway`;
+`ipv4.lab_cidr` stays your network and `ipv4.gateway_address` the address
+ShakerProxy has now. The bridge asks with the router port's MAC and
+identifies itself by it (`dhcp-identifier: mac`), so the router normally
+hands the same address back. If it picks another, reconnect to the new
+address before the confirmation deadline or the plan rolls back; a DHCP
+reservation on the router keeps the address fixed.
+
 ## What happens when you apply it
 
 - The bridge `spbr0` is created over both ports with spanning tree on, so
@@ -78,8 +88,8 @@ port role `LAB`; ShakerProxy's address is the static `wan.ipv4_address`, and
   starts forwarding about 8 seconds after it comes up.
 - ShakerProxy's address on your network moves to the bridge, which keeps the
   router port's MAC address, so the router keeps seeing the same host. The
-  plan uses a static address (the one ShakerProxy has now) with your router as
-  gateway and DNS server.
+  plan uses a static address (the one ShakerProxy has now), or DHCP from your
+  router, with your router as gateway and DNS server.
 - `net.bridge.bridge-nf-call-iptables` is turned on, so bridged IPv4 passes
   through the host firewall. That is what lets ShakerProxy answer plain DNS
   and report connections as they open. Docker normally loads the
@@ -144,10 +154,13 @@ rewritten its destination to ShakerProxy's own address.
 
 - ShakerProxy's Wi-Fi access point cannot join an inline bridge yet; use a
   two-port or Wi-Fi lab for it.
-- The bridge needs a static address for ShakerProxy. If another Netplan file
-  gives the router port a static address, that address stays on the port; the
-  health check then fails and the plan rolls back. Move it out of that file
-  first.
+- If another Netplan file gives the router port a static address, that
+  address stays on the port; the health check then fails and the plan rolls
+  back. Move it out of that file first.
+- With DHCP, the CA onboarding page (http://ShakerProxy's address/) and the
+  rule that answers DNS sent to ShakerProxy's own address follow the address
+  ShakerProxy had when the plan was applied; DNS sent to any other resolver
+  is answered whatever the router hands out.
 - Two devices behind the same switch on the device port talk directly; use one
   device per port, or ShakerProxy's Wi-Fi access point, to see their traffic
   to each other.
