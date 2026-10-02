@@ -65,6 +65,38 @@ surface. They use the same reauthentication, reason, expected alias revision,
 idempotency, and audit-history contract as the inventory-row control. A stale
 open drawer therefore conflicts instead of silently overwriting a newer name.
 
+## DHCP observed on the lab
+
+In a single-arm lab or an inline bridge the network's router, not ShakerProxy,
+serves DHCP, so ShakerProxy's own lease file names no devices. The lab
+recording still sees the clients' DHCP broadcasts (and, on a bridge, the
+router's answers). Zeek logs each exchange with the client's name (option 12),
+FQDN (81), vendor class (60, `client_software`), the order of the options it
+asks for (55, `client_param_list`), and from the server's reply the router it
+hands out (3, `routers`). ingestd merges the last week of `zeek.dhcp` and
+`suricata.dhcp` records per client MAC (`GET /v1/observed-dhcp`), and the
+inventory takes them as `OBSERVED_DHCP` evidence:
+
+| Evidence | Source and confidence | Effect |
+| --- | --- | --- |
+| A server's acknowledgement binding MAC and address | `OBSERVED_DHCP`, 90 (ShakerProxy's own lease 95, NDP 80, ARP 70) | An address window for the lease (1 hour when the reply had none, at most 7 days); a neighbor-sourced MAC identity is upgraded. A newer acknowledgement of the address to another device ends the older window. |
+| The name the client gave itself | `OBSERVED_DHCP` hostname, 70 (ShakerProxy's own lease 75) | A suggested name. It never replaces a name an administrator chose. Titles keep the device's own spelling ("iPad"). |
+| Vendor class and option order | `observed_dhcp` on the device | Shown on the Devices page and in the device drawer, in the API, and in MCP `list_devices` and `find_device`, and used as a platform hint. |
+
+A MAC seen only asking adds its name and fingerprint to a device the lab
+already knows, but creates nothing: a lab segment also carries requests from
+neighbouring networks. Only an acknowledged lease inside the lab's IPv4 prefix
+creates a device. A phone that rotates its private MAC and gets the same
+address again stays one device.
+
+The platform hint from a DHCP request is conservative: `android-dhcp-*` is an
+Android device, `MSFT 5.0` a Windows PC, `dhcpcd-*` a Linux or Android device,
+`udhcp` an embedded Linux device, and Apple's option order
+(`1,121,3,6,15,…` with 119 and 252, no vendor class) an Apple device. An
+operating system's own connectivity check is more specific and wins a tie
+("GrapheneOS phone" over "Android device"). The Devices page says which
+evidence named the device: "Identified from its DHCP request: android-dhcp-14".
+
 ## Hardware vendor evidence
 
 For globally administered unicast MAC addresses, ShakerProxy consults the local

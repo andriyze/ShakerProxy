@@ -746,6 +746,23 @@ export type Device = {
   former_ids?: string[]
   // The IP address an administrator named this device by.
   pinned_address?: string
+  // The newest DHCP identity the device showed on the lab when another server
+  // (the network's router) answered it.
+  observed_dhcp?: ObservedDHCPIdentity
+}
+
+export type ObservedDHCPIdentity = {
+  hardware_addr: string
+  // The name the device gave itself, as it sent it ("iPad").
+  host_name?: string
+  client_fqdn?: string
+  // Option 60, e.g. "android-dhcp-14" or "MSFT 5.0".
+  vendor_class?: string
+  // Option 55 in the client's order, e.g. "1,3,6,15,26,28,51,58,59,43".
+  parameter_list?: string
+  server?: string
+  router?: string
+  last_seen: string
 }
 
 export type PCAPSelectionFileImpact = {
@@ -875,14 +892,16 @@ export type InventorySnapshot = {
   platform_hints?: Record<string, DevicePlatformHint>
 }
 
-export type DevicePlatformHint = { platform: string; domain: string; last_seen: string }
+// A hint names the connectivity check that identified the device (domain),
+// or, with source "dhcp", the DHCP vendor class or option order (detail).
+export type DevicePlatformHint = { platform: string; domain?: string; last_seen: string; source?: "dhcp"; detail?: string }
 
 export type AttributionEvidence = {
   schema: 1
   device_id: string
   address: string
   endpoint: "SOURCE" | "DESTINATION"
-  source: "DHCP4_LEASE" | "NDP" | "ARP" | "PINNED_ADDRESS"
+  source: "DHCP4_LEASE" | "OBSERVED_DHCP" | "NDP" | "ARP" | "PINNED_ADDRESS"
   confidence: number
   valid_from: string
   valid_until: string
