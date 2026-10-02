@@ -35,6 +35,7 @@ Each probe is sent once from a virtual client and must show up in stored events:
 | QUIC over IPv6 | A QUIC v1 Initial with a unique IPv6 server name | The server name is stored |
 | TCP / UDP over IPv6, unusual port | TCP 9998 / UDP 9997 over IPv6 | The connection is stored |
 | ICMPv6 | Two ICMPv6 echo requests | Stored and named `icmpv6` |
+| Wi-Fi radio | Not probed: the virtual test lab has no radio. Reports whether [Wi-Fi visibility](../wifi-visibility.md) is listening | PASS while the monitor and its frame parser run, SKIP with the reason otherwise |
 
 The IPv6 probes carry markers of their own and are judged only by events from the client's IPv6 address, so IPv4
 evidence can't pass an IPv6 probe or the other way round. If the appliance has IPv6 turned off, the IPv6 rows are

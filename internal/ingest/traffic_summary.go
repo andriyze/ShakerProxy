@@ -71,6 +71,7 @@ type StreamTypeCounts struct {
 	QUIC      int64 `json:"quic"`
 	HTTP      int64 `json:"http"`
 	Discovery int64 `json:"discovery"`
+	WiFi      int64 `json:"wifi"`
 	Alert     int64 `json:"alert"`
 	Other     int64 `json:"other"`
 	Blocked   int64 `json:"blocked"`
@@ -88,6 +89,8 @@ func (c *StreamTypeCounts) slot(streamType string) *int64 {
 		return &c.HTTP
 	case StreamDiscovery:
 		return &c.Discovery
+	case StreamWiFi:
+		return &c.WiFi
 	case StreamAlert:
 		return &c.Alert
 	case StreamBlocked:
@@ -100,7 +103,7 @@ func (c *StreamTypeCounts) slot(streamType string) *int64 {
 func (c StreamTypeCounts) Get(streamType string) int64 { return *c.slot(streamType) }
 
 func (c StreamTypeCounts) Total() int64 {
-	return c.DNS + c.TLS + c.QUIC + c.HTTP + c.Discovery + c.Alert + c.Other + c.Blocked
+	return c.DNS + c.TLS + c.QUIC + c.HTTP + c.Discovery + c.WiFi + c.Alert + c.Other + c.Blocked
 }
 
 type TrafficSummaryBucket struct {

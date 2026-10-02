@@ -142,6 +142,14 @@ func init() {
 				"specific provider loses internet while blocking is on: set it to Automatic or Off.",
 			examples: []string{"shakerproxy dns", "shakerproxy dns block-encrypted off", "shakerproxy dns enforce on --json"},
 			run:      (*cli).dnsCommand},
+		{name: "wifi", aliases: []string{"wi-fi", "wireless"}, group: groupTraffic, summary: "Listen on Wi-Fi: networks devices search for, join, roam between and leave",
+			usage: []string{"wifi [status]", "wifi on [--adapter wlan1]", "wifi off", "wifi channel <n|auto|hop>", "wifi nearby on|off [--confirm]"},
+			details: "Needs a Wi-Fi adapter that supports monitor mode (a second USB adapter, or the lab access point's when it can listen\n" +
+				"alongside). Listening is passive: nothing is transmitted. Only lab devices and the lab network are recorded unless\n" +
+				"nearby devices are turned on (kept 24 hours). auto listens on the lab access point's channel, else hops; a fixed\n" +
+				"channel follows one device closely. Events appear in `shakerproxy watch`, Traffic (Wi-Fi) and MCP wifi_activity.",
+			examples: []string{"shakerproxy wifi", "shakerproxy wifi on", "shakerproxy wifi channel 6", "shakerproxy wifi off --json"},
+			run:      (*cli).wifiCommand},
 		{name: "protocols", aliases: []string{"protocol", "proto"}, group: groupTraffic, summary: "Which protocols devices speak (MQTT, RTSP, QUIC, ...)",
 			usage:    []string{"protocols [<ref>] [--exotic] [--window 24h]"},
 			details:  "--exotic shows only unusual protocols worth a closer look.\n" + refNote,

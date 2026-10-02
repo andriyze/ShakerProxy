@@ -1,0 +1,49 @@
+[Unit]
+Description=ShakerProxy passive Wi-Fi capture (802.11 management frames)
+Documentation=https://github.com/andriyze/ShakerProxy/blob/main/docs/wifi-visibility.md
+# Started and stopped by shakerproxy-gatewayd, which creates the monitor
+# interface spmon0 first. dumpcap only listens: a monitor interface cannot
+# transmit.
+ConditionPathExists=/sys/class/net/spmon0
+ConditionPathIsDirectory=/var/lib/shakerproxy/wifi/ring
+
+[Service]
+Type=simple
+# Only management frames (probe, authentication, association, beacon,
+# disconnect): data frames are encrypted and never recorded. A bounded ring
+# of 5-second files, at most 120 x 2 MiB; -g makes the files readable by the
+# shakerproxy-wifi group (the frame parser).
+ExecStart=/usr/bin/dumpcap -i spmon0 -f "type mgt" -s 2048 -n -q -g -w /var/lib/shakerproxy/wifi/ring/wifi.pcapng -b duration:5 -b filesize:2048 -b files:120
+User=shakerproxy-capture
+Group=shakerproxy-wifi
+UMask=0027
+WorkingDirectory=/var/lib/shakerproxy/wifi/ring
+KillMode=mixed
+TimeoutStopSec=10s
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+ReadWritePaths=/var/lib/shakerproxy/wifi/ring
+InaccessiblePaths=-/var/lib/shakerproxy/pcap -/etc/shakerproxy/secrets
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_PACKET
+SystemCallArchitectures=native
+MemoryMax=256M

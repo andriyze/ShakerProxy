@@ -102,6 +102,9 @@ func classifiableEvent(envelope Envelope, network NetworkProjection) bool {
 // state. Unclassifiable events (host detections, engine statistics, meta
 // logs) return an empty projection.
 func ProjectProtocolFields(envelope Envelope, network NetworkProjection, tls TLSProjection) ProtocolProjection {
+	if isHostWiFi(envelope.Source, envelope.Kind) {
+		return wifiProtocolProjection()
+	}
 	var projection ProtocolProjection
 	if classifiableEvent(envelope, network) {
 		projection = protocolProjection(protocolclass.Classify(protocolclass.Observation{

@@ -25,7 +25,8 @@ func MethodTimeout(method string) time.Duration {
 	case "StartCapture", "StopCapture", "SetLabRecording", "GetCaptureStats", "ListCaptures", "ReadCaptureArtifact", "ReadCaptureFlow",
 		"ApplyTrafficPolicy", "RollbackTrafficPolicy", "PreviewTrafficPolicy",
 		"SetOperatingMode", "EnableEmergencyBypass", "DisableEmergencyBypass",
-		"SetCaptureEvidenceHold", "SetVPN", "AddVPNPeer", "RevokeVPNPeer":
+		"SetCaptureEvidenceHold", "SetVPN", "AddVPNPeer", "RevokeVPNPeer",
+		"SetWiFiMonitor", "GetWiFiMonitor":
 		return 30 * time.Second
 	case "CommitNetworkPlan", "ConfirmNetworkPlan", "RollbackNetworkPlan", "RevertNetworkPlan", "SignalNetworkHealth",
 		"PreviewCaptureDeletion", "PreviewCaptureDeletionUntil", "DeleteCapture",

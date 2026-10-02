@@ -318,7 +318,21 @@ func (s *Server) runCoverage(report coverage.Report, administrator string) {
 			break
 		}
 	}
+	report.Results = append(report.Results, s.coverageWiFiRadio(ctx))
+	report.Count()
 	finish(coverage.StateCompleted, "")
+}
+
+// coverageWiFiRadio reports whether ShakerProxy listens on the radio.
+func (s *Server) coverageWiFiRadio(ctx context.Context) coverage.Result {
+	var status gatewayprotocol.WiFiMonitorStatus
+	if err := s.gateway.Call(ctx, "GetWiFiMonitor", gatewayprotocol.EmptyParams{}, &status); err != nil {
+		return coverage.WiFiRadioResult(coverage.WiFiRadio{Unknown: true})
+	}
+	return coverage.WiFiRadioResult(coverage.WiFiRadio{
+		Enabled: status.Settings.Enabled, Active: status.Active, Available: status.Available, Reason: status.Reason,
+		Adapter: status.Adapter, ChannelMode: status.ChannelMode, Channel: status.Channel, WorkerRunning: status.WorkerRunning,
+	})
 }
 
 func boundedMessage(err error) string {

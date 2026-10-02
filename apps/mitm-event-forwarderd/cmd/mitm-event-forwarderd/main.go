@@ -56,7 +56,11 @@ const (
 
 // hostSpoolKinds are the only HOST events the host spool may carry; in
 // particular never detections.
-var hostSpoolKinds = map[string]bool{hostDNSKind: true, hostConnKind: true, hostBlockedKind: true}
+var hostSpoolKinds = map[string]bool{
+	hostDNSKind: true, hostConnKind: true, hostBlockedKind: true,
+	// shakerproxy-wifi-worker's 802.11 management frame events.
+	"wifi.probe": true, "wifi.auth": true, "wifi.assoc": true, "wifi.deauth": true, "wifi.disassoc": true, "wifi.beacon_summary": true,
+}
 
 func (c configuration) source() string {
 	if c.Source == "" {
@@ -355,7 +359,7 @@ func decodeSpooledEnvelope(data []byte, source string) (eventEnvelope, error) {
 		return eventEnvelope{}, errors.New("event contains trailing data")
 	}
 	if source == sourceHost && !hostSpoolKinds[envelope.Kind] {
-		return eventEnvelope{}, errors.New("the host event spool accepts only lookup, connection and blocked-attempt events")
+		return eventEnvelope{}, errors.New("the host event spool accepts only lookup, connection, blocked-attempt and Wi-Fi events")
 	}
 	if envelope.Schema != 1 || !strings.HasPrefix(envelope.EventID, "evt_") || envelope.Source != source || envelope.Kind == "" || envelope.OccurredAt.IsZero() || envelope.SourceVersion == "" || envelope.ParserVersion == "" || envelope.Confidence < 0 || envelope.Confidence > 100 || envelope.Payload == nil {
 		return eventEnvelope{}, errors.New("event envelope fields are invalid")

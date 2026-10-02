@@ -1,0 +1,57 @@
+[Unit]
+Description=ShakerProxy Wi-Fi frame parser
+Documentation=https://github.com/andriyze/ShakerProxy/blob/main/docs/wifi-visibility.md
+# Started and stopped by shakerproxy-gatewayd with Wi-Fi visibility. It
+# parses frames captured off the air, which are hostile input, so it runs
+# with no network, no capabilities and read-only access to the capture
+# ring; it only writes event files into the host event spool.
+ConditionPathIsDirectory=/var/lib/shakerproxy/wifi
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-wifi-worker
+Environment=SHAKERPROXY_WIFI_RING=/var/lib/shakerproxy/wifi/ring
+Environment=SHAKERPROXY_WIFI_SCOPE=/var/lib/shakerproxy/wifi/scope.json
+Environment=SHAKERPROXY_WIFI_STATE=/var/lib/shakerproxy/wifi-worker/state.json
+Environment=SHAKERPROXY_EVENT_SPOOL=/var/lib/shakerproxy/dns-events/pending
+User=shakerproxy-wifi
+Group=shakerproxy-wifi
+# Writes Wi-Fi events into the host event spool, which the event forwarder
+# delivers to ingest.
+SupplementaryGroups=shakerproxy-dns
+UMask=0027
+StateDirectory=shakerproxy/wifi-worker
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+PrivateNetwork=true
+IPAddressDeny=any
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadOnlyPaths=/var/lib/shakerproxy/wifi
+ReadWritePaths=/var/lib/shakerproxy/dns-events/pending
+InaccessiblePaths=-/var/lib/shakerproxy/pcap -/etc/shakerproxy/secrets -/var/lib/shakerproxy/inventory -/var/lib/shakerproxy/control-api
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+MemoryMax=128M
+TasksMax=32

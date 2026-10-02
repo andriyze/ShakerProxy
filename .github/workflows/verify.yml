@@ -45,6 +45,67 @@ jobs:
       - run: go test -race ./...
       - run: go build ./apps/shakerproxy-mcp/cmd/shakerproxy-mcp
 
+  netlab:
+    # Network namespace proofs: routing, single-arm, IPv6, DNS forwarding,
+    # the coverage probes and WireGuard VPN mode.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: {go-version: "1.25.1", cache: true}
+      - name: Install lab tools
+        run: |
+          echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            iproute2 iptables nftables tcpdump wireshark-common radvd conntrack dnsutils \
+            wireguard-tools iputils-ping netcat-openbsd socat
+          sudo modprobe wireguard
+      - name: Network namespace lab
+        run: |
+          for test in run.sh single-arm.sh ipv6-lab.sh dns-forwarding.sh coverage-probes.sh vpn-mode.sh; do
+            echo "::group::$test"
+            sudo env "PATH=$PATH" "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" SHAKERPROXY_NETLAB_REQUIRE=1 "./tests/netlab/$test"
+            echo "::endgroup::"
+          done
+
+  netlab-wifi:
+    # Wi-Fi visibility with four simulated radios. The runner's Azure kernel
+    # has no mac80211_hwsim, so the proof runs in a small VM booting
+    # Ubuntu's generic kernel (virtme-ng, KVM) over the runner's own files.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: {go-version: "1.25.1", cache: true}
+      - name: Build the Wi-Fi roles
+        run: |
+          mkdir -p "$RUNNER_TEMP/wifi-bin"
+          CGO_ENABLED=0 go test -c -trimpath -buildvcs=false -o "$RUNNER_TEMP/wifi-bin/daemon.test" ./host/gatewayd/internal/daemon
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/wifi-bin/shakerproxy-wifi-worker" ./host/wifi-worker/cmd/shakerproxy-wifi-worker
+      - name: Install the lab tools and a generic kernel
+        run: |
+          echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            iproute2 iw hostapd wpasupplicant wireshark-common python3 virtme-ng qemu-system-x86 linux-image-generic
+          kernel="$(ls /boot/vmlinuz-*-generic | sort -V | tail -n 1)"
+          version="${kernel#/boot/vmlinuz-}"
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "linux-modules-extra-$version"
+          test -e "/lib/modules/$version/kernel/drivers/net/wireless/virtual/mac80211_hwsim.ko.zst" || find "/lib/modules/$version" -name 'mac80211_hwsim*'
+          sudo chmod 0644 "$kernel"
+          sudo chmod 0666 /dev/kvm
+          echo "KERNEL=$kernel" >> "$GITHUB_ENV"
+      - name: Wi-Fi lab with simulated radios
+        run: |
+          # The VM's exit status may not carry the test's, so the proof's own
+          # PASS line is what counts.
+          vng --run "$KERNEL" --user root --memory 2G --rw -- \
+            "cd '$GITHUB_WORKSPACE' && SHAKERPROXY_NETLAB_BIN='$RUNNER_TEMP/wifi-bin' SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/wifi-hwsim.sh" 2>&1 | tee "$RUNNER_TEMP/wifi.log"
+          grep -q '^PASS: Wi-Fi visibility records the lab device and nothing nearby' "$RUNNER_TEMP/wifi.log"
+
   web:
     runs-on: ubuntu-24.04
     defaults:

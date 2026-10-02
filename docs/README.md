@@ -31,6 +31,7 @@ beyond those records.
 
 - [Networking and guarded activation](networking.md)
 - [Wi-Fi access point](wifi-access-point.md)
+- [Wi-Fi visibility](wifi-visibility.md)
 - [IPv6 in the lab](ipv6.md)
 - [DNS forwarding and encrypted-DNS policy](dns-forwarding.md)
 - [TLS interception, certificate onboarding, and bypass](tls-interception.md)

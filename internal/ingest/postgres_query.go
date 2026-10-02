@@ -293,7 +293,8 @@ COALESCE(protocol_evidence, ''), COALESCE(protocol_exotic, false),
 COALESCE(http_method, ''), COALESCE(http_host, ''), COALESCE(http_path, ''), COALESCE(http_status, 0),
 COALESCE(alert_signature, ''), COALESCE(alert_severity, 0), COALESCE(alert_category, ''),
 ` + blockedProjection + `,
-` + bytesProjection + `
+` + bytesProjection + `,
+` + wifiProjectionSQL + `
 FROM normalized_events`
 
 // blockedProjection reads whether ShakerProxy refused the lookup or
@@ -343,11 +344,12 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 		var tlsClientRecentSuccess sql.NullBool
 		var attributionJSON string
 		var bytesSent, bytesReceived sql.NullInt64
+		var wifiPayload string
 		if err := rows.Scan(&event.RecordID, &event.Source, &event.Kind, &event.OccurredAt, &event.ReceivedAt, &event.SourceVersion, &event.ParserVersion, &event.CaptureSessionID, &event.FlowID, &event.DeviceID, &event.Confidence, &event.SourceIP, &event.DestinationIP, &event.SourcePort, &event.DestinationPort, &event.Protocol, &event.Service, &event.NetworkBytes, &event.DNSQuery, &event.DNSRecordType, &event.DNSResponseCode, &dnsAnswerCount, &dnsAnswersJSON, &event.DNSName, &event.DetectionType, &event.DetectionSeverity, &event.DetectionState, &event.DetectionSummary, &event.DetectionScope, &event.TLSServerName, &event.TLSInterceptionState, &event.TLSFailureReason, &event.TLSPinningSuspected, &tlsClientRecentSuccess, &event.TLSBypassActivated, &event.TLSPlatform, &attributionJSON,
 			&event.AppProtocol, &event.ProtocolCategory, &event.ProtocolVisibility, &event.ProtocolEvidence, &event.ProtocolExotic,
 			&event.HTTPMethod, &event.HTTPHost, &event.HTTPPath, &event.HTTPStatus,
 			&event.AlertSignature, &event.AlertSeverity, &event.AlertCategory, &event.Blocked, &event.BlockedReason,
-			&bytesSent, &bytesReceived); err != nil {
+			&bytesSent, &bytesReceived, &wifiPayload); err != nil {
 			return nil, fmt.Errorf("decode %s normalized event: %w", queryKind, err)
 		}
 		if dnsAnswerCount.Valid {
@@ -379,6 +381,7 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 		if bytesReceived.Valid {
 			event.BytesReceived = &bytesReceived.Int64
 		}
+		event.WiFi = parseWiFiFields(wifiPayload)
 		event.DestinationOrganization, event.DestinationCategory = destinationOwner(event)
 		event.Summary = EventSummary(event)
 		events = append(events, event)

@@ -127,6 +127,45 @@ export function EventEssentials({ event, payload }: { event: RecentEvent; payloa
     case "http":
       // The Request / Response panel carries the substance.
       return null
+    case "wifi": {
+      const wifi = event.wifi
+      if (!wifi) return null
+      const signal =
+        wifi.signal_min_dbm !== undefined && wifi.signal_max_dbm !== undefined && wifi.signal_min_dbm !== wifi.signal_max_dbm
+          ? `${wifi.signal_min_dbm} to ${wifi.signal_max_dbm} dBm`
+          : wifi.signal_dbm !== undefined
+            ? `${wifi.signal_dbm} dBm`
+            : ""
+      const outcome = wifi.no_response
+        ? "no answer from the access point"
+        : wifi.success === undefined
+          ? ""
+          : wifi.success
+            ? "success"
+            : `refused: ${wifi.status ?? "unknown"}`
+      return (
+        <section className="ed-section">
+          <Facts
+            rows={[
+              ["Network", wifi.ssid ? wifi.ssid : wifi.wildcard ? "any network (scan)" : wifi.hidden ? "hidden network" : ""],
+              ["Access point", wifi.bssid ?? "", true],
+              ["Device address", wifi.client_mac ? `${wifi.client_mac}${wifi.randomized_mac ? " (randomized)" : ""}` : "", true],
+              ["Possibly", wifi.possible_mac ? `${wifi.possible_mac}: same radio fingerprint and sequence numbers, not proof` : "", true],
+              ["Sent by", wifi.direction === "from_ap" ? "the access point" : wifi.direction === "from_client" ? "the device" : ""],
+              ["Outcome", outcome],
+              ["Authentication", wifi.algorithm ?? ""],
+              ["Roamed from", wifi.reassociation && wifi.previous_bssid ? wifi.previous_bssid : "", true],
+              ["Reason", wifi.protected ? "hidden (management frame protection encrypted it)" : wifi.reason ? `${wifi.reason} (${wifi.reason_code})` : ""],
+              ["Security", wifi.security ?? ""],
+              ["Channel", wifi.channel ? `${wifi.channel}${wifi.frequency_mhz ? ` (${wifi.frequency_mhz} MHz)` : ""}` : ""],
+              ["Signal", signal],
+              ["Beacons", wifi.count ? String(wifi.count) : ""],
+              ["Recorded as", wifi.scope === "nearby" ? "nearby, not part of the lab (deleted after 24 hours)" : "lab"],
+            ]}
+          />
+        </section>
+      )
+    }
     default: {
       const sent = bytes(payload.orig_bytes ?? payload.orig_ip_bytes)
       const received = bytes(payload.resp_bytes ?? payload.resp_ip_bytes)

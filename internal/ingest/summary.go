@@ -23,6 +23,8 @@ func EventSummary(event RecentEvent) string {
 
 func eventSummary(event RecentEvent) string {
 	switch {
+	case isHostWiFi(event.Source, event.Kind):
+		return wifiSummary(event)
 	case event.DetectionSummary != "":
 		return "ShakerProxy detection (" + event.DetectionSeverity + "): " + event.DetectionSummary
 	case event.AlertSignature != "":

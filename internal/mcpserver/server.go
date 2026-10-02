@@ -48,6 +48,7 @@ type Backend interface {
 	DNSVisibility(context.Context) (agentapi.DNSVisibility, error)
 	VisibilityCoverage(context.Context) (coverage.Overview, error)
 	VPN(context.Context) (agentapi.VPN, error)
+	WiFiVisibility(context.Context) (agentapi.WiFiVisibility, error)
 }
 
 type Service struct {
@@ -85,6 +86,7 @@ const (
 	toolDNSVisibility  = "dns_visibility"
 	toolCoverage       = "visibility_coverage"
 	toolVPNDevices     = "vpn_devices"
+	toolWiFiActivity   = "wifi_activity"
 )
 
 // QuerySyntax is the cheat sheet embedded in search_traffic.
@@ -132,6 +134,8 @@ func New(backend Backend) (*mcp.Server, error) {
 		`Show which traffic types ShakerProxy is proven to see (DNS, DoH, DoT, DoQ, HTTP, HTTPS, QUIC, TCP, UDP, ICMP, SSH, NTP, mDNS, SSDP, and DNS, HTTP, HTTPS, QUIC, TCP, UDP and ICMPv6 over IPv6) from the last visibility coverage check, with how long each took to appear, and every way devices could bypass ShakerProxy in the current lab (another IPv6 router advertising, another DHCP server, device-to-device traffic, encrypted DNS). Example: {}.`), service.visibilityCoverage)
 	mcp.AddTool(server, readOnlyTool(toolVPNDevices, "VPN devices",
 		`List the devices on ShakerProxy's WireGuard VPN, which send all their traffic through ShakerProxy from any network, with VPN address, whether connected, last handshake and bytes; their traffic is under device names ending in "(VPN)". Example: {}.`), service.vpnDevices)
+	mcp.AddTool(server, readOnlyTool(toolWiFiActivity, "Wi-Fi activity",
+		`Show what a device (or the lab) did on Wi-Fi from ShakerProxy's passive monitor (the networks it searched for by name, when it joined, roamed and disconnected and why, and the hardware addresses it used), and whether Wi-Fi visibility runs. Example: {"device":"Pixel","window":"24h"} or {}.`), service.wifiActivity)
 	return server, nil
 }
 

@@ -401,6 +401,41 @@ paths:
         "404": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
+  /wifi-visibility:
+    get:
+      operationId: getWiFiVisibility
+      description: "Wi-Fi visibility: whether a passive monitor interface records lab devices' 802.11 management frames (which networks they search for, when they authenticate, join, roam and leave), which adapters can listen and why not. Off by default; it never transmits."
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Settings, adapters and what runs, content: {application/json: {schema: {$ref: "#/components/schemas/WiFiVisibility"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+    put:
+      operationId: setWiFiVisibility
+      description: "Turns Wi-Fi visibility on or off and chooses the adapter and channel (an administrator session or an API token with lab:write). Recording nearby devices and networks, which are not part of the lab, needs acknowledge_nearby; that data is deleted after 24 hours. A start that fails leaves monitoring off and the host unchanged."
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                enabled: {type: boolean}
+                adapter: {type: string, maxLength: 15, description: Wi-Fi interface to listen with; empty chooses one.}
+                channel_mode: {type: string, enum: [auto, fixed, hop], description: "auto listens on the lab access point's channel when ShakerProxy runs one, else hops."}
+                channel: {type: integer, minimum: 0, maximum: 177, description: 2.4 or 5 GHz channel; implies fixed.}
+                nearby: {type: boolean}
+                acknowledge_nearby: {type: boolean}
+      responses:
+        "200": {description: Settings after the change, content: {application/json: {schema: {$ref: "#/components/schemas/WiFiVisibility"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /traffic-policy:
     get:
       operationId: getTrafficPolicy
@@ -2638,6 +2673,57 @@ components:
         blocked_names: {type: array, maxItems: 512, items: {type: string}, description: Answered with NXDOMAIN while block_encrypted_dns is on; each also covers its subdomains.}
         canaries: {type: array, items: {type: string}}
         notes: {type: array, items: {type: string}}
+    WiFiVisibility:
+      type: object
+      additionalProperties: false
+      required: [schema, settings, available, active, shared_with_access_point, capturing, worker_running, lab_devices, adapters, nearby_retention_hours, checked_at, notes]
+      properties:
+        schema: {const: 1}
+        settings:
+          type: object
+          additionalProperties: false
+          required: [enabled, channel_mode, nearby]
+          properties:
+            enabled: {type: boolean}
+            adapter: {type: string, maxLength: 15}
+            channel_mode: {type: string, enum: [auto, fixed, hop]}
+            channel: {type: integer, minimum: 1, maximum: 177}
+            nearby: {type: boolean}
+        available: {type: boolean, description: An adapter can listen; reason says why not.}
+        reason: {type: string, maxLength: 512}
+        active: {type: boolean}
+        interface: {type: string, maxLength: 15}
+        adapter: {type: string, maxLength: 15}
+        phy: {type: string, maxLength: 16}
+        shared_with_access_point: {type: boolean}
+        channel_mode: {type: string, enum: [fixed, hop, access-point]}
+        channel: {type: integer, minimum: 1, maximum: 233}
+        frequency_mhz: {type: integer, minimum: 2412, maximum: 7115}
+        hop_channels: {type: array, maxItems: 24, items: {type: integer}}
+        capturing: {type: boolean}
+        worker_running: {type: boolean}
+        lab_ssid: {type: string, maxLength: 128}
+        lab_devices: {type: integer, minimum: 0}
+        adapters:
+          type: array
+          maxItems: 16
+          items:
+            type: object
+            additionalProperties: false
+            required: [interface, monitor_supported, monitor_alongside_ap, access_point, in_use, bands, channels]
+            properties:
+              interface: {type: string, maxLength: 15}
+              phy: {type: string, maxLength: 16}
+              monitor_supported: {type: boolean}
+              monitor_alongside_ap: {type: boolean}
+              access_point: {type: boolean}
+              in_use: {type: boolean, description: The adapter carries the host's own connection and is never taken over.}
+              bands: {type: array, items: {type: string, enum: [2.4GHz, 5GHz, 6GHz]}}
+              channels: {type: array, items: {type: integer}}
+        last_error: {type: string, maxLength: 512}
+        nearby_retention_hours: {type: integer, minimum: 1}
+        checked_at: {type: string, format: date-time}
+        notes: {type: array, items: {type: string}}
     TrafficPolicyDocument:
       type: object
       additionalProperties: false
@@ -3021,6 +3107,38 @@ components:
         destination_organization: {type: string, maxLength: 128, description: "Who operates the destination the event names (server name, web host, looked-up name), from ShakerProxy's curated domain table, e.g. Google or Amazon; absent when unknown."}
         destination_category: {type: string, enum: [analytics, advertising, crash-reporting, telemetry, cloud-platform, cdn, push, os-services, streaming, iot-cloud], description: What the destination is used for; present only with destination_organization.}
         summary: {type: string, maxLength: 640, description: "One plain-language line of at most 160 characters, e.g. \"DNS lookup api.example.com (A) → 3 answers\" or \"HTTPS api.example.com — decrypted\". Never contains headers, bodies, credentials, or query strings."}
+        wifi:
+          type: object
+          additionalProperties: false
+          required: [scope]
+          description: "What a Wi-Fi event (kind wifi.probe, wifi.auth, wifi.assoc, wifi.deauth, wifi.disassoc, wifi.beacon_summary) says. Every string came off the air and is untrusted."
+          properties:
+            scope: {type: string, enum: [lab, nearby]}
+            client_mac: {type: string, maxLength: 17}
+            randomized_mac: {type: boolean}
+            bssid: {type: string, maxLength: 17}
+            ssid: {type: string, maxLength: 128}
+            wildcard: {type: boolean}
+            hidden: {type: boolean}
+            channel: {type: integer, minimum: 0}
+            frequency_mhz: {type: integer, minimum: 0}
+            signal_dbm: {type: integer, minimum: -120, maximum: -1}
+            signal_min_dbm: {type: integer, minimum: -120, maximum: -1}
+            signal_max_dbm: {type: integer, minimum: -120, maximum: -1}
+            count: {type: integer, minimum: 0}
+            direction: {type: string, enum: [from_client, from_ap]}
+            reason_code: {type: integer, minimum: 0}
+            reason: {type: string, maxLength: 96}
+            protected: {type: boolean}
+            status_code: {type: integer, minimum: 0}
+            status: {type: string, maxLength: 96}
+            success: {type: boolean}
+            no_response: {type: boolean}
+            algorithm: {type: string, maxLength: 32}
+            reassociation: {type: boolean}
+            previous_bssid: {type: string, maxLength: 17}
+            security: {type: string, maxLength: 32}
+            possible_mac: {type: string, maxLength: 17, description: The lab device address a randomized probe probably belongs to (low confidence).}
     ProtocolVisibility:
       type: string
       enum: [DECRYPTED, CLEARTEXT, ENCRYPTED_METADATA, OPAQUE]
@@ -3032,13 +3150,14 @@ components:
     StreamTypeCounts:
       type: object
       additionalProperties: false
-      required: [dns, tls, quic, http, discovery, alert, other, blocked]
+      required: [dns, tls, quic, http, discovery, wifi, alert, other, blocked]
       properties:
         dns: {type: integer, minimum: 0}
         tls: {type: integer, minimum: 0}
         quic: {type: integer, minimum: 0}
         http: {type: integer, minimum: 0}
         discovery: {type: integer, minimum: 0}
+        wifi: {type: integer, minimum: 0}
         alert: {type: integer, minimum: 0}
         other: {type: integer, minimum: 0}
         blocked: {type: integer, minimum: 0}

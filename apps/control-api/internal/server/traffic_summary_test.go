@@ -113,7 +113,7 @@ func TestTrafficSummaryRouteRequiresTrafficReadAndLabelsDevices(t *testing.T) {
 		if devices.Field != ingest.SummaryFacetDevice || devices.Values[0].Label != "Pixel" || devices.Values[1].Label != "10.77.0.9" || len(summary.Buckets) != 30 || summary.Totals.Types.DNS != 2 {
 			t.Fatalf("unexpected summary: %s", recorder.Body.String())
 		}
-		for _, field := range []string{`"bucket_seconds":30`, `"counts":{"dns":2,"tls":0,"quic":0,"http":0,"discovery":0,"alert":0,"other":0,"blocked":0}`, `"bytes_sent":0`, `"other_count":0`, `"exact":true`} {
+		for _, field := range []string{`"bucket_seconds":30`, `"counts":{"dns":2,"tls":0,"quic":0,"http":0,"discovery":0,"wifi":0,"alert":0,"other":0,"blocked":0}`, `"bytes_sent":0`, `"other_count":0`, `"exact":true`} {
 			if !strings.Contains(recorder.Body.String(), field) {
 				t.Fatalf("summary lacks %s: %s", field, recorder.Body.String())
 			}

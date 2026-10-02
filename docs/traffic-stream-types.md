@@ -22,15 +22,16 @@ The first rule that matches decides.
 | # | Type | Rule |
 |---|---|---|
 | 1 | blocked | ShakerProxy refused it: a lookup the DNS forwarder answered NXDOMAIN on purpose, or a connection the gateway rejected (`shakerproxy.blocked`) |
-| 2 | dns | Encrypted DNS the classifier identified: app protocol `doh`, `dot` or `doq` |
-| 3 | quic / tls / http / other | A connection the gateway reported as it opened (`shakerproxy.conn`): UDP to 443 or with a server name is QUIC, TCP to 443 or with a server name is TLS, TCP to 80 is HTTP, anything else is other |
-| 4 | alert | A Suricata alert |
-| 5 | discovery | Local discovery: destination port 5353 (mDNS), 5355 (LLMNR), 1900 (SSDP), 137/138 (NetBIOS), 67/68 (DHCP), 546/547 (DHCPv6), 3702 (WS-Discovery) or 10001 (Ubiquiti); a `zeek.dhcp` record; or the protocol classifier's `local-discovery` category or a discovery/DHCP app protocol |
-| 6 | dns | A name lookup (`dns_query` set) |
-| 7 | http | A web request (method or host set, or an `*.http` record) |
-| 8 | quic | A QUIC record, or a UDP connection with a server name |
-| 9 | tls | A connection with a server name, or a TLS handshake record |
-| 10 | other | Everything else: unnamed TCP/UDP, ICMP, and other protocols |
+| 2 | wifi | An 802.11 management frame event from ShakerProxy's passive Wi-Fi monitor (HOST `wifi.*`: probe, auth, assoc, deauth, disassoc, beacon summary); see [Wi-Fi visibility](wifi-visibility.md) |
+| 3 | dns | Encrypted DNS the classifier identified: app protocol `doh`, `dot` or `doq` |
+| 4 | quic / tls / http / other | A connection the gateway reported as it opened (`shakerproxy.conn`): UDP to 443 or with a server name is QUIC, TCP to 443 or with a server name is TLS, TCP to 80 is HTTP, anything else is other |
+| 5 | alert | A Suricata alert |
+| 6 | discovery | Local discovery: destination port 5353 (mDNS), 5355 (LLMNR), 1900 (SSDP), 137/138 (NetBIOS), 67/68 (DHCP), 546/547 (DHCPv6), 3702 (WS-Discovery) or 10001 (Ubiquiti); a `zeek.dhcp` record; or the protocol classifier's `local-discovery` category or a discovery/DHCP app protocol |
+| 7 | dns | A name lookup (`dns_query` set) |
+| 8 | http | A web request (method or host set, or an `*.http` record) |
+| 9 | quic | A QUIC record, or a UDP connection with a server name |
+| 10 | tls | A connection with a server name, or a TLS handshake record |
+| 11 | other | Everything else: unnamed TCP/UDP, ICMP, and other protocols |
 
 ## Analyzer duplicates
 

@@ -49,6 +49,19 @@ WireGuard it skips (and fails under `make netlab`). Set
 `SHAKERPROXY_NETLAB_BIN` to a directory with prebuilt `daemon.test` and
 `shakerproxy-dnsd` to skip the build.
 
+`wifi-hwsim.sh` proves [Wi-Fi visibility](../../docs/wifi-visibility.md) with
+four simulated radios (`mac80211_hwsim`), each in its own namespace: hostapd
+serves a WPA2 lab network on channel 6, a lab device searches for "HomeWiFi",
+joins and disconnects, and a bystander searches for "CoffeeShop". gatewayd's
+real Wi-Fi monitor picks the fourth radio, adds `spmon0` with `iw` and tunes
+it to the access point's channel; dumpcap records management frames and the
+real frame parser writes events to a spool. The lab device's probe,
+authentication, association and disconnect and the lab network's beacon
+summary must arrive, and nothing about the bystander may. Many cloud kernels
+lack `mac80211_hwsim` (`apt install linux-modules-extra-$(uname -r)`), so it
+skips without the module even under `make netlab`; run
+`make netlab-wifi` to require it.
+
 `firewall-coexistence.sh` builds synthetic Docker and administrator chains in a
 separate namespace, applies ShakerProxy-owned filter/NAT restore batches twice,
 asserts attachment jumps are not duplicated, simulates a reboot restore with

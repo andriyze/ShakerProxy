@@ -1,0 +1,147 @@
+[
+  {
+    "kind": "wifi.beacon_summary",
+    "at": "2026-10-02T12:00:00Z",
+    "payload": {
+      "scope": "lab",
+      "bssid": "aa:bb:cc:00:00:01",
+      "ssid": "ShakerProxy-Lab",
+      "channel": 6,
+      "frequency_mhz": 2437,
+      "signal_dbm": -45,
+      "signal_min_dbm": -45,
+      "signal_max_dbm": -45,
+      "count": 1,
+      "direction": "from_ap",
+      "security": "wpa2-wpa3-personal"
+    }
+  },
+  {
+    "kind": "wifi.probe",
+    "at": "2026-10-02T12:00:00.1Z",
+    "payload": {
+      "scope": "lab",
+      "client_mac": "3c:22:fb:00:00:10",
+      "wildcard": true,
+      "channel": 6,
+      "frequency_mhz": 2437,
+      "signal_dbm": -45,
+      "direction": "from_client",
+      "fingerprint": "c51b18b97498e5ef"
+    }
+  },
+  {
+    "kind": "wifi.probe",
+    "at": "2026-10-02T12:00:00.11Z",
+    "payload": {
+      "scope": "lab",
+      "client_mac": "3c:22:fb:00:00:10",
+      "ssid": "HomeWiFi",
+      "channel": 6,
+      "frequency_mhz": 2437,
+      "signal_dbm": -45,
+      "direction": "from_client",
+      "fingerprint": "c51b18b97498e5ef"
+    }
+  },
+  {
+    "kind": "wifi.probe",
+    "at": "2026-10-02T12:00:00.12Z",
+    "payload": {
+      "scope": "lab",
+      "client_mac": "3c:22:fb:00:00:10",
+      "ssid": "Hotel Guest",
+      "channel": 6,
+      "frequency_mhz": 2437,
+      "signal_dbm": -45,
+      "direction": "from_client",
+      "fingerprint": "c51b18b97498e5ef"
+    }
+  },
+  {
+    "kind": "wifi.probe",
+    "at": "2026-10-02T12:00:00.14Z",
+    "payload": {
+      "scope": "lab",
+      "client_mac": "da:a1:19:00:00:01",
+      "randomized_mac": true,
+      "ssid": "Airport_Free",
+      "channel": 6,
+      "frequency_mhz": 2437,
+      "signal_dbm": -45,
+      "direction": "from_client",
+      "fingerprint": "c51b18b97498e5ef",
+      "possible_mac": "3c:22:fb:00:00:10"
+    }
+  },
+  {
+    "kind": "wifi.auth",
+    "at": "2026-10-02T12:00:00.43Z",
+    "payload": {
+      "scope": "lab",
+      "client_mac": "3c:22:fb:00:00:10",
+      "bssid": "aa:bb:cc:00:00:01",
+      "ssid": "ShakerProxy-Lab",
+      "channel": 6,
+      "frequency_mhz": 2437,
+      "signal_dbm": -45,
+      "direction": "from_ap",
+      "status_code": 0,
+      "status": "success",
+      "success": true,
+      "algorithm": "sae"
+    }
+  },
+  {
+    "kind": "wifi.assoc",
+    "at": "2026-10-02T12:00:00.45Z",
+    "payload": {
+      "scope": "lab",
+      "client_mac": "3c:22:fb:00:00:10",
+      "bssid": "aa:bb:cc:00:00:01",
+      "ssid": "ShakerProxy-Lab",
+      "channel": 6,
+      "frequency_mhz": 2437,
+      "signal_dbm": -45,
+      "direction": "from_ap",
+      "status_code": 0,
+      "status": "success",
+      "success": true
+    }
+  },
+  {
+    "kind": "wifi.assoc",
+    "at": "2026-10-02T12:01:00.01Z",
+    "payload": {
+      "scope": "lab",
+      "client_mac": "3c:22:fb:00:00:10",
+      "bssid": "aa:bb:cc:00:00:02",
+      "ssid": "ShakerProxy-Lab",
+      "channel": 6,
+      "frequency_mhz": 2437,
+      "signal_dbm": -45,
+      "direction": "from_ap",
+      "status_code": 0,
+      "status": "success",
+      "success": true,
+      "reassociation": true,
+      "previous_bssid": "aa:bb:cc:00:00:01"
+    }
+  },
+  {
+    "kind": "wifi.deauth",
+    "at": "2026-10-02T12:02:00Z",
+    "payload": {
+      "scope": "lab",
+      "client_mac": "3c:22:fb:00:00:10",
+      "bssid": "aa:bb:cc:00:00:02",
+      "ssid": "ShakerProxy-Lab",
+      "channel": 6,
+      "frequency_mhz": 2437,
+      "signal_dbm": -45,
+      "direction": "from_client",
+      "reason_code": 3,
+      "reason": "station is leaving (or has left)"
+    }
+  }
+]

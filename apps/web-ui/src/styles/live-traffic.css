@@ -130,3 +130,20 @@ body.traffic-wide .live-filters{padding:6px 10px;gap:4px}
 body.traffic-wide .live-chip{min-height:24px;padding:2px 9px;font-size:12px}
 body.traffic-wide .live-search input{min-height:26px}
 .live-chatter{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border:1px solid #5a3b55;border-radius:8px;background:#1f1220;color:#f1d6ec;font-size:13px}
+.stream-badge.wifi{color:#7fe3e8;border-color:#2f6a70;background:#0f2a2d}
+.live-chip.kind.wifi.on{border-color:#7fe3e8;background:#0f2a2d}
+.live-timeline__bar.wifi{fill:#7fe3e8}
+.device-wifi{display:grid;gap:8px;margin:12px 0;padding:10px 12px;border:1px solid #1f3a40;border-radius:8px;background:#08171b}
+.device-wifi h3{margin:0}
+.device-wifi h4{margin:4px 0;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#8ba2a8}
+.device-wifi ul{list-style:none;margin:0;padding:0;display:grid;gap:3px;font-size:13px}
+.device-wifi__networks li{display:flex;justify-content:space-between;gap:12px}
+.device-wifi__networks small,.device-wifi__hint{color:#8ba2a8;font-size:12px}
+.device-wifi__hint{margin:0 0 4px}
+.device-wifi__moments time{color:#8ba2a8;font-variant-numeric:tabular-nums;margin-right:6px}
+.device-wifi__moments li.problem{color:#ffb3b3}
+.wifi-visibility__state{font-weight:600}
+.wifi-visibility__state.on{color:#7fe3e8}
+.wifi-visibility__channel{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:8px 0}
+.wifi-visibility__channel label{display:grid;gap:4px;font-size:13px}
+.wifi-visibility__note{color:#9bb0b4;font-size:13px}

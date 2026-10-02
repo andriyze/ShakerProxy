@@ -19,6 +19,7 @@ import {
 } from "./SystemPanels"
 import { TestLabPanel } from "./TestLabPanel"
 import { VisibilityCoveragePanel } from "./VisibilityCoveragePanel"
+import { WiFiVisibilityPanel } from "./WiFiVisibilityPanel"
 import type {
   AnalyzerStatusReport,
   CapabilityBundle,
@@ -130,6 +131,7 @@ export function SystemWorkspace() {
       <DiagnosticPanel report={diagnostics.report} error={diagnostics.error} />
       <AnalyzerHealthPanel report={analyzers.data} error={analyzers.error} />
       <VisibilityCoveragePanel />
+      <WiFiVisibilityPanel />
       <TestLabPanel />
       <FeatureViews workspace="system" />
       <FeatureViews workspace="testlab" />

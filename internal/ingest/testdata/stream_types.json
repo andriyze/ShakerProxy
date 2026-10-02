@@ -1,4 +1,7 @@
 [
+  {"name": "Wi-Fi probe request", "type": "wifi", "event": {"source": "HOST", "kind": "wifi.probe", "protocol": "802.11", "service": "wifi", "app_protocol": "wifi", "protocol_category": "network-management", "payload": {"scope": "lab", "client_mac": "3c:22:fb:00:00:10", "ssid": "HomeWiFi"}}},
+  {"name": "Wi-Fi disconnect", "type": "wifi", "event": {"source": "HOST", "kind": "wifi.deauth", "protocol": "802.11", "service": "wifi", "app_protocol": "wifi", "protocol_category": "network-management", "payload": {"scope": "lab", "client_mac": "3c:22:fb:00:00:10", "reason_code": 3}}},
+  {"name": "Wi-Fi network nearby", "type": "wifi", "event": {"source": "HOST", "kind": "wifi.beacon_summary", "protocol": "802.11", "service": "wifi", "app_protocol": "wifi", "protocol_category": "network-management", "payload": {"scope": "nearby", "bssid": "10:22:33:00:00:09", "ssid": "Neighbors"}}},
   {"name": "blocked lookup", "type": "blocked", "event": {"source": "HOST", "kind": "shakerproxy.dns", "protocol": "udp", "destination_port": 53, "dns_query": "dns.google", "blocked": true, "payload": {"blocked": true}}},
   {"name": "blocked connection", "type": "blocked", "event": {"source": "HOST", "kind": "shakerproxy.blocked", "protocol": "tcp", "destination_port": 853, "blocked": true, "payload": {"reason": "dot"}}},
   {"name": "DNS over HTTPS", "type": "dns", "event": {"source": "ZEEK", "kind": "zeek.conn", "protocol": "tcp", "destination_port": 443, "tls_server_name": "dns.google", "app_protocol": "doh"}},

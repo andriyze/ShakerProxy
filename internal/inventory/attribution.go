@@ -2,7 +2,9 @@ package inventory
 
 import (
 	"errors"
+	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 )
@@ -44,6 +46,23 @@ type Attributor struct {
 	loadedAt  time.Time
 	addresses map[string][]addressWindow
 	pinned    map[string]string
+	macs      map[string]macOwner
+}
+
+// macOwner is the device a hardware address identifies; ambiguous when
+// two records claim it.
+type macOwner struct {
+	deviceID   string
+	confidence int
+	ambiguous  bool
+}
+
+// MACAttribution is the device a hardware address belongs to.
+type MACAttribution struct {
+	DeviceID   string
+	Confidence int
+	Matched    bool
+	Ambiguous  bool
 }
 
 // PinnedAddressConfidence is the confidence of attribution by an address an
@@ -89,9 +108,7 @@ func (a *Attributor) ResolveAddress(address netip.Addr, occurredAt time.Time) (A
 			a.addresses = nil
 			return AddressAttribution{}, err
 		}
-		a.addresses = buildAddressIndex(snapshot)
-		a.pinned = buildPinnedIndex(snapshot)
-		a.loadedAt = now
+		a.index(snapshot, now)
 	}
 	result := resolveAddressWindows(a.addresses[address.String()], occurredAt.UTC())
 	// A named address decides when the observed windows do not: traffic in the
@@ -103,6 +120,84 @@ func (a *Attributor) ResolveAddress(address netip.Addr, occurredAt time.Time) (A
 		return AddressAttribution{DeviceID: deviceID, Address: address.String(), Confidence: PinnedAddressConfidence, Source: SourcePinnedAddress, ValidFrom: at, ValidUntil: at.Add(time.Second), Matched: true}, nil
 	}
 	return result, nil
+}
+
+func (a *Attributor) index(snapshot Snapshot, now time.Time) {
+	a.addresses = buildAddressIndex(snapshot)
+	a.pinned = buildPinnedIndex(snapshot)
+	a.macs = buildMACIndex(snapshot)
+	a.loadedAt = now
+}
+
+// ResolveMAC attributes a hardware address (as a Wi-Fi frame carries it) to
+// the device whose identities include it, including the private addresses
+// merged into a device that rotates them.
+func (a *Attributor) ResolveMAC(value string) (MACAttribution, error) {
+	mac := normalizeMACIdentity(value)
+	if a == nil || a.Store == nil || mac == "" {
+		return MACAttribution{}, errors.New("device attribution input is invalid")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now().UTC()
+	if a.Now != nil {
+		now = a.Now().UTC()
+	}
+	interval := a.RefreshInterval
+	if interval == 0 {
+		interval = DefaultAttributionRefreshInterval
+	}
+	if interval < 0 || interval > time.Minute {
+		return MACAttribution{}, errors.New("device attribution refresh interval is invalid")
+	}
+	if a.macs == nil || now.Sub(a.loadedAt) >= interval || now.Before(a.loadedAt) {
+		snapshot, err := a.Store.Snapshot()
+		if err != nil {
+			a.addresses, a.macs = nil, nil
+			return MACAttribution{}, err
+		}
+		a.index(snapshot, now)
+	}
+	owner, ok := a.macs[mac]
+	switch {
+	case !ok:
+		return MACAttribution{}, nil
+	case owner.ambiguous:
+		return MACAttribution{Ambiguous: true}, nil
+	}
+	return MACAttribution{DeviceID: owner.deviceID, Confidence: owner.confidence, Matched: true}, nil
+}
+
+// normalizeMACIdentity returns a hardware address in the inventory's form
+// (lower case, colons), or "".
+func normalizeMACIdentity(value string) string {
+	parsed, err := net.ParseMAC(strings.TrimSpace(value))
+	if err != nil || len(parsed) != 6 {
+		return ""
+	}
+	return parsed.String()
+}
+
+func buildMACIndex(snapshot Snapshot) map[string]macOwner {
+	index := map[string]macOwner{}
+	for _, device := range snapshot.Devices {
+		for _, identity := range device.Identities {
+			mac := normalizeMACIdentity(identity.Value)
+			if identity.Kind != IdentityMAC || mac == "" {
+				continue
+			}
+			confidence := identity.Confidence
+			if confidence < 1 || confidence > 100 {
+				confidence = 90
+			}
+			if current, seen := index[mac]; seen && current.deviceID != device.ID {
+				index[mac] = macOwner{ambiguous: true}
+				continue
+			}
+			index[mac] = macOwner{deviceID: device.ID, confidence: confidence}
+		}
+	}
+	return index
 }
 
 func buildPinnedIndex(snapshot Snapshot) map[string]string {

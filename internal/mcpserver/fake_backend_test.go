@@ -108,6 +108,13 @@ func (f *fakeBackend) VisibilityCoverage(context.Context) (coverage.Overview, er
 	return f.coverage, nil
 }
 
+func (f *fakeBackend) WiFiVisibility(context.Context) (agentapi.WiFiVisibility, error) {
+	view := agentapi.WiFiVisibility{Notes: []string{}}
+	view.Schema, view.Available, view.Active, view.Adapter, view.ChannelMode, view.Channel = 1, true, true, "wlan1", "fixed", 6
+	view.Settings.Enabled, view.Settings.ChannelMode, view.Settings.Channel = true, "fixed", 6
+	return view, nil
+}
+
 func (f *fakeBackend) DevicesList(_ context.Context, request agentapi.DeviceListRequest) (agentapi.DevicePage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

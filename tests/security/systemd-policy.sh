@@ -15,6 +15,8 @@ readonly TRAFFIC_POLICY_UNIT="packaging/systemd/shakerproxy-traffic-policy.servi
 readonly HOSTAPD_UNIT="packaging/systemd/shakerproxy-hostapd.service"
 readonly RADVD_UNIT="packaging/systemd/shakerproxy-radvd.service"
 readonly CA_ONBOARDING_UNIT="packaging/systemd/shakerproxy-ca-onboarding.service"
+readonly WIFI_CAPTURE_UNIT="packaging/systemd/shakerproxy-wifi-capture.service"
+readonly WIFI_WORKER_UNIT="packaging/systemd/shakerproxy-wifi-worker.service"
 readonly INSTALLER="packaging/install.sh"
 readonly RELEASE_SCHEMA="packaging/release-manifest.schema.json"
 
@@ -26,6 +28,35 @@ readonly RELEASE_SCHEMA="packaging/release-manifest.schema.json"
 [[ -f "$TRAFFIC_POLICY_UNIT" ]] || { printf 'missing traffic policy unit: %s\n' "$TRAFFIC_POLICY_UNIT" >&2; exit 1; }
 [[ -f "$HOSTAPD_UNIT" ]] || { printf 'missing Wi-Fi access point unit: %s\n' "$HOSTAPD_UNIT" >&2; exit 1; }
 [[ -f "$RADVD_UNIT" ]] || { printf 'missing radvd unit: %s\n' "$RADVD_UNIT" >&2; exit 1; }
+
+# Wi-Fi visibility: dumpcap only on the monitor interface, management frames
+# only; the frame parser has no network, no capabilities and no inventory.
+for exact in \
+  'ExecStart=/usr/bin/dumpcap -i spmon0 -f "type mgt" -s 2048 -n -q -g -w /var/lib/shakerproxy/wifi/ring/wifi.pcapng -b duration:5 -b filesize:2048 -b files:120' \
+  'User=shakerproxy-capture' \
+  'Group=shakerproxy-wifi' \
+  'CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW' \
+  'ReadWritePaths=/var/lib/shakerproxy/wifi/ring' \
+  'NoNewPrivileges=true' \
+  'ProtectSystem=strict'; do
+  grep -Fqx -- "$exact" "$WIFI_CAPTURE_UNIT" || { printf 'required Wi-Fi capture systemd policy is missing: %s\n' "$exact" >&2; exit 1; }
+done
+! grep -q '^\[Install\]' "$WIFI_CAPTURE_UNIT" || { printf 'Wi-Fi capture must only run when gatewayd starts it\n' >&2; exit 1; }
+for exact in \
+  'ExecStart=/usr/libexec/shakerproxy/shakerproxy-wifi-worker' \
+  'User=shakerproxy-wifi' \
+  'PrivateNetwork=true' \
+  'IPAddressDeny=any' \
+  'CapabilityBoundingSet=' \
+  'RestrictAddressFamilies=AF_UNIX' \
+  'ReadOnlyPaths=/var/lib/shakerproxy/wifi' \
+  'ReadWritePaths=/var/lib/shakerproxy/dns-events/pending' \
+  'NoNewPrivileges=true' \
+  'ProtectSystem=strict' \
+  'SystemCallFilter=@system-service'; do
+  grep -Fqx -- "$exact" "$WIFI_WORKER_UNIT" || { printf 'required Wi-Fi worker systemd policy is missing: %s\n' "$exact" >&2; exit 1; }
+done
+! grep -q '^\[Install\]' "$WIFI_WORKER_UNIT" || { printf 'Wi-Fi worker must only run when gatewayd starts it\n' >&2; exit 1; }
 
 for netplan_operation in generate apply; do
   netplan_unit="host/systemd/shakerproxy-netplan-${netplan_operation}.service"
@@ -55,7 +86,7 @@ require_exact 'RestrictNamespaces=true'
 require_exact 'CapabilityBoundingSet=CAP_NET_ADMIN'
 require_exact 'SupplementaryGroups=shakerproxy-capture shakerproxy-cloud shakerproxy-dns'
 require_exact 'RuntimeDirectory=shakerproxy shakerproxy-cloud-policy'
-require_exact 'ReadWritePaths=/run/shakerproxy /run/shakerproxy-cloud-policy /run/lock/shakerproxy /var/lib/shakerproxy/gatewayd /var/lib/shakerproxy/traffic -/var/lib/shakerproxy/onboarding /var/lib/shakerproxy/pcap -/var/lib/shakerproxy/dns-events/pending /etc/netplan /etc/kea /etc/systemd/system -/etc/shakerproxy/hostapd -/etc/shakerproxy/radvd'
+require_exact 'ReadWritePaths=/run/shakerproxy /run/shakerproxy-cloud-policy /run/lock/shakerproxy /var/lib/shakerproxy/gatewayd /var/lib/shakerproxy/traffic -/var/lib/shakerproxy/onboarding /var/lib/shakerproxy/pcap -/var/lib/shakerproxy/dns-events/pending -/var/lib/shakerproxy/wifi /etc/netplan /etc/kea /etc/systemd/system -/etc/shakerproxy/hostapd -/etc/shakerproxy/radvd'
 require_exact 'RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6'
 
 grep -Fq -- '"--property=ReadWritePaths=/run/lock/shakerproxy "+DefaultTransactionRoot+" /etc/netplan /etc/kea /etc/systemd/system /run/systemd/system /run/systemd/network /run/udev/rules.d -/etc/shakerproxy/hostapd -/etc/shakerproxy/radvd"' "$WATCHDOG_POLICY_SOURCE" || {

@@ -70,6 +70,11 @@ func (e AttributionEvidence) Validate(event RecentEvent) error {
 // endpoint, and DNS forwarder lookups and gateway connection openings by the
 // client that made them.
 func AttributeAnalyzerEvent(envelope Envelope, attributor DeviceAttributor) (Envelope, *AttributionEvidence, error) {
+	if attributor != nil && envelope.DeviceID == "" && isHostWiFi(envelope.Source, envelope.Kind) {
+		// Wi-Fi frames carry hardware addresses, not IP addresses.
+		attributed, err := attributeWiFiEvent(envelope, attributor)
+		return attributed, nil, err
+	}
 	if attributor == nil || envelope.DeviceID != "" || envelope.Source != SourceZeek && envelope.Source != SourceSuricata && !isHostClientKind(envelope.Source, envelope.Kind) {
 		return envelope, nil, nil
 	}

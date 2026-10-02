@@ -78,6 +78,10 @@ func ProjectNetworkFields(envelope Envelope) NetworkProjection {
 		if envelope.Kind == HostBlockedKind {
 			projection.DestinationIP = projectionIP(fields["destination_ip"])
 		}
+		if isHostWiFi(envelope.Source, envelope.Kind) {
+			projection.Protocol = "802.11"
+			projection.Service = WiFiAppProtocol
+		}
 	}
 	return projection
 }
