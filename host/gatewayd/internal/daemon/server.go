@@ -46,6 +46,7 @@ type Server struct {
 	startedAt  time.Time
 	activation *NetworkActivation
 	captures   *capture.Manager
+	recorder   *LabRecorder
 	configLock *configlock.Manager
 	traffic    *TrafficPolicyManager
 
@@ -73,10 +74,47 @@ func NewServerWithHostServices(store *StateStore, logger *slog.Logger, activatio
 	if activation != nil {
 		server.configLock = activation.ConfigLock
 	}
+	if captures != nil {
+		server.recorder = &LabRecorder{Store: store, Captures: captures, Source: server.captureSource, NewCaptureAllowed: server.newCaptureAllowed, ConfigLock: server.configLock, Logger: logger}
+	}
 	return server
 }
 
-func (s *Server) SetConfigurationLock(manager *configlock.Manager) { s.configLock = manager }
+// RecordLabTraffic keeps lab traffic recorded for the daemon's lifetime (see
+// LabRecorder); it returns at once when capture is unavailable.
+func (s *Server) RecordLabTraffic(ctx context.Context) {
+	if s.recorder != nil {
+		s.recorder.Run(ctx)
+	}
+}
+
+// newCaptureAllowed reports whether CPU, memory and capture disk space allow
+// a new capture.
+func (s *Server) newCaptureAllowed() bool {
+	diskPath := filepath.Dir(s.store.path)
+	if s.captures != nil && s.captures.Store.Root != "" {
+		diskPath = s.captures.Store.Root
+	}
+	return inspectResourcePressure(diskPath, time.Now().UTC()).NewCaptureAllowed
+}
+
+// wakesLabRecorder lists the requests after which the lab recording may need
+// to start, stop or restart.
+func wakesLabRecorder(method string) bool {
+	switch method {
+	case "ConfirmNetworkPlan", "RollbackNetworkPlan", "RevertNetworkPlan", "SetOperatingMode",
+		"EnableEmergencyBypass", "DisableEmergencyBypass", "StartCapture", "StopCapture":
+		return true
+	}
+	return false
+}
+
+func (s *Server) SetConfigurationLock(manager *configlock.Manager) {
+	s.configLock = manager
+	if s.recorder != nil {
+		s.recorder.ConfigLock = manager
+	}
+}
 
 func (s *Server) SetTrafficPolicyManager(manager *TrafficPolicyManager) { s.traffic = manager }
 
@@ -246,6 +284,9 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 			}
 		}()
 	}
+	if s.recorder != nil && wakesLabRecorder(req.Method) {
+		defer s.recorder.Wake()
+	}
 	decodeEmpty := func() *gatewayprotocol.RPCError {
 		var params gatewayprotocol.EmptyParams
 		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil {
@@ -293,6 +334,9 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 					break
 				}
 			}
+		}
+		if s.recorder != nil {
+			status.LabRecording = s.recorder.Status()
 		}
 		status.Warnings, status.Degraded = warnings, degraded
 		if staged := state.StagedNetworkPlan; staged != nil {
@@ -563,14 +607,11 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 			return nil, &gatewayprotocol.RPCError{Code: -32040, Message: "capture is unavailable in this daemon profile"}
 		}
 		var params gatewayprotocol.StartCaptureParams
-		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil {
+		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil || params.Request.Automatic {
+			// Only gatewayd starts the automatic lab recording.
 			return nil, &gatewayprotocol.RPCError{Code: -32602, Message: "invalid parameters"}
 		}
-		diskPath := filepath.Dir(s.store.path)
-		if s.captures.Store.Root != "" {
-			diskPath = s.captures.Store.Root
-		}
-		if pressure := inspectResourcePressure(diskPath, time.Now().UTC()); !pressure.NewCaptureAllowed {
+		if !s.newCaptureAllowed() {
 			return nil, &gatewayprotocol.RPCError{Code: -32044, Message: "new capture is blocked by critical CPU, memory, or disk pressure"}
 		}
 		source, policyRevision, err := s.captureSource(ctx)
@@ -590,11 +631,31 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil || !capture.ValidSessionID(params.SessionID) {
 			return nil, &gatewayprotocol.RPCError{Code: -32602, Message: "invalid parameters"}
 		}
+		// Stopping the automatic lab recording turns it off; otherwise it
+		// would start again seconds later.
+		if session, err := s.captures.Store.ReadSession(params.SessionID); err == nil && session.Request.Automatic {
+			if err := s.store.SetLabRecording(false); err != nil {
+				return nil, &gatewayprotocol.RPCError{Code: -32043, Message: "could not turn off automatic lab recording: " + err.Error()}
+			}
+		}
 		result, err := s.captures.Stop(ctx, params.SessionID)
 		if err != nil {
 			return nil, &gatewayprotocol.RPCError{Code: -32043, Message: err.Error()}
 		}
 		return result, nil
+	case "SetLabRecording":
+		if s.recorder == nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32040, Message: "capture is unavailable in this daemon profile"}
+		}
+		var params gatewayprotocol.SetLabRecordingParams
+		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32602, Message: "invalid parameters"}
+		}
+		if err := s.store.SetLabRecording(params.Enabled); err != nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32042, Message: "could not save the lab recording setting: " + err.Error()}
+		}
+		s.logger.Info("automatic lab recording setting changed", "enabled", params.Enabled)
+		return s.recorder.Tick(ctx), nil
 	case "GetCaptureStats":
 		if s.captures == nil {
 			return nil, &gatewayprotocol.RPCError{Code: -32040, Message: "capture is unavailable in this daemon profile"}

@@ -68,6 +68,10 @@ type StartRequest struct {
 	IdempotencyKey   string `json:"idempotency_key"`
 	Administrator    string `json:"administrator"`
 	StartReason      string `json:"start_reason,omitempty"`
+	// Automatic marks the lab recording gatewayd keeps running while a lab
+	// routes (see lab_recording.go). Only gatewayd sets it; a manual capture
+	// replaces an automatic one.
+	Automatic bool `json:"automatic,omitempty"`
 }
 
 func (r StartRequest) WithDefaults() StartRequest {

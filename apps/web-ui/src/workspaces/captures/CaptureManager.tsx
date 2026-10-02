@@ -138,8 +138,9 @@ export function CaptureManager({ canStart, blockedReason }: { canStart: boolean;
           <p className="eyebrow">Packet recording</p>
           <h2>{active ? `Recording: ${active.session.request.name}` : "Record the lab network"}</h2>
           <p>
-            ShakerProxy records packets on the lab side of the network into rotating files. A recording stops by itself at
-            its time limit and always leaves 1 GiB of disk free. While recording, analysed events appear in Traffic
+            ShakerProxy records packets on the lab side of the network into rotating files. While a lab routes, it
+            records automatically (&ldquo;Lab traffic&rdquo;). A recording stops by itself at its time limit and always
+            leaves 1 GiB of disk free. While recording, analysed events appear in Traffic
             about 20–40 seconds after the traffic happens.
           </p>
         </div>
@@ -149,9 +150,14 @@ export function CaptureManager({ canStart, blockedReason }: { canStart: boolean;
       </div>
       {error && <ErrorBox message={error} onRetry={() => void refresh()} />}
       {deletionError && <ErrorBox message={`Deletion history: ${deletionError}`} />}
-      {active ? (
-        <CaptureSession view={active} onStop={() => stop(active.session.id)} busy={busy} cases={cases} />
-      ) : !canStart ? (
+      {active && <CaptureSession view={active} onStop={() => stop(active.session.id)} busy={busy} cases={cases} />}
+      {active?.session.request.automatic && canStart && (
+        <p className="capture-gate">
+          This is the automatic lab recording. A recording you start below replaces it until yours ends; stopping it turns
+          automatic recording off.
+        </p>
+      )}
+      {active && !active.session.request.automatic ? null : !canStart ? (
         <p className="capture-gate">{blockedReason}</p>
       ) : (
         <form className="capture-form" onSubmit={start}>
@@ -379,7 +385,7 @@ export function CaptureSession({
       )}
       {onStop && (
         <button className="quiet" onClick={onStop} disabled={busy}>
-          {busy ? "Stopping…" : "Stop recording"}
+          {busy ? "Stopping…" : view.session.request.automatic ? "Turn off automatic recording" : "Stop recording"}
         </button>
       )}
       {view.manifest && (

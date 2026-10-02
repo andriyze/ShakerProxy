@@ -130,6 +130,26 @@ type StopCaptureParams struct {
 	SessionID string `json:"session_id"`
 }
 
+// SetLabRecordingParams turns automatic lab recording on or off.
+type SetLabRecordingParams struct {
+	Enabled bool `json:"enabled"`
+}
+
+// LabRecordingStatus says whether lab traffic is being recorded and, when it
+// is not, why, in words a tester can act on.
+type LabRecordingStatus struct {
+	// Enabled is the administrator setting; it is on unless turned off.
+	Enabled bool `json:"enabled"`
+	// Recording is true while any capture records the lab.
+	Recording bool   `json:"recording"`
+	SessionID string `json:"session_id,omitempty"`
+	// Manual is true when a manual capture runs in place of the automatic one.
+	Manual bool `json:"manual,omitempty"`
+	// Reason explains a stopped recording, or that a manual capture replaced it.
+	Reason    string    `json:"reason,omitempty"`
+	CheckedAt time.Time `json:"checked_at"`
+}
+
 type GetCaptureStatsParams struct {
 	SessionID string `json:"session_id"`
 }
@@ -195,6 +215,7 @@ type Status struct {
 	CaptureAvailable       bool                      `json:"capture_available"`
 	TrafficPolicyAvailable bool                      `json:"traffic_policy_available"`
 	ActiveCaptureID        string                    `json:"active_capture_id,omitempty"`
+	LabRecording           *LabRecordingStatus       `json:"lab_recording,omitempty"`
 	StartedAt              string                    `json:"started_at"`
 	StagedNetworkPlan      *networkplan.StageSummary `json:"staged_network_plan,omitempty"`
 	// ConfirmedNetworkPlan is the plan the host is running when a different

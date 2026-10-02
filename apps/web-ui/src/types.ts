@@ -22,6 +22,17 @@ export type StageSummary = {
   confirm_by?: string
 }
 
+export type LabRecordingStatus = {
+  enabled: boolean
+  recording: boolean
+  session_id?: string
+  // A manual capture runs in place of the automatic recording.
+  manual?: boolean
+  // Why the lab is not being recorded, in plain language.
+  reason?: string
+  checked_at: string
+}
+
 export type Status = {
   operating_mode: string
   emergency_bypass: boolean
@@ -29,6 +40,8 @@ export type Status = {
   capture_available: boolean
   traffic_policy_available: boolean
   active_capture_id?: string
+  // Automatic recording of lab traffic while a confirmed lab routes.
+  lab_recording?: LabRecordingStatus
   daemon_version: string
   started_at: string
   staged_network_plan?: StageSummary
@@ -284,6 +297,8 @@ export type CaptureView = {
       case_id?: string
       administrator: string
       start_reason?: string
+      // The recording ShakerProxy keeps running while a lab routes.
+      automatic?: boolean
     }
     source: { interface_name: string; interface_stable_id: string }
     operating_mode: string

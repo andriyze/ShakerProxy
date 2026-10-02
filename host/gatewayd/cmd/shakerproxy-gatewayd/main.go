@@ -51,6 +51,8 @@ func main() {
 			os.Exit(1)
 		}
 		server = daemon.NewServerWithHostServices(store, logger, activation, captures)
+		// Record lab traffic whenever a confirmed lab plan routes.
+		go server.RecordLabTraffic(ctx)
 		traffic = daemon.NewProductionTrafficPolicyManager(store, *trafficPolicyPath, *trafficRuntimePath, *cloudTrafficPolicyStatusPath, *trafficPolicyLockPath, logger)
 		traffic.OnboardingPath = *onboardingEndpointsPath
 		if err := traffic.Ensure(ctx); err != nil {
