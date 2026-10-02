@@ -92,6 +92,14 @@ func (m *fakeRuntimeMachine) SetBridgeNFCallIPTables(_ context.Context, value in
 	return nil
 }
 
+func (m *fakeRuntimeMachine) SetBridgeNFCallIP6Tables(_ context.Context, value int) error {
+	if err := m.record(fmt.Sprintf("bridge-nf6:%d", value)); err != nil {
+		return err
+	}
+	m.writeSysctl("proc/sys/net/bridge/bridge-nf-call-ip6tables", fmt.Sprint(value))
+	return nil
+}
+
 func (m *fakeRuntimeMachine) SetIPv4SendRedirects(_ context.Context, name string, value int) error {
 	if err := m.record(fmt.Sprintf("redirects:%s:%d", name, value)); err != nil {
 		return err
@@ -131,6 +139,8 @@ func (m *fakeRuntimeMachine) reboot() {
 	m.writeSysctl("proc/sys/net/ipv4/ip_forward", "0")
 	m.writeSysctl("proc/sys/net/ipv6/conf/all/forwarding", "0")
 	m.writeSysctl("proc/sys/net/ipv6/conf/eth0/accept_ra", "1")
+	m.writeSysctl("proc/sys/net/bridge/bridge-nf-call-iptables", "0")
+	m.writeSysctl("proc/sys/net/bridge/bridge-nf-call-ip6tables", "0")
 }
 
 type runtimeFixture struct {
@@ -149,6 +159,10 @@ func confirmedRuntimeFixture(t *testing.T, edit func(*networkplan.StagedPlan)) r
 	hostRoot := prepareHostRoot(t, "0\n")
 	prepareIPv6HostState(t, hostRoot, "0\n", "1\n")
 	prepareRedirectState(t, hostRoot, "eth0", "1\n")
+	prepareBridgeNetfilter(t, hostRoot, "0\n")
+	if err := os.WriteFile(filepath.Join(hostRoot, "proc", "sys", "net", "bridge", "bridge-nf-call-ip6tables"), []byte("0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	staged := validStagedPlan(t, now)
 	staged.Plan.IPv6 = ulaConfiguration()
 	if edit != nil {
@@ -356,6 +370,41 @@ func TestRuntimeRestoreCoversSingleArmRedirectsAndDisabledIPv6(t *testing.T) {
 	}
 	if drift, err := disabled.restorer.Drift(context.Background(), disabled.staged); err != nil || len(drift) != 0 {
 		t.Fatalf("DISABLED restore left drift: %v %v", drift, err)
+	}
+}
+
+// After a reboot an inline bridge gets its bridge netfilter switches back,
+// bridged IPv6 only once the IPv6 accept rule is in place.
+func TestRuntimeRestoreCoversTheInlineBridge(t *testing.T) {
+	bridge := confirmedRuntimeFixture(t, func(staged *networkplan.StagedPlan) {
+		staged.Plan.Topology = networkplan.TopologyTransparentBridge
+		staged.Plan.Interfaces = []networkplan.Interface{{StableID: "up", CurrentName: "eth0", Role: networkplan.RoleWAN}, {StableID: "dev", CurrentName: "eth1", Role: networkplan.RoleLab}}
+		staged.Plan.WAN = networkplan.WANConfiguration{IPv4Mode: networkplan.WANIPv4Static, IPv4Address: "192.0.2.20/24", IPv4Gateway: "192.0.2.1", IPv6Mode: networkplan.WANIPv6SLAAC, DNSMode: networkplan.WANDNSUseDHCP, AllowWorkingWANChange: true}
+		staged.Plan.IPv4 = networkplan.IPv4Configuration{Enabled: true, LabCIDR: "192.0.2.0/24", GatewayAddress: "192.0.2.20"}
+		staged.Plan.IPv6 = networkplan.IPv6Configuration{Strategy: networkplan.IPv6ObserveOnly}
+	})
+	bridge.machine.reboot()
+	if err := bridge.restorer.Restore(context.Background(), bridge.staged); err != nil {
+		t.Fatal(err)
+	}
+	expected := []string{
+		"firewall4:/usr/sbin/iptables:" + digest(bridge.staged.Preview.FirewallRestoreIPv4),
+		"hook-insert:/usr/sbin/iptables filter DOCKER-USER SHAKERPROXY-FORWARD",
+		"bridge-nf:1",
+		"forwarding4:1",
+		"firewall6:/usr/sbin/ip6tables:" + digest(bridge.staged.Preview.FirewallRestoreIPv6),
+		"hook-insert:/usr/sbin/ip6tables filter DOCKER-USER SHAKERPROXY-FORWARD",
+		"bridge-nf6:1",
+	}
+	if strings.Join(bridge.machine.calls, "\n") != strings.Join(expected, "\n") {
+		t.Fatalf("unexpected inline bridge restore:\n%s", strings.Join(bridge.machine.calls, "\n"))
+	}
+	if drift, err := bridge.restorer.Drift(context.Background(), bridge.staged); err != nil || len(drift) != 0 {
+		t.Fatalf("inline bridge restore left drift: %v %v", drift, err)
+	}
+	bridge.machine.writeSysctl("proc/sys/net/bridge/bridge-nf-call-ip6tables", "0")
+	if drift, err := bridge.restorer.Drift(context.Background(), bridge.staged); err != nil || !strings.Contains(strings.Join(drift, "\n"), "bridge-nf-call-ip6tables") {
+		t.Fatalf("lost bridged IPv6 netfilter was not reported: %v %v", drift, err)
 	}
 }
 

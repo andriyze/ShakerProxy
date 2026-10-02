@@ -463,6 +463,9 @@ func (m *TrafficPolicyManager) writeRuntimePolicy(ctx context.Context, policy tr
 		if prefix, _ := labIPv6Context(plan); prefix != "" {
 			labSources = append(labSources, prefix)
 		}
+		if networkplan.InlineBridgeIPv6Address(plan) {
+			labSources = append(labSources, bridgeIPv6Prefixes(lab.CurrentName)...)
+		}
 	}
 	if segment := m.vpnSegment(); segment != nil {
 		labSources = append(labSources, segment.IPv4CIDR, segment.IPv6Prefix)
@@ -486,6 +489,50 @@ func (m *TrafficPolicyManager) writeRuntimePolicy(ctx context.Context, policy tr
 		return err
 	}
 	return writePublicFile(m.RuntimePath, encoded, ".traffic-runtime-*")
+}
+
+// maxBridgeIPv6Prefixes bounds the router prefixes published as lab sources;
+// the DNS forwarder accepts at most 16 lab prefixes in all.
+const maxBridgeIPv6Prefixes = 8
+
+// bridgeIPv6Prefixes returns the global /64 prefixes ShakerProxy configured
+// on an inline bridge from the router's advertisements. Devices behind the
+// bridge take their addresses from the same advertisements, so the DNS
+// forwarder accepts their IPv6 queries; ULA and link-local clients are
+// always accepted. The reconciler republishes them, so a renumbered network
+// is followed.
+var bridgeIPv6Prefixes = func(interfaceName string) []string {
+	iface, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return nil
+	}
+	addresses, err := iface.Addrs()
+	if err != nil {
+		return nil
+	}
+	return globalIPv6Prefixes(addresses)
+}
+
+func globalIPv6Prefixes(addresses []net.Addr) []string {
+	seen := map[netip.Prefix]bool{}
+	prefixes := []string{}
+	for _, address := range addresses {
+		network, ok := address.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip, ok := netip.AddrFromSlice(network.IP)
+		if !ok || !ip.Is6() || ip.Is4In6() || !ip.IsGlobalUnicast() || ip.IsPrivate() {
+			continue
+		}
+		prefix, err := ip.Prefix(64)
+		if err != nil || seen[prefix] || len(prefixes) == maxBridgeIPv6Prefixes {
+			continue
+		}
+		seen[prefix] = true
+		prefixes = append(prefixes, prefix.String())
+	}
+	return prefixes
 }
 
 // writePublicFile atomically replaces a world-readable, secret-free runtime

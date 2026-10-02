@@ -108,7 +108,7 @@ func BindIPv6HostEvidence(preview *Preview) {
 			return
 		}
 		preview.FirewallRestoreIPv6 = ""
-		preview.ChangedObjects = removeStrings(preview.ChangedObjects, labIPv6ChangedForward)
+		preview.ChangedObjects = removeStrings(removeStrings(preview.ChangedObjects, labIPv6ChangedForward), BridgeNFCallIP6TablesSysctl)
 		preview.AttachmentCommands = removeIPv6Attachments(preview.AttachmentCommands)
 		preview.Impact = append(preview.Impact, "IPv6 is turned off in this host's kernel, so lab devices cannot use ShakerProxy for IPv6 and no IPv6 firewall is needed")
 		return

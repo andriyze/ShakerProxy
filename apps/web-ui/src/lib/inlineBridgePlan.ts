@@ -32,18 +32,24 @@ export function routerGuess(hostCIDR: string): string {
 // bridge plan: the bridge takes over ShakerProxy's address (a static
 // address, so it is the same before and after) with the router as gateway
 // and DNS; the lab is the network itself; nothing is routed or NATed.
+// ShakerProxy takes its IPv6 address from the router's advertisements
+// (SLAAC), so DNS that devices send over IPv6 is answered too. With DHCP the
+// bridge keeps asking the router for the address (with the router port's
+// MAC, so the lease follows); the address it has now still names the
+// network and the SSH path.
 export function inlineBridgeFields(
   hostCIDR: string,
   router: string,
   acknowledged: { workingConnection: boolean; cloudInit: boolean },
+  addressing: "STATIC" | "DHCP" = "STATIC",
 ) {
   const address = hostCIDR.trim()
+  const dhcp = addressing === "DHCP"
   return {
     wan: {
-      ipv4_mode: "STATIC",
-      ipv4_address: address,
-      ipv4_gateway: router.trim(),
-      ipv6_mode: "NONE",
+      ipv4_mode: addressing,
+      ...(dhcp ? {} : { ipv4_address: address, ipv4_gateway: router.trim() }),
+      ipv6_mode: "SLAAC",
       dns_mode: "USE_DHCP",
       upstream_nat: false,
       clamp_mss: false,

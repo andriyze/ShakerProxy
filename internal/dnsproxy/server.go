@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/ipv6"
+
 	"shakerproxy.dev/shakerproxy/internal/trafficpolicy"
 )
 
@@ -103,11 +105,56 @@ func (s *Server) serve(ctx context.Context, ready chan<- [2]net.Addr) error {
 	return err
 }
 
+// udpQueries reads queries and writes their answers. IPv6 answers leave from
+// the address their query was sent to: a query redirected by the firewall
+// (REDIRECT picks one of the interface's addresses) is translated back only
+// when its answer comes from that same address, and an interface with
+// several IPv6 addresses would otherwise answer from whichever the kernel
+// prefers for the client.
+type udpQueries struct {
+	listener *net.UDPConn
+	ipv6     *ipv6.PacketConn
+}
+
+func newUDPQueries(listener *net.UDPConn) udpQueries {
+	queries := udpQueries{listener: listener}
+	if address, ok := listener.LocalAddr().(*net.UDPAddr); ok && address.IP.To4() == nil {
+		packets := ipv6.NewPacketConn(listener)
+		if packets.SetControlMessage(ipv6.FlagDst|ipv6.FlagInterface, true) == nil {
+			queries.ipv6 = packets
+		}
+	}
+	return queries
+}
+
+// read returns one query and a function that sends its answer.
+func (q udpQueries) read(buffer []byte) (int, netip.AddrPort, func([]byte), error) {
+	if q.ipv6 == nil {
+		n, client, err := q.listener.ReadFromUDPAddrPort(buffer)
+		return n, client, func(response []byte) { _, _ = q.listener.WriteToUDPAddrPort(response, client) }, err
+	}
+	n, control, source, err := q.ipv6.ReadFrom(buffer)
+	if err != nil {
+		return 0, netip.AddrPort{}, nil, err
+	}
+	address, ok := source.(*net.UDPAddr)
+	if !ok {
+		return 0, netip.AddrPort{}, nil, errors.New("UDP query from a non-UDP address")
+	}
+	client := netip.AddrPortFrom(address.AddrPort().Addr().Unmap(), address.AddrPort().Port())
+	var reply *ipv6.ControlMessage
+	if control != nil && control.Dst != nil && control.Dst.To4() == nil && client.Addr().Is6() {
+		reply = &ipv6.ControlMessage{Src: control.Dst, IfIndex: control.IfIndex}
+	}
+	return n, client, func(response []byte) { _, _ = q.ipv6.WriteTo(response, reply, source) }, nil
+}
+
 func (s *Server) serveUDP(ctx context.Context, listener *net.UDPConn) error {
 	semaphore := make(chan struct{}, s.MaxConcurrent)
+	queries := newUDPQueries(listener)
 	for {
 		buffer := make([]byte, maximumDNSMessage)
-		n, client, err := listener.ReadFromUDPAddrPort(buffer)
+		n, client, reply, err := queries.read(buffer)
 		if err != nil {
 			return err
 		}
@@ -118,14 +165,14 @@ func (s *Server) serveUDP(ctx context.Context, listener *net.UDPConn) error {
 				defer func() { <-semaphore }()
 				response, note := s.answer(ctx, "udp", query, client.Addr())
 				if len(response) != 0 {
-					_, _ = listener.WriteToUDPAddrPort(response, client)
+					reply(response)
 					s.observe("udp", client, query, response, note)
 				}
 			}()
 		default:
 			response := servfail(query)
 			if len(response) != 0 {
-				_, _ = listener.WriteToUDPAddrPort(response, client)
+				reply(response)
 			}
 			s.logFailure("udp", query, errors.New("DNS concurrency limit reached"))
 		}

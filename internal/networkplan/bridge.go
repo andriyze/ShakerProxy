@@ -33,6 +33,15 @@ func InlineBridge(plan Plan) bool {
 	return plan.Topology == TopologyTransparentBridge
 }
 
+// InlineBridgeIPv6Address reports whether ShakerProxy configures its own IPv6
+// address on the bridge from the router's advertisements (wan.ipv6_mode
+// SLAAC). DNS a device sends over IPv6 can then be answered by ShakerProxy;
+// without one it can only be recorded, because the kernel redirects a query
+// to an address of the bridge with the query's scope.
+func InlineBridgeIPv6Address(plan Plan) bool {
+	return InlineBridge(plan) && effectiveWANIPv6Mode(plan.WAN.IPv6Mode) == WANIPv6SLAAC
+}
+
 // BridgePorts returns the upstream (router side, role WAN) and device side
 // (role LAB) ports of a transparent-bridge plan.
 func BridgePorts(plan Plan) (upstream, device Interface, ok bool) {
@@ -67,7 +76,7 @@ func inlineBridgeInterface(plan Plan) (Interface, bool) {
 }
 
 // inlineBridgeAddress returns the host's own address on the bridge (the
-// static WAN address) and the network's router.
+// static WAN address) and the network's router; with DHCP there is neither.
 func inlineBridgeAddress(plan Plan) (netip.Prefix, netip.Addr, bool) {
 	prefix, prefixErr := netip.ParsePrefix(plan.WAN.IPv4Address)
 	router, routerErr := netip.ParseAddr(plan.WAN.IPv4Gateway)
@@ -101,9 +110,14 @@ func validateInlineBridge(plan Plan, roles map[InterfaceRole]int, addError, addW
 	if plan.IPv4.DHCPStart != "" || plan.IPv4.DHCPEnd != "" || plan.IPv4.DHCPLeaseSeconds != 0 || len(plan.IPv4.DNSAddresses) != 0 || plan.IPv4.SearchDomain != "" || len(plan.IPv4.Reservations) != 0 {
 		addError("BRIDGE_DHCP_FORBIDDEN", "ipv4", "on an inline bridge the network's own router keeps handing out addresses; ShakerProxy runs no DHCP")
 	}
-	if effectiveWANIPv4Mode(plan.WAN.IPv4Mode) != WANIPv4Static {
-		addError("BRIDGE_STATIC_ADDRESS_REQUIRED", "wan.ipv4_mode", "the bridge takes over ShakerProxy's address on the network; set wan.ipv4_mode to STATIC with the address it has now and the router as wan.ipv4_gateway")
-	} else if address, router, ok := inlineBridgeAddress(plan); ok {
+	switch effectiveWANIPv4Mode(plan.WAN.IPv4Mode) {
+	case WANIPv4Static:
+	case WANIPv4DHCP:
+		validateInlineBridgeDHCP(plan, addError, addWarning)
+	default:
+		addError("BRIDGE_ADDRESS_MODE_INVALID", "wan.ipv4_mode", "the bridge takes over ShakerProxy's address on the network; set wan.ipv4_mode to STATIC with the address it has now and the router as wan.ipv4_gateway, or to DHCP to keep getting it from the router")
+	}
+	if address, router, ok := inlineBridgeAddress(plan); ok && effectiveWANIPv4Mode(plan.WAN.IPv4Mode) == WANIPv4Static {
 		if plan.IPv4.LabCIDR != address.Masked().String() {
 			addError("BRIDGE_LAB_CIDR_MISMATCH", "ipv4.lab_cidr", fmt.Sprintf("on an inline bridge the lab is the network itself: ipv4.lab_cidr must be %s", address.Masked()))
 		}
@@ -126,11 +140,39 @@ func validateInlineBridge(plan Plan, roles map[InterfaceRole]int, addError, addW
 		addError("BRIDGE_NAT_FORBIDDEN", "wan.upstream_nat", "an inline bridge forwards frames unchanged; NAT is not used")
 	}
 	if plan.IPv6.Strategy != IPv6ObserveOnly {
-		addError("BRIDGE_IPV6_STRATEGY_INVALID", "ipv6.strategy", "IPv6 crosses an inline bridge untouched and is recorded; choose OBSERVE_ONLY")
+		addError("BRIDGE_IPV6_STRATEGY_INVALID", "ipv6.strategy", "IPv6 crosses an inline bridge from the network's own router and is recorded; choose OBSERVE_ONLY")
+	}
+	if effectiveWANIPv6Mode(plan.WAN.IPv6Mode) != WANIPv6SLAAC {
+		addWarning("BRIDGE_IPV6_DNS_NOT_FORCED", "wan.ipv6_mode", "with wan.ipv6_mode NONE, DNS that devices send over IPv6 is recorded but not answered by ShakerProxy; choose SLAAC so ShakerProxy takes an IPv6 address from the router's advertisements")
 	}
 	addWarning("BRIDGE_STP", "topology", fmt.Sprintf("spanning tree is on, so cabling both ports to the same switch cannot loop; the bridge forwards about %d seconds after it comes up", 2*InlineBridgeForwardDelaySeconds))
 	addWarning("BRIDGE_FAIL_CLOSED_POWER", "topology", "devices behind the bridge lose their network while ShakerProxy is off or rebooting; emergency bypass keeps bridging without inspection")
 	addWarning("BRIDGE_EXISTING_NETPLAN", "wan", "if another Netplan file gives the upstream port a static address, that address stays on the port; the health check then fails and ShakerProxy rolls back")
+}
+
+// InlineBridgeDHCP reports whether the bridge gets ShakerProxy's address
+// from the router over DHCP rather than a static address.
+func InlineBridgeDHCP(plan Plan) bool {
+	return InlineBridge(plan) && effectiveWANIPv4Mode(plan.WAN.IPv4Mode) == WANIPv4DHCP
+}
+
+// validateInlineBridgeDHCP checks a bridge that keeps asking the router for
+// ShakerProxy's address. ipv4.lab_cidr is still the network, and
+// ipv4.gateway_address the address ShakerProxy has now: the bridge keeps
+// the router port's MAC and identifies itself by it, so the router normally
+// hands the same address back, and the active SSH path is checked against it.
+func validateInlineBridgeDHCP(plan Plan, addError, addWarning func(string, string, string)) {
+	prefix, prefixErr := netip.ParsePrefix(plan.IPv4.LabCIDR)
+	address, addressErr := netip.ParseAddr(plan.IPv4.GatewayAddress)
+	if prefixErr != nil || !prefix.Addr().Is4() || addressErr != nil || !address.Is4() || !prefix.Masked().Contains(address) {
+		addError("BRIDGE_DHCP_ADDRESS_INVALID", "ipv4.gateway_address", "with DHCP, ipv4.lab_cidr is your network and ipv4.gateway_address the address ShakerProxy has on it now")
+		return
+	}
+	upstream, _, _ := BridgePorts(plan)
+	if _, err := net.ParseMAC(upstream.PermanentMAC); err != nil {
+		addWarning("BRIDGE_DHCP_MAC_UNKNOWN", "interfaces", "the router port's permanent MAC is unknown, so the bridge may use another MAC and the router may hand it a different address")
+	}
+	addWarning("BRIDGE_DHCP_ADDRESS_MAY_CHANGE", "wan.ipv4_mode", fmt.Sprintf("the router decides ShakerProxy's address; it normally hands %s back to the router port's MAC, but if it picks another, reconnect to that address before the confirmation deadline or the plan rolls back (a DHCP reservation on the router keeps it fixed)", address))
 }
 
 // inlineBridgeObservedConflict reports whether an observed address is the
@@ -177,16 +219,30 @@ func buildInlineBridgePreview(plan Plan, preview *Preview) {
 	address, router, _ := inlineBridgeAddress(plan)
 	preview.NetplanYAML = renderInlineBridgeNetplan(plan)
 	preview.FirewallRestoreIPv4 = renderInlineBridgeFirewall()
-	preview.ChangedObjects = []string{"/etc/netplan/90-shakerproxy.yaml", "bridge " + InlineBridgeName, "iptables filter/SHAKERPROXY-FORWARD", "net.bridge.bridge-nf-call-iptables"}
+	// Bridged IPv6 meets ip6tables FORWARD too (bridge-nf-call-ip6tables),
+	// where Docker may set a DROP policy: the same accept rule keeps it
+	// crossing, and the traffic policy's IPv6 rules apply to it.
+	preview.FirewallRestoreIPv6 = renderInlineBridgeFirewall()
+	preview.ChangedObjects = []string{"/etc/netplan/90-shakerproxy.yaml", "bridge " + InlineBridgeName, "iptables filter/SHAKERPROXY-FORWARD", labIPv6ChangedForward, "net.bridge.bridge-nf-call-iptables", BridgeNFCallIP6TablesSysctl}
 	preview.AttachmentCommands = []CommandPreview{
 		{Executable: "/usr/sbin/iptables", Arguments: []string{"-w", "5", "-C", "DOCKER-USER", "-j", "SHAKERPROXY-FORWARD"}},
 		{Executable: "/usr/sbin/iptables", Arguments: []string{"-w", "5", "-I", "DOCKER-USER", "1", "-j", "SHAKERPROXY-FORWARD"}},
 	}
+	preview.AttachmentCommands = append(preview.AttachmentCommands, ipv6AttachmentPreview(defaultIp6tablesPath, "filter", IPv6ForwardParentUser, "SHAKERPROXY-FORWARD")...)
+	ipv6DNS := "IPv6 crosses the bridge from the network's own router and is recorded; DNS sent over IPv6 is not answered by ShakerProxy because it takes no IPv6 address (set wan.ipv6_mode to SLAAC)"
+	if InlineBridgeIPv6Address(plan) {
+		ipv6DNS = "ShakerProxy takes an IPv6 address on the bridge from the router's advertisements, so plain DNS devices send over IPv6 is answered by ShakerProxy too"
+	}
+	addressing := fmt.Sprintf("ShakerProxy's address %s would move from %s to %s, with %s as its router and DNS server", address, upstream.CurrentName, InlineBridgeName, router)
+	if InlineBridgeDHCP(plan) {
+		addressing = fmt.Sprintf("%s would ask the router for ShakerProxy's address over DHCP with %s's MAC, so the router normally hands %s back; the router stays its gateway and DNS server", InlineBridgeName, upstream.CurrentName, plan.IPv4.GatewayAddress)
+	}
 	preview.Impact = []string{
 		fmt.Sprintf("Ports %s (toward the router) and %s (toward the test devices) would join bridge %s; devices keep the network's own DHCP, gateway and DNS and need no setup", upstream.CurrentName, device.CurrentName, InlineBridgeName),
-		fmt.Sprintf("ShakerProxy's address %s would move from %s to %s, with %s as its router and DNS server", address, upstream.CurrentName, InlineBridgeName, router),
+		addressing,
 		"Every frame between the two sides is recorded, including DHCP, ARP, router advertisements, multicast and device-to-device traffic that crosses the bridge",
-		"Bridged IPv4 passes through the host firewall (br_netfilter), so plain DNS can be redirected to ShakerProxy and connections are reported as they open",
+		"Bridged IPv4 and IPv6 pass through the host firewall (br_netfilter), so plain DNS can be redirected to ShakerProxy and connections are reported as they open",
+		ipv6DNS,
 		"Spanning tree is on, so cabling both ports to the same switch cannot loop",
 		"Active SSH preservation remains mandatory, and an independent rollback deadline is armed before the bridge is created",
 	}
@@ -211,15 +267,23 @@ func renderInlineBridgeNetplan(plan Plan) string {
 		// The router keeps seeing the MAC it knew this host by.
 		fmt.Fprintf(&b, "      macaddress: %s\n", mac)
 	}
-	b.WriteString("      dhcp4: false\n")
+	if InlineBridgeDHCP(plan) {
+		// The lease follows the MAC the router knew this host by, not a
+		// DUID that would be new for a new interface.
+		b.WriteString("      dhcp4: true\n      dhcp-identifier: mac\n")
+	} else {
+		b.WriteString("      dhcp4: false\n")
+	}
 	if effectiveWANIPv6Mode(plan.WAN.IPv6Mode) == WANIPv6SLAAC {
 		b.WriteString("      dhcp6: false\n      accept-ra: true\n")
 	} else {
 		b.WriteString("      dhcp6: false\n      accept-ra: false\n")
 	}
-	fmt.Fprintf(&b, "      addresses: [%s]\n", address)
-	fmt.Fprintf(&b, "      routes:\n        - to: 0.0.0.0/0\n          via: %s\n", router)
-	fmt.Fprintf(&b, "      nameservers:\n        addresses: [%s]\n", router)
+	if !InlineBridgeDHCP(plan) {
+		fmt.Fprintf(&b, "      addresses: [%s]\n", address)
+		fmt.Fprintf(&b, "      routes:\n        - to: 0.0.0.0/0\n          via: %s\n", router)
+		fmt.Fprintf(&b, "      nameservers:\n        addresses: [%s]\n", router)
+	}
 	fmt.Fprintf(&b, "      parameters:\n        stp: true\n        forward-delay: %d\n", InlineBridgeForwardDelaySeconds)
 	if upstream.MTU != 0 {
 		fmt.Fprintf(&b, "      mtu: %d\n", upstream.MTU)
@@ -227,10 +291,15 @@ func renderInlineBridgeNetplan(plan Plan) string {
 	return b.String()
 }
 
+// BridgeNFCallIP6TablesSysctl is the switch that sends bridged IPv6 through
+// ip6tables.
+const BridgeNFCallIP6TablesSysctl = "net.bridge.bridge-nf-call-ip6tables"
+
 // renderInlineBridgeFirewall lets bridged frames past the host's FORWARD
 // policy: with br_netfilter, frames crossing the bridge traverse iptables
-// FORWARD, and Docker sets its policy to DROP. ShakerProxy's security chain
-// (device blocks, encrypted-DNS blocks) is hooked ahead of this chain.
+// and ip6tables FORWARD, and Docker sets their policy to DROP. The same batch
+// serves both families. ShakerProxy's security chain (device blocks,
+// encrypted-DNS blocks) is hooked ahead of this chain.
 func renderInlineBridgeFirewall() string {
 	return fmt.Sprintf("*filter\n:SHAKERPROXY-FORWARD - [0:0]\n-A SHAKERPROXY-FORWARD -i %[1]s -o %[1]s -j ACCEPT\nCOMMIT\n", InlineBridgeName)
 }

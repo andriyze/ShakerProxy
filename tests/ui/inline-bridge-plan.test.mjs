@@ -4,13 +4,22 @@ import { inlineBridgeFields, routerGuess } from "../../apps/web-ui/src/lib/inlin
 import { extensionsApply } from "../../apps/web-ui/src/lib/planExtensions.ts"
 import { webUIFile } from "./web-ui-source.mjs"
 
+test("an inline bridge can keep getting its address from the router", () => {
+  const fields = inlineBridgeFields("192.168.10.177/24", "", { workingConnection: true, cloudInit: false }, "DHCP")
+  assert.equal(fields.wan.ipv4_mode, "DHCP")
+  assert.equal("ipv4_address" in fields.wan, false)
+  assert.equal("ipv4_gateway" in fields.wan, false)
+  assert.equal(fields.ipv4.lab_cidr, "192.168.10.0/24")
+  assert.equal(fields.ipv4.gateway_address, "192.168.10.177")
+})
+
 test("the inline bridge keeps ShakerProxy's address and makes the network the lab", () => {
   const fields = inlineBridgeFields(" 192.168.10.177/24 ", "192.168.10.1", { workingConnection: true, cloudInit: false })
   assert.deepEqual(fields.wan, {
     ipv4_mode: "STATIC",
     ipv4_address: "192.168.10.177/24",
     ipv4_gateway: "192.168.10.1",
-    ipv6_mode: "NONE",
+    ipv6_mode: "SLAAC",
     dns_mode: "USE_DHCP",
     upstream_nat: false,
     clamp_mss: false,

@@ -38,7 +38,7 @@ func TestBridgeNetlabRole(t *testing.T) {
 		},
 		Management: networkplan.Management{PreserveActiveSSH: true},
 		WAN: networkplan.WANConfiguration{IPv4Mode: networkplan.WANIPv4Static, IPv4Address: "192.168.77.20/24", IPv4Gateway: "192.168.77.1",
-			IPv6Mode: networkplan.WANIPv6None, DNSMode: networkplan.WANDNSUseDHCP, AllowWorkingWANChange: true},
+			IPv6Mode: networkplan.WANIPv6SLAAC, DNSMode: networkplan.WANDNSUseDHCP, AllowWorkingWANChange: true},
 		IPv4: networkplan.IPv4Configuration{Enabled: true, LabCIDR: "192.168.77.0/24", GatewayAddress: "192.168.77.20"},
 		IPv6: networkplan.IPv6Configuration{Strategy: networkplan.IPv6ObserveOnly},
 	}
@@ -60,13 +60,16 @@ func TestBridgeNetlabRole(t *testing.T) {
 		encoded, _ := json.Marshal(value)
 		fmt.Println(string(encoded))
 	}
-	const iptables = "/usr/sbin/iptables"
+	const iptables, ip6tables = "/usr/sbin/iptables", "/usr/sbin/ip6tables"
 	switch role {
 	case "apply":
 		// The same host steps and order as networkapply.Applier, with the
 		// script having built spbr0 in place of Netplan.
-		apply := networkapply.OSApplyMachine{}
+		apply, ipv6 := networkapply.OSApplyMachine{}, networkapply.OSIPv6Machine{}
 		if err := apply.SetBridgeNFCallIPTables(ctx, 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := apply.SetBridgeNFCallIP6Tables(ctx, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := apply.LoadShakerProxyFirewall(ctx, iptables, preview.FirewallRestoreIPv4); err != nil {
@@ -75,13 +78,19 @@ func TestBridgeNetlabRole(t *testing.T) {
 		if err := apply.EnsureShakerProxyAttachments(ctx, iptables, plan.IPv4.NAT44); err != nil {
 			t.Fatal(err)
 		}
+		if err := ipv6.LoadShakerProxyIPv6Firewall(ctx, ip6tables, preview.FirewallRestoreIPv6); err != nil {
+			t.Fatal(err)
+		}
+		if err := ipv6.EnsureShakerProxyIPv6Attachments(ctx, networkapply.IPv6Attachments{Ip6tablesPath: ip6tables, ForwardParent: networkplan.IPv6ForwardParentUser}); err != nil {
+			t.Fatal(err)
+		}
 		if err := traffic.Ensure(ctx); err != nil {
 			t.Fatal(err)
 		}
 		if err := traffic.ReconcileNow(ctx); err != nil {
 			t.Fatal(err)
 		}
-		report(map[string]string{"netplan": preview.NetplanYAML, "firewall": preview.FirewallRestoreIPv4})
+		report(map[string]string{"netplan": preview.NetplanYAML, "firewall": preview.FirewallRestoreIPv4, "firewall_ipv6": preview.FirewallRestoreIPv6})
 	case "conntrack":
 		scope := labConnectionScope(store, nil)
 		listener, err := conntrack.Listen()
@@ -126,14 +135,23 @@ func TestBridgeNetlabRole(t *testing.T) {
 		if err := rollback.RemoveShakerProxyFirewall(ctx, iptables); err != nil {
 			t.Fatal(err)
 		}
-		previous := 0
-		if raw, err := os.ReadFile(filepath.Join(directory, "bridge-nf.before")); err == nil && len(raw) > 0 && raw[0] == '1' {
-			previous = 1
+		if err := (networkapply.OSIPv6Machine{}).RemoveShakerProxyIPv6Firewall(ctx, ip6tables, networkplan.IPv6ForwardParentUser); err != nil {
+			t.Fatal(err)
 		}
+		before := func(name string) int {
+			if raw, err := os.ReadFile(filepath.Join(directory, name)); err == nil && len(raw) > 0 && raw[0] == '1' {
+				return 1
+			}
+			return 0
+		}
+		previous, previous6 := before("bridge-nf.before"), before("bridge-nf6.before")
 		if err := rollback.SetBridgeNFCallIPTables(ctx, previous); err != nil {
 			t.Fatal(err)
 		}
-		report(map[string]int{"bridge_nf_call_iptables": previous})
+		if err := rollback.SetBridgeNFCallIP6Tables(ctx, previous6); err != nil {
+			t.Fatal(err)
+		}
+		report(map[string]int{"bridge_nf_call_iptables": previous, "bridge_nf_call_ip6tables": previous6})
 	default:
 		t.Fatalf("unknown role %q", role)
 	}

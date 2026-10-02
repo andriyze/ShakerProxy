@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"shakerproxy.dev/shakerproxy/internal/firewall"
 )
 
 // The plan file in docs/bridge-mode.md must stay valid.
@@ -99,7 +101,11 @@ func TestInlineBridgeRejectsRoutingFeatures(t *testing.T) {
 		{"one port", func(p *Plan) { p.Interfaces = p.Interfaces[:1] }, "BRIDGE_ROLES_INVALID"},
 		{"nat", func(p *Plan) { p.IPv4.NAT44 = true }, "BRIDGE_NAT_FORBIDDEN"},
 		{"dhcp", func(p *Plan) { p.IPv4.DHCPStart, p.IPv4.DHCPEnd = "192.0.2.100", "192.0.2.200" }, "BRIDGE_DHCP_FORBIDDEN"},
-		{"dynamic address", func(p *Plan) { p.WAN.IPv4Mode, p.WAN.IPv4Address, p.WAN.IPv4Gateway = WANIPv4DHCP, "", "" }, "BRIDGE_STATIC_ADDRESS_REQUIRED"},
+		{"unmanaged address", func(p *Plan) { p.WAN.IPv4Mode, p.WAN.IPv4Address, p.WAN.IPv4Gateway = WANIPv4KeepExisting, "", "" }, "BRIDGE_ADDRESS_MODE_INVALID"},
+		{"dhcp address outside the network", func(p *Plan) {
+			p.WAN.IPv4Mode, p.WAN.IPv4Address, p.WAN.IPv4Gateway = WANIPv4DHCP, "", ""
+			p.IPv4.GatewayAddress = "198.51.100.10"
+		}, "BRIDGE_DHCP_ADDRESS_INVALID"},
 		{"lab cidr", func(p *Plan) { p.IPv4.LabCIDR = "198.51.100.0/24"; p.IPv4.GatewayAddress = "198.51.100.10" }, "BRIDGE_LAB_CIDR_MISMATCH"},
 		{"own address", func(p *Plan) { p.IPv4.GatewayAddress = "192.0.2.11" }, "BRIDGE_GATEWAY_MISMATCH"},
 		{"router is self", func(p *Plan) { p.WAN.IPv4Gateway = "192.0.2.10" }, "BRIDGE_ROUTER_INVALID"},
@@ -145,10 +151,106 @@ func TestInlineBridgePreviewBridgesBothPortsWithSTPAndNoNAT(t *testing.T) {
 	if preview.FirewallRestoreIPv4 != "*filter\n:SHAKERPROXY-FORWARD - [0:0]\n-A SHAKERPROXY-FORWARD -i spbr0 -o spbr0 -j ACCEPT\nCOMMIT\n" {
 		t.Fatalf("firewall = %q", preview.FirewallRestoreIPv4)
 	}
-	if preview.KeaDHCP4JSON != "" || preview.RadvdConf != "" || preview.FirewallRestoreIPv6 != "" || strings.Contains(preview.FirewallRestoreIPv4, "nat") {
-		t.Fatal("an inline bridge preview must not run DHCP, router advertisements, IPv6 rules or NAT")
+	// Bridged IPv6 crosses ip6tables FORWARD too, so it gets the same rule.
+	if preview.FirewallRestoreIPv6 != preview.FirewallRestoreIPv4 || LabIPv6FirewallMode(preview) != "BLOCK" {
+		t.Fatalf("IPv6 firewall = %q", preview.FirewallRestoreIPv6)
 	}
-	if !strings.Contains(strings.Join(preview.ChangedObjects, "\n"), "net.bridge.bridge-nf-call-iptables") {
-		t.Fatalf("changed objects = %v", preview.ChangedObjects)
+	if preview.KeaDHCP4JSON != "" || preview.RadvdConf != "" || strings.Contains(preview.FirewallRestoreIPv4, "nat") {
+		t.Fatal("an inline bridge preview must not run DHCP, router advertisements or NAT")
+	}
+	changed := strings.Join(preview.ChangedObjects, "\n")
+	for _, want := range []string{"net.bridge.bridge-nf-call-iptables", "net.bridge.bridge-nf-call-ip6tables", "ip6tables filter/SHAKERPROXY-FORWARD"} {
+		if !strings.Contains(changed, want) {
+			t.Fatalf("changed objects lack %s: %v", want, preview.ChangedObjects)
+		}
+	}
+	attached := false
+	for _, command := range preview.AttachmentCommands {
+		if command.Executable == defaultIp6tablesPath && strings.Join(command.Arguments, " ") == "-w 5 -I DOCKER-USER 1 -j SHAKERPROXY-FORWARD" {
+			attached = true
+		}
+	}
+	if !attached {
+		t.Fatalf("the IPv6 bridge rule is not attached: %+v", preview.AttachmentCommands)
+	}
+}
+
+// The bridge can keep asking the router for ShakerProxy's address: it keeps
+// the router port's MAC and identifies itself by it, so the lease follows.
+func TestInlineBridgeGetsItsAddressOverDHCP(t *testing.T) {
+	plan := validInlineBridgePlan()
+	plan.WAN.IPv4Mode, plan.WAN.IPv4Address, plan.WAN.IPv4Gateway = WANIPv4DHCP, "", ""
+	result := ValidateWithObservedSSH(plan, bridgeObserved(), []ActiveSSHSession{{SourceAddress: "192.0.2.50", DestinationAddress: "192.0.2.10", DestinationPort: 22, DestinationInterface: "enp1s0"}})
+	if !result.Valid || !hasIssue(result.Warnings, "BRIDGE_DHCP_ADDRESS_MAY_CHANGE") || hasIssue(result.Warnings, "BRIDGE_DHCP_MAC_UNKNOWN") || !InlineBridgeDHCP(plan) {
+		t.Fatalf("DHCP bridge: valid=%v errors=%+v warnings=%+v", result.Valid, result.Errors, result.Warnings)
+	}
+	moved := ValidateWithObservedSSH(plan, bridgeObserved(), []ActiveSSHSession{{SourceAddress: "192.0.2.50", DestinationAddress: "192.0.2.11", DestinationPort: 22, DestinationInterface: "enp1s0"}})
+	if moved.Valid || !hasIssue(moved.Errors, "BRIDGE_SSH_ADDRESS_CHANGE") {
+		t.Fatalf("an SSH session to another address was accepted: %+v", moved.Errors)
+	}
+	preview := BuildPreview(plan, time.Unix(0, 0))
+	for _, want := range []string{"      macaddress: 52:54:00:aa:bb:01\n      dhcp4: true\n      dhcp-identifier: mac\n", "      parameters:\n        stp: true\n"} {
+		if !strings.Contains(preview.NetplanYAML, want) {
+			t.Fatalf("netplan lacks %q:\n%s", want, preview.NetplanYAML)
+		}
+	}
+	if strings.Contains(preview.NetplanYAML, "addresses:") || strings.Contains(preview.NetplanYAML, "routes:") {
+		t.Fatalf("a DHCP bridge got static addressing:\n%s", preview.NetplanYAML)
+	}
+	if impact := strings.Join(preview.Impact, "\n"); !strings.Contains(impact, "over DHCP with enp1s0's MAC") {
+		t.Fatalf("impact = %s", impact)
+	}
+	assertFixture(t, "90-shakerproxy-inline-bridge-dhcp.yaml", preview.NetplanYAML)
+
+	unknownMAC := plan
+	unknownMAC.Interfaces = append([]Interface(nil), plan.Interfaces...)
+	unknownMAC.Interfaces[0].PermanentMAC = ""
+	if result := Validate(unknownMAC); !result.Valid || !hasIssue(result.Warnings, "BRIDGE_DHCP_MAC_UNKNOWN") {
+		t.Fatalf("unknown MAC: %+v", result.Warnings)
+	}
+}
+
+// DNS over IPv6 can be answered only when ShakerProxy has an IPv6 address
+// on the bridge, from the router's advertisements.
+func TestInlineBridgeIPv6DNSNeedsAnAddressFromTheRouter(t *testing.T) {
+	plan := validInlineBridgePlan()
+	result := Validate(plan)
+	if !result.Valid || !hasIssue(result.Warnings, "BRIDGE_IPV6_DNS_NOT_FORCED") || InlineBridgeIPv6Address(plan) {
+		t.Fatalf("without SLAAC: valid=%v warnings=%+v", result.Valid, result.Warnings)
+	}
+	if impact := strings.Join(BuildPreview(plan, time.Unix(0, 0)).Impact, "\n"); !strings.Contains(impact, "not answered by ShakerProxy") {
+		t.Fatalf("impact = %s", impact)
+	}
+	plan.WAN.IPv6Mode = WANIPv6SLAAC
+	result = Validate(plan)
+	if !result.Valid || hasIssue(result.Warnings, "BRIDGE_IPV6_DNS_NOT_FORCED") || !InlineBridgeIPv6Address(plan) {
+		t.Fatalf("with SLAAC: valid=%v warnings=%+v", result.Valid, result.Warnings)
+	}
+	preview := BuildPreview(plan, time.Unix(0, 0))
+	if !strings.Contains(preview.NetplanYAML, "      dhcp6: false\n      accept-ra: true\n") || !strings.Contains(strings.Join(preview.Impact, "\n"), "over IPv6 is answered by ShakerProxy") {
+		t.Fatalf("SLAAC bridge preview:\n%s\n%v", preview.NetplanYAML, preview.Impact)
+	}
+}
+
+func TestInlineBridgeIPv6ArtifactsFollowTheHost(t *testing.T) {
+	plan := validInlineBridgePlan()
+	preview := BuildPreview(plan, time.Unix(0, 0))
+	preview.FirewallEnvironment = firewall.Inspection{IPv6Available: true, IPv6FirewallReady: true, IptablesPath: "/usr/sbin/iptables", Ip6tablesPath: "/usr/sbin/ip6tables"}
+	if err := CheckIPv6Artifacts(plan, preview); err != nil {
+		t.Fatal(err)
+	}
+	missing := preview
+	missing.FirewallRestoreIPv6 = ""
+	if err := CheckIPv6Artifacts(plan, missing); err == nil {
+		t.Fatal("an inline bridge without its IPv6 forward rule was accepted")
+	}
+	noIPv6 := BuildPreview(plan, time.Unix(0, 0))
+	noIPv6.FirewallEnvironment = firewall.Inspection{IptablesPath: "/usr/sbin/iptables"}
+	BindIPv6HostEvidence(&noIPv6)
+	if noIPv6.FirewallRestoreIPv6 != "" || strings.Contains(strings.Join(noIPv6.ChangedObjects, "\n"), "ip6tables") {
+		t.Fatalf("a host without IPv6 still gets IPv6 bridge artifacts: %+v", noIPv6.ChangedObjects)
+	}
+	if err := CheckIPv6Artifacts(plan, noIPv6); err != nil {
+		t.Fatal(err)
 	}
 }

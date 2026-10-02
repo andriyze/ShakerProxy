@@ -21,7 +21,7 @@ chmod 0600 "$LAB_TEMP/etc/netplan/90-shakerproxy.yaml"
 # Wi-Fi access point plans: the access point as the whole lab segment, and a
 # wired lab port bridged with the access point through lgbr0, and the inline
 # bridge (spbr0 over an upstream and a device port).
-for wifi_fixture in 90-shakerproxy-wifi.yaml 90-shakerproxy-wifi-bridge.yaml 90-shakerproxy-inline-bridge.yaml; do
+for wifi_fixture in 90-shakerproxy-wifi.yaml 90-shakerproxy-wifi-bridge.yaml 90-shakerproxy-inline-bridge.yaml 90-shakerproxy-inline-bridge-dhcp.yaml; do
   cp "$SCRIPT_DIR/fixtures/$wifi_fixture" "$LAB_TEMP/etc/netplan/90-shakerproxy.yaml"
   /usr/sbin/netplan generate --root-dir "$LAB_TEMP"
 done

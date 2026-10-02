@@ -9,6 +9,10 @@
 #     DNS forwarder (br_netfilter + the traffic policy's redirect), with the
 #     plan's real firewall and the policy's real rules;
 #   - conntrack reports the device's bridged connection;
+#   - IPv6: the router's advertisements give the device and ShakerProxy's
+#     bridge addresses from two prefixes; bridged IPv6 crosses ip6tables
+#     (under a Docker-style DROP policy) and DNS the device sends over IPv6
+#     to the router is answered by ShakerProxy, from the address it asked;
 #   - rolling back removes ShakerProxy's chains, restores bridge netfilter
 #     and the host's address, and the device is off the network again.
 # Netplan is not run here: the script builds spbr0 with ip exactly as the
@@ -22,8 +26,11 @@ fail() {
     {
       printf '%s\n' "--- ShakerProxy nat" && ip netns exec "$GATEWAY" iptables -t nat -L -v -n
       printf '%s\n' "--- ShakerProxy filter" && ip netns exec "$GATEWAY" iptables -L -v -n
+      printf '%s\n' "--- ShakerProxy IPv6 nat" && ip netns exec "$GATEWAY" ip6tables -t nat -L -v -n
+      printf '%s\n' "--- ShakerProxy IPv6 filter" && ip netns exec "$GATEWAY" ip6tables -L -v -n
+      printf '%s\n' "--- addresses" && ip -n "$GATEWAY" -6 addr show dev spbr0 && ip -n "$CLIENT" -6 addr show dev eth0
       printf '%s\n' "--- bridge" && ip -n "$GATEWAY" -d link show master spbr0
-      for log in dnsd upstream-dns dnsmasq apply; do
+      for log in dnsd upstream-dns upstream-dns6 dnsmasq radvd apply; do
         [[ -f "$LAB_TEMP/$log.log" ]] && printf -- '--- %s\n' "$log" && tail -n 20 "$LAB_TEMP/$log.log"
       done
     } >&2 || true
@@ -49,6 +56,9 @@ fi
 modprobe br_netfilter 2>/dev/null || true
 [[ -e /proc/sys/net/bridge/bridge-nf-call-iptables ]] || netlab_skip "this kernel has no br_netfilter"
 iptables -m physdev -h >/dev/null 2>&1 || netlab_skip "iptables has no physdev match"
+ip6tables -m physdev -h >/dev/null 2>&1 || netlab_skip "ip6tables has no physdev match"
+[[ -e /proc/sys/net/bridge/bridge-nf-call-ip6tables && -e /proc/net/if_inet6 ]] || netlab_skip "this kernel has no IPv6 bridge netfilter"
+command -v radvd >/dev/null || netlab_skip "missing radvd (the router's IPv6 advertisements)"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 RUN_ID="spbr$$"
@@ -113,6 +123,11 @@ for port in "${RUN_ID}ru" "${RUN_ID}rp"; do
   ip -n "$ROUTER" link set "$port" up
 done
 ip -n "$ROUTER" addr add 192.168.77.1/24 dev lan
+# IPv6 from the router: two prefixes (as a router with a global and a ULA
+# prefix advertises), and itself as the DNS server it advertises.
+ip netns exec "$ROUTER" sysctl -qw net.ipv6.conf.all.forwarding=1
+ip -n "$ROUTER" addr add fd77::1/64 dev lan nodad
+ip -n "$ROUTER" addr add fd78::1/64 dev lan nodad
 # The internet, as far as this lab goes: an upstream resolver.
 ip -n "$ROUTER" link add inet type dummy
 ip -n "$ROUTER" addr add 10.81.0.53/32 dev inet
@@ -132,6 +147,25 @@ ip netns exec "$GATEWAY" iptables -N DOCKER-USER
 ip netns exec "$GATEWAY" iptables -A DOCKER-USER -j RETURN
 ip netns exec "$GATEWAY" iptables -A FORWARD -j DOCKER-USER
 ip netns exec "$GATEWAY" iptables -P FORWARD DROP
+ip netns exec "$GATEWAY" ip6tables -N DOCKER-USER
+ip netns exec "$GATEWAY" ip6tables -A DOCKER-USER -j RETURN
+ip netns exec "$GATEWAY" ip6tables -A FORWARD -j DOCKER-USER
+ip netns exec "$GATEWAY" ip6tables -P FORWARD DROP
+
+cat >"$LAB_TEMP/radvd.conf" <<'RADVD'
+interface lan
+{
+	AdvSendAdvert on;
+	MinRtrAdvInterval 3;
+	MaxRtrAdvInterval 4;
+	prefix fd77::/64 { AdvOnLink on; AdvAutonomous on; };
+	prefix fd78::/64 { AdvOnLink on; AdvAutonomous on; };
+	RDNSS fd77::1 { };
+};
+RADVD
+chmod 0644 "$LAB_TEMP/radvd.conf"
+ip netns exec "$ROUTER" radvd --nodaemon --config "$LAB_TEMP/radvd.conf" --pidfile "$LAB_TEMP/radvd.pid" --logmethod stderr >"$LAB_TEMP/radvd.log" 2>&1 &
+PIDS+=($!)
 
 # The router: DHCP only (port=0: it answers no DNS, so an answer to a query
 # sent to it can only come from ShakerProxy). The upstream resolver and the
@@ -158,7 +192,7 @@ http.server.HTTPServer(("192.168.77.30", 8080), Handler).serve_forever()
 ' >"$LAB_TEMP/peer-http.log" 2>&1 &
 PIDS+=($!)
 ip netns exec "$GATEWAY" env \
-  SHAKERPROXY_DNS_BIND=0.0.0.0:1053 \
+  SHAKERPROXY_DNS_BIND='[::]:1053' \
   SHAKERPROXY_TRAFFIC_POLICY_FILE="$ROOT/tests/netlab/fixtures/dns-policy.json" \
   "$BIN/shakerproxy-dnsd" >"$LAB_TEMP/dnsd.log" 2>&1 &
 PIDS+=($!)
@@ -169,6 +203,7 @@ for _ in $(seq 1 50); do
   sleep .1
 done
 ip netns exec "$GATEWAY" cat /proc/sys/net/bridge/bridge-nf-call-iptables >"$LAB_TEMP/bridge-nf.before"
+ip netns exec "$GATEWAY" cat /proc/sys/net/bridge/bridge-nf-call-ip6tables >"$LAB_TEMP/bridge-nf6.before"
 
 # 1. Apply the plan. In place of Netplan: spbr0 over both ports, with the
 # upstream port's MAC, the host's address and route, and STP on.
@@ -187,6 +222,11 @@ ip netns exec "$GATEWAY" iptables -t nat -S SHAKERPROXY-SEC-PREROUTING | grep --
   ip netns exec "$GATEWAY" iptables -t nat -S; fail "the policy's DNS redirect does not match the device port"
 }
 [[ "$(ip netns exec "$GATEWAY" cat /proc/sys/net/bridge/bridge-nf-call-iptables)" == 1 ]] || fail "bridge netfilter is off after apply"
+[[ "$(ip netns exec "$GATEWAY" cat /proc/sys/net/bridge/bridge-nf-call-ip6tables)" == 1 ]] || fail "bridge IPv6 netfilter is off after apply"
+ip netns exec "$GATEWAY" ip6tables -S SHAKERPROXY-FORWARD | grep -q -- '-i spbr0 -o spbr0 -j ACCEPT' || fail "the plan's bridged IPv6 forward rule is missing"
+ip netns exec "$GATEWAY" ip6tables -t nat -S SHAKERPROXY-SEC-PREROUTING | grep -- '--physdev-in dev0' | grep -q 'udp.*REDIRECT --to-ports 1053' || {
+  ip netns exec "$GATEWAY" ip6tables -t nat -S; fail "the policy's IPv6 DNS redirect does not match the device port"
+}
 # STP: listening, then learning, then forwarding (twice the forward delay).
 for _ in $(seq 1 150); do
   if ip -n "$GATEWAY" -d link show dev0 | grep -q 'state forwarding' && ip -n "$GATEWAY" -d link show up0 | grep -q 'state forwarding'; then
@@ -199,7 +239,8 @@ ip -n "$GATEWAY" -d link show dev0 | grep -q 'state forwarding' || fail "the bri
 # 2. Record the device port as the automatic lab recording does, and listen
 # for conntrack reports.
 ip netns exec "$GATEWAY" tcpdump -i dev0 -U -w "$LAB_TEMP/device-port.pcap" >/dev/null 2>&1 &
-PIDS+=($!)
+TCPDUMP_PID=$!
+PIDS+=("$TCPDUMP_PID")
 role conntrack >"$LAB_TEMP/conntrack.log" &
 CONNTRACK_PID=$!
 for _ in $(seq 1 50); do [[ -e "$LAB_TEMP/conntrack.ready" ]] && break; sleep .1; done
@@ -282,17 +323,70 @@ grep -Fxq 'udp-query=udp.bridge.shakerproxy.test' "$LAB_TEMP/upstream-dns.log" |
 grep -Fxq 'tcp-query=tcp.bridge.shakerproxy.test' "$LAB_TEMP/upstream-dns.log" || fail "the device's TCP DNS did not reach ShakerProxy's forwarder"
 grep -Fxq "peer=$CLIENT_IP" "$LAB_TEMP/peer-http.log" || fail "the peer did not see the device's own address"
 
+# 4b. IPv6: the router's advertisements cross the bridge. The device and
+# ShakerProxy's bridge each take an address from both prefixes, and DNS the
+# device sends over IPv6 to the router (which answers none) is answered by
+# ShakerProxy, from the address the device asked, over UDP and TCP.
+global_ipv6() {
+  ip -n "$1" -6 addr show dev "$2" scope global | grep -v tentative | grep -c "inet6 $3"
+}
+for _ in $(seq 1 150); do
+  if [[ "$(global_ipv6 "$CLIENT" eth0 fd77:)" -ge 1 && "$(global_ipv6 "$CLIENT" eth0 fd78:)" -ge 1 && "$(global_ipv6 "$GATEWAY" spbr0 fd77:)" -ge 1 && "$(global_ipv6 "$GATEWAY" spbr0 fd78:)" -ge 1 ]]; then
+    break
+  fi
+  sleep .1
+done
+[[ "$(global_ipv6 "$CLIENT" eth0 fd77:)" -ge 1 && "$(global_ipv6 "$GATEWAY" spbr0 fd78:)" -ge 1 ]] || fail "the router's IPv6 advertisements did not cross the bridge"
+ip netns exec "$ROUTER" python3 "$ROOT/tests/netlab/fixtures/dns-origin.py" >"$LAB_TEMP/upstream-dns6.log" 2>&1 &
+PIDS+=($!)
+for _ in $(seq 1 50); do ip netns exec "$ROUTER" ss -lnu | grep -q '10.81.0.53:53 ' && break; sleep .1; done
+ip netns exec "$CLIENT" python3 -c '
+import socket, struct
+
+def query(name, transaction):
+    labels = b"".join(bytes([len(label)]) + label.encode("ascii") for label in name.split("."))
+    return struct.pack("!HHHHHH", transaction, 0x0100, 1, 0, 0, 0) + labels + b"\x00\x00\x01\x00\x01"
+
+def receive_exact(connection, length):
+    result = b""
+    while len(result) < length:
+        part = connection.recv(length - len(result))
+        if not part:
+            raise ConnectionError("closed early")
+        result += part
+    return result
+
+udp_query = query("udp6.bridge.shakerproxy.test", 0x2345)
+udp = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+udp.settimeout(5)
+udp.sendto(udp_query, ("fd77::1", 53))
+response, server = udp.recvfrom(4096)
+assert server[0] == "fd77::1", server
+assert response[:2] == udp_query[:2] and response[-4:] == socket.inet_aton("203.0.113.9"), response
+
+tcp_query = query("tcp6.bridge.shakerproxy.test", 0x6789)
+tcp = socket.create_connection(("fd77::1", 53), 5)
+tcp.sendall(struct.pack("!H", len(tcp_query)) + tcp_query)
+length = struct.unpack("!H", receive_exact(tcp, 2))[0]
+response = receive_exact(tcp, length)
+assert response[:2] == tcp_query[:2] and response[-4:] == socket.inet_aton("203.0.113.9"), response
+' || fail "the device's DNS over IPv6 was not answered by ShakerProxy"
+grep -Fxq 'udp-query=udp6.bridge.shakerproxy.test' "$LAB_TEMP/upstream-dns6.log" || fail "the device's UDP DNS over IPv6 did not reach ShakerProxy's forwarder"
+grep -Fxq 'tcp-query=tcp6.bridge.shakerproxy.test' "$LAB_TEMP/upstream-dns6.log" || fail "the device's TCP DNS over IPv6 did not reach ShakerProxy's forwarder"
+
 wait "$CONNTRACK_PID" || { cat "$LAB_TEMP/conntrack.log"; fail "conntrack did not report the bridged connection"; }
 grep -q "\"source\":\"$CLIENT_IP:" "$LAB_TEMP/conntrack.log" || { cat "$LAB_TEMP/conntrack.log"; fail "conntrack reported another source"; }
 
 sleep 1
-kill -INT "${PIDS[-1]}" 2>/dev/null || true
-wait "${PIDS[-1]}" 2>/dev/null || true
+kill -INT "$TCPDUMP_PID" 2>/dev/null || true
+wait "$TCPDUMP_PID" 2>/dev/null || true
 tcpdump -nn -e -r "$LAB_TEMP/device-port.pcap" 2>/dev/null >"$LAB_TEMP/device-port.txt"
 grep -q '192.168.77.1.67 > 192.168.77.1[0-9][0-9].68\|0.0.0.0.68 > 255.255.255.255.67' "$LAB_TEMP/device-port.txt" || { head -20 "$LAB_TEMP/device-port.txt"; fail "the device port recording has no DHCP"; }
 grep -q 'ARP' "$LAB_TEMP/device-port.txt" || fail "the device port recording has no ARP"
 grep -q "$CLIENT_IP.[0-9]* > 192.168.77.1.53:" "$LAB_TEMP/device-port.txt" || fail "the device port recording does not show the DNS query as sent to the router"
 grep -q "$CLIENT_IP.[0-9]* > 192.168.77.30.8080:" "$LAB_TEMP/device-port.txt" || fail "the device port recording does not show device-to-device traffic"
+grep -q "> fd77::1.53:" "$LAB_TEMP/device-port.txt" || fail "the device port recording does not show the IPv6 DNS query as sent to the router"
+grep -q "fe80::.* > ff02::1: ICMP6, router advertisement" "$LAB_TEMP/device-port.txt" || fail "the device port recording does not show the router's advertisements"
 
 # 5. Roll back: ShakerProxy's chains and bridge netfilter, then (in place of
 # Netplan) the bridge goes and the address returns to the upstream port.
@@ -308,10 +402,14 @@ done
 if ip netns exec "$GATEWAY" iptables -t nat -S 2>/dev/null | grep -q -- '--physdev-in dev0'; then
   fail "the bridge DNS redirect remains after rollback"
 fi
+if ip netns exec "$GATEWAY" ip6tables -S | grep -E -- '-N SHAKERPROXY-FORWARD$' >/dev/null || ip netns exec "$GATEWAY" ip6tables -t nat -S 2>/dev/null | grep -q -- '--physdev-in dev0'; then
+  fail "the bridged IPv6 rule or IPv6 DNS redirect remains after rollback"
+fi
 [[ "$(ip netns exec "$GATEWAY" cat /proc/sys/net/bridge/bridge-nf-call-iptables)" == "$(cat "$LAB_TEMP/bridge-nf.before")" ]] || fail "bridge netfilter was not restored"
+[[ "$(ip netns exec "$GATEWAY" cat /proc/sys/net/bridge/bridge-nf-call-ip6tables)" == "$(cat "$LAB_TEMP/bridge-nf6.before")" ]] || fail "bridge IPv6 netfilter was not restored"
 ip netns exec "$GATEWAY" ping -c 1 -W 2 192.168.77.1 >/dev/null || fail "ShakerProxy lost the network after rollback"
 if ip netns exec "$CLIENT" ping -c 1 -W 2 192.168.77.30 >/dev/null 2>&1; then
   fail "the device still reaches the network without the bridge"
 fi
 
-printf '%s\n' "PASS: inline bridge: the device got DHCP from the router through ShakerProxy, its DNS to the router was answered by ShakerProxy, conntrack reported its connection, the device port recording showed DHCP, ARP, DNS and device-to-device traffic, and rollback restored the host"
+printf '%s\n' "PASS: inline bridge: the device got DHCP and IPv6 addresses from the router through ShakerProxy, its DNS to the router over IPv4 and IPv6 was answered by ShakerProxy, conntrack reported its connection, the device port recording showed DHCP, ARP, router advertisements, DNS and device-to-device traffic, and rollback restored the host"

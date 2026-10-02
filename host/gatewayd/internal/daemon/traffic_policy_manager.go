@@ -504,6 +504,7 @@ func (m *TrafficPolicyManager) activeRenderContext(ctx context.Context, policy t
 	context.LabIPv6Prefix, context.LabGatewayIPv6 = labIPv6Context(plan)
 	if _, device, bridged := networkplan.BridgePorts(plan); bridged {
 		context.LabBridgePort = device.CurrentName
+		context.LabBridgeIPv6 = networkplan.InlineBridgeIPv6Address(plan)
 	}
 	context.IPv6Listeners = m.ipv6ListenersReady(ctx, policy)
 	return context, true, nil

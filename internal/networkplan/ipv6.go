@@ -137,6 +137,14 @@ func CheckIPv6Artifacts(plan Plan, preview Preview) error {
 		if !env.IPv6FirewallReady || firewall.Ip6tablesPathFor(env.IptablesPath) != env.Ip6tablesPath {
 			return errors.New("the IPv6 firewall (ip6tables) is not ready on this host")
 		}
+	case InlineBridge(plan) && env.IPv6Available:
+		// The bridge's IPv6 forward chain only lets bridged frames pass.
+		if preview.FirewallRestoreIPv6 == "" || preview.RadvdConf != "" {
+			return errors.New("inline bridge preview must contain only the bridged IPv6 forward rule")
+		}
+		if !env.IPv6FirewallReady || firewall.Ip6tablesPathFor(env.IptablesPath) != env.Ip6tablesPath {
+			return errors.New("the IPv6 firewall (ip6tables) is not ready on this host")
+		}
 	case BlocksLabIPv6(plan) && env.IPv6Available:
 		if preview.FirewallRestoreIPv6 == "" || preview.RadvdConf != "" {
 			return errors.New("disabled-IPv6 preview must contain only the IPv6 lab drop rules")
