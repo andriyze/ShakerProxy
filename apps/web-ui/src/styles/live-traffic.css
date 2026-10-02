@@ -61,3 +61,4 @@
 }
 .live-note{margin:0 0 6px;color:#9bb0b4;font-size:13px;max-width:780px}
 .stream-count{margin-left:8px;padding:0 6px;border-radius:999px;background:#1d3a40;color:#cfe0e3;font-size:11px;font-weight:600}
+.stream-row.pending .stream-detail{color:#6f878b;font-style:italic}

@@ -10,7 +10,7 @@ Restart=on-failure
 RestartSec=2s
 User=root
 Group=shakerproxy-host
-SupplementaryGroups=shakerproxy-capture shakerproxy-cloud
+SupplementaryGroups=shakerproxy-capture shakerproxy-cloud shakerproxy-dns
 UMask=0027
 RuntimeDirectory=shakerproxy shakerproxy-cloud-policy
 RuntimeDirectoryMode=0750
@@ -29,7 +29,7 @@ RestrictSUIDSGID=true
 RestrictRealtime=true
 RestrictNamespaces=true
 CapabilityBoundingSet=CAP_NET_ADMIN
-ReadWritePaths=/run/shakerproxy /run/shakerproxy-cloud-policy /run/lock/shakerproxy /var/lib/shakerproxy/gatewayd /var/lib/shakerproxy/traffic -/var/lib/shakerproxy/onboarding /var/lib/shakerproxy/pcap /etc/netplan /etc/kea /etc/systemd/system -/etc/shakerproxy/hostapd -/etc/shakerproxy/radvd
+ReadWritePaths=/run/shakerproxy /run/shakerproxy-cloud-policy /run/lock/shakerproxy /var/lib/shakerproxy/gatewayd /var/lib/shakerproxy/traffic -/var/lib/shakerproxy/onboarding /var/lib/shakerproxy/pcap -/var/lib/shakerproxy/dns-events/pending /etc/netplan /etc/kea /etc/systemd/system -/etc/shakerproxy/hostapd -/etc/shakerproxy/radvd
 RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
 SystemCallArchitectures=native
 

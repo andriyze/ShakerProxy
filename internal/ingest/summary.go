@@ -37,6 +37,12 @@ func eventSummary(event RecentEvent) string {
 		return "Encrypted DNS (DoH) to " + firstNonEmpty(event.HTTPHost, event.TLSServerName, event.DestinationIP, "an unknown resolver")
 	case event.DNSQuery != "":
 		return "DNS lookup " + event.DNSQuery + recordTypeSuffix(event.DNSRecordType) + dnsOutcome(event)
+	case event.Source == SourceHost && event.Kind == HostConnKind:
+		target := net.JoinHostPort(event.DestinationIP, strconv.Itoa(event.DestinationPort))
+		if event.DNSName != "" {
+			return "Connection to " + event.DNSName + " (" + target + "/" + event.Protocol + ")"
+		}
+		return "Connection to " + target + "/" + event.Protocol
 	case event.TLSInterceptionState != "":
 		host := firstNonEmpty(event.TLSServerName, event.DestinationIP, "unknown host")
 		switch event.TLSInterceptionState {

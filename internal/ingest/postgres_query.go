@@ -170,10 +170,12 @@ ORDER BY 1, 4, 2`, MaxEventFacetInput+1, MaxEventFacetInput, MaxEventFacetValues
 // events as the other facets. An observation is the connection's addresses
 // and ports (Zeek's ssl.log has no transport field), so the same connection
 // reported by several analyzers, or split across capture segments, counts
-// once; rows without addresses count individually.
+// once; rows without addresses count individually. A connection the gateway
+// reported counts under the name its client looked up until the analysis
+// adds the server name for the same addresses and ports.
 func readEventDomains(ctx context.Context, queryer eventQueryer, clauses []string, args []any) (EventDomainFacet, error) {
 	statement := fmt.Sprintf(`WITH facet_input AS MATERIALIZED (
-SELECT lower(rtrim(COALESCE(tls_server_name, http_host, dns_query), '.')) AS host,
+SELECT lower(rtrim(COALESCE(tls_server_name, http_host, dns_query, dns_name), '.')) AS host,
 COALESCE(host(source_ip) || ' ' || source_port || ' ' || host(destination_ip) || ' ' || destination_port, record_id) AS observation
 FROM normalized_events WHERE `+strings.Join(clauses, " AND ")+`
 ORDER BY occurred_at DESC, record_id DESC LIMIT %d
@@ -279,7 +281,7 @@ COALESCE(capture_session_id, ''), COALESCE(flow_id, ''), COALESCE(device_id, '')
 COALESCE(host(source_ip), ''), COALESCE(host(destination_ip), ''), COALESCE(source_port, 0),
 COALESCE(destination_port, 0), COALESCE(protocol, ''), COALESCE(service, ''), COALESCE(network_bytes, 0),
 COALESCE(dns_query, ''), COALESCE(dns_record_type, ''), COALESCE(dns_response_code, ''), dns_answer_count,
-COALESCE(array_to_json(dns_answers)::text, ''),
+COALESCE(array_to_json(dns_answers)::text, ''), COALESCE(dns_name, ''),
 COALESCE(detection_type, ''), COALESCE(detection_severity, ''), COALESCE(detection_state, ''),
 COALESCE(detection_summary, ''), COALESCE(detection_scope, ''),
 COALESCE(tls_server_name, ''), COALESCE(tls_interception_state, ''), COALESCE(tls_failure_reason, ''),
@@ -309,7 +311,7 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 		var dnsAnswersJSON string
 		var tlsClientRecentSuccess sql.NullBool
 		var attributionJSON string
-		if err := rows.Scan(&event.RecordID, &event.Source, &event.Kind, &event.OccurredAt, &event.ReceivedAt, &event.SourceVersion, &event.ParserVersion, &event.CaptureSessionID, &event.FlowID, &event.DeviceID, &event.Confidence, &event.SourceIP, &event.DestinationIP, &event.SourcePort, &event.DestinationPort, &event.Protocol, &event.Service, &event.NetworkBytes, &event.DNSQuery, &event.DNSRecordType, &event.DNSResponseCode, &dnsAnswerCount, &dnsAnswersJSON, &event.DetectionType, &event.DetectionSeverity, &event.DetectionState, &event.DetectionSummary, &event.DetectionScope, &event.TLSServerName, &event.TLSInterceptionState, &event.TLSFailureReason, &event.TLSPinningSuspected, &tlsClientRecentSuccess, &event.TLSBypassActivated, &event.TLSPlatform, &attributionJSON,
+		if err := rows.Scan(&event.RecordID, &event.Source, &event.Kind, &event.OccurredAt, &event.ReceivedAt, &event.SourceVersion, &event.ParserVersion, &event.CaptureSessionID, &event.FlowID, &event.DeviceID, &event.Confidence, &event.SourceIP, &event.DestinationIP, &event.SourcePort, &event.DestinationPort, &event.Protocol, &event.Service, &event.NetworkBytes, &event.DNSQuery, &event.DNSRecordType, &event.DNSResponseCode, &dnsAnswerCount, &dnsAnswersJSON, &event.DNSName, &event.DetectionType, &event.DetectionSeverity, &event.DetectionState, &event.DetectionSummary, &event.DetectionScope, &event.TLSServerName, &event.TLSInterceptionState, &event.TLSFailureReason, &event.TLSPinningSuspected, &tlsClientRecentSuccess, &event.TLSBypassActivated, &event.TLSPlatform, &attributionJSON,
 			&event.AppProtocol, &event.ProtocolCategory, &event.ProtocolVisibility, &event.ProtocolEvidence, &event.ProtocolExotic,
 			&event.HTTPMethod, &event.HTTPHost, &event.HTTPPath, &event.HTTPStatus,
 			&event.AlertSignature, &event.AlertSeverity, &event.AlertCategory); err != nil {
