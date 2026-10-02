@@ -109,18 +109,35 @@ func TestHTTPExchangeIsReadBackFromTheRecording(t *testing.T) {
 	}
 }
 
-func TestHTTPExchangeContentIsForAdministratorSessionsOnly(t *testing.T) {
-	server, session, _, stub := exchangeServer(t, func(capture.FlowRequest) capture.FlowResult { return capture.FlowResult{} })
-	create := authenticatedJSONRequest(http.MethodPost, "/api/v1/auth/tokens", `{"name":"robot","scopes":["traffic:read"],"expires_in_seconds":3600,"password":"`+activationTestPassword+`"}`, session, "")
-	recorder := httptest.NewRecorder()
-	server.Handler().ServeHTTP(recorder, create)
-	var created apitoken.Created
-	if recorder.Code != http.StatusCreated || json.Unmarshal(recorder.Body.Bytes(), &created) != nil {
-		t.Fatalf("token create returned %d: %s", recorder.Code, recorder.Body.String())
+// HTTP content is plaintext evidence: sessions see it as recorded, a
+// traffic:read token never does, and only the sensitive traffic:content
+// scope reads it, with credentials removed on the server.
+func TestHTTPExchangeContentNeedsASessionOrTheContentScope(t *testing.T) {
+	conversation := pcapngtest.NewKeepAliveHTTP(exchangeAt.Add(-30 * time.Millisecond))
+	server, session, _, stub := exchangeServer(t, func(request capture.FlowRequest) capture.FlowResult {
+		return capture.FlowResult{Schema: 1, SessionID: request.SessionID, Client: request.Client, Server: request.Server, SegmentsRead: 2, PacketsMatched: len(conversation.Packets), ClientData: conversation.Client, ServerData: conversation.Server, FromStart: true, Closed: true}
+	})
+	createToken := func(body string) (int, apitoken.Created) {
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, authenticatedJSONRequest(http.MethodPost, "/api/v1/auth/tokens", body, session, ""))
+		var created apitoken.Created
+		_ = json.Unmarshal(recorder.Body.Bytes(), &created)
+		return recorder.Code, created
+	}
+	code, metadataOnly := createToken(`{"name":"robot","scopes":["traffic:read"],"expires_in_seconds":3600,"password":"` + activationTestPassword + `"}`)
+	if code != http.StatusCreated {
+		t.Fatalf("traffic:read token create returned %d", code)
+	}
+	if code, _ := createToken(`{"name":"agent","scopes":["traffic:read","traffic:content"],"expires_in_seconds":3600,"password":"` + activationTestPassword + `"}`); code != http.StatusBadRequest {
+		t.Fatalf("traffic:content was granted without the sensitive-scope acknowledgement: %d", code)
+	}
+	code, content := createToken(`{"name":"agent","scopes":["traffic:read","traffic:content"],"expires_in_seconds":3600,"password":"` + activationTestPassword + `","sensitive_scope_acknowledged":true}`)
+	if code != http.StatusCreated {
+		t.Fatalf("traffic:content token create returned %d", code)
 	}
 	for name, request := range map[string]*http.Request{
-		"anonymous": httptest.NewRequest(http.MethodGet, "/api/v1/events/"+exchangeRecordID+"/http-exchange", nil),
-		"API token": tokenRequest(http.MethodGet, "/api/v1/events/"+exchangeRecordID+"/http-exchange", created.Secret),
+		"anonymous":          httptest.NewRequest(http.MethodGet, "/api/v1/events/"+exchangeRecordID+"/http-exchange", nil),
+		"traffic:read token": tokenRequest(http.MethodGet, "/api/v1/events/"+exchangeRecordID+"/http-exchange", metadataOnly.Secret),
 	} {
 		request.Host = "shakerproxy.test"
 		recorder := httptest.NewRecorder()
@@ -132,6 +149,28 @@ func TestHTTPExchangeContentIsForAdministratorSessionsOnly(t *testing.T) {
 	if len(stub.requests) != 0 {
 		t.Fatal("an unauthorized request reached the recording")
 	}
+
+	request := tokenRequest(http.MethodGet, "/api/v1/events/"+exchangeRecordID+"/http-exchange", content.Secret)
+	request.Host = "shakerproxy.test"
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	var redacted httpExchangeResponse
+	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &redacted) != nil || recorder.Header().Get("X-ShakerProxy-HTTP-Exchange") != "credentials-redacted" {
+		t.Fatalf("traffic:content token returned %d %v: %s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "session=secret") || redacted.State != "AVAILABLE" || len(redacted.Exchanges) != 2 || redacted.Exchanges[1].Request.Body.Preview != "name=phone&value=42" {
+		t.Fatalf("token exchange was not redacted or lost content: %+v", redacted.Exchanges)
+	}
+	cookie := redacted.Exchanges[0].Request.Headers.Items[2]
+	if cookie.Name != "Cookie" || cookie.Value != "[redacted]" || !cookie.Sensitive {
+		t.Fatalf("cookie header = %#v", cookie)
+	}
+	asAdministrator := httptest.NewRecorder()
+	server.Handler().ServeHTTP(asAdministrator, authenticatedJSONRequest(http.MethodGet, "/api/v1/events/"+exchangeRecordID+"/http-exchange", "", session, ""))
+	if !strings.Contains(asAdministrator.Body.String(), "session=secret") || asAdministrator.Header().Get("X-ShakerProxy-HTTP-Exchange") != "" {
+		t.Fatal("the administrator session no longer sees the exchange as recorded")
+	}
+
 	recorder = httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, authenticatedJSONRequest(http.MethodGet, "/api/v1/events/"+exchangeRecordID+"/http-exchange?x=1", "", session, ""))
 	if recorder.Code != http.StatusBadRequest {

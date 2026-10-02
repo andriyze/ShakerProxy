@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"shakerproxy.dev/shakerproxy/internal/apitoken"
 	"shakerproxy.dev/shakerproxy/internal/capture"
 	"shakerproxy.dev/shakerproxy/internal/gatewayprotocol"
 	"shakerproxy.dev/shakerproxy/internal/httpexchange"
@@ -22,8 +23,10 @@ import (
 // An HTTP event's request and response, like Wireshark's "Follow HTTP
 // stream": read back from the packet recording for cleartext HTTP, or from
 // the decrypted events mitmproxy recorded for intercepted HTTPS. Headers and
-// bodies are plaintext evidence, so like the event detail payload they are
-// for signed-in administrators only, never API tokens.
+// bodies are plaintext evidence: signed-in administrators see them as
+// recorded (the UI masks credentials until revealed), and only API tokens
+// holding the sensitive traffic:content scope may read them, with
+// credentials removed on the server (traffic:read stays metadata-only).
 
 const (
 	httpExchangeSchema = 1
@@ -94,6 +97,10 @@ func (s *Server) getHTTPExchange(w http.ResponseWriter, r *http.Request) {
 	response.Schema, response.RecordID = httpExchangeSchema, recordID
 	if response.Exchanges == nil {
 		response.Exchanges = []httpexchange.Exchange{}
+	}
+	if _, tokenPrincipal := r.Context().Value(apiPrincipalContextKey{}).(apitoken.Principal); tokenPrincipal {
+		response.Exchanges = httpexchange.RedactExchanges(response.Exchanges)
+		w.Header().Set("X-ShakerProxy-HTTP-Exchange", "credentials-redacted")
 	}
 	s.logger.Info("HTTP exchange viewed", "username", sessionUsername(r.Context()), "record_id", recordID, "source", response.Source, "state", response.State, "capture_id", detail.Event.CaptureSessionID, "exchanges", len(response.Exchanges))
 	writeJSON(w, http.StatusOK, response)

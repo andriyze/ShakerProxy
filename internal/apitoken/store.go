@@ -32,14 +32,18 @@ const (
 type Scope string
 
 const (
-	ScopeSystemRead    Scope = "system:read"
-	ScopeDevicesRead   Scope = "devices:read"
-	ScopeTrafficRead   Scope = "traffic:read"
-	ScopeCapturesRead  Scope = "captures:read"
-	ScopeCapturesWrite Scope = "captures:write"
-	ScopeCasesRead     Scope = "cases:read"
-	ScopeCasesWrite    Scope = "cases:write"
-	ScopeMetricsRead   Scope = "metrics:read"
+	ScopeSystemRead  Scope = "system:read"
+	ScopeDevicesRead Scope = "devices:read"
+	ScopeTrafficRead Scope = "traffic:read"
+	// ScopeTrafficContent reads HTTP request and response headers and body
+	// previews (GET /api/v1/events/{id}/http-exchange) with credentials
+	// redacted. It is sensitive: traffic:read stays metadata-only.
+	ScopeTrafficContent Scope = "traffic:content"
+	ScopeCapturesRead   Scope = "captures:read"
+	ScopeCapturesWrite  Scope = "captures:write"
+	ScopeCasesRead      Scope = "cases:read"
+	ScopeCasesWrite     Scope = "cases:write"
+	ScopeMetricsRead    Scope = "metrics:read"
 	// ScopeLabWrite runs lab actions on devices: test sessions, device
 	// controls (decrypt HTTPS, block internet or domains) and CA trust state.
 	// It is not a sensitive scope: it changes lab behaviour, not evidence.
@@ -51,7 +55,7 @@ var (
 	ErrForbidden         = errors.New("API token is not authorized for this request")
 	ErrResourceForbidden = errors.New("API token is not authorized for this resource")
 	validScopes          = map[Scope]struct{}{
-		ScopeSystemRead: {}, ScopeDevicesRead: {}, ScopeTrafficRead: {},
+		ScopeSystemRead: {}, ScopeDevicesRead: {}, ScopeTrafficRead: {}, ScopeTrafficContent: {},
 		ScopeCapturesRead: {}, ScopeCapturesWrite: {}, ScopeCasesRead: {}, ScopeCasesWrite: {},
 		ScopeMetricsRead: {}, ScopeLabWrite: {},
 	}
@@ -159,7 +163,7 @@ func AllowedScopes() []Scope {
 // SensitiveScopes lists scopes that can alter or exfiltrate evidence and
 // therefore require an explicit acknowledgement at token creation.
 func SensitiveScopes() []Scope {
-	return []Scope{ScopeCapturesWrite, ScopeCasesWrite}
+	return []Scope{ScopeCapturesWrite, ScopeCasesWrite, ScopeTrafficContent}
 }
 
 func hasSensitiveScope(scopes []Scope) bool {
