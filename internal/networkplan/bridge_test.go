@@ -111,9 +111,17 @@ func TestInlineBridgeRejectsRoutingFeatures(t *testing.T) {
 		{"router is self", func(p *Plan) { p.WAN.IPv4Gateway = "192.0.2.10" }, "BRIDGE_ROUTER_INVALID"},
 		{"ipv6 routing", func(p *Plan) { p.IPv6.Strategy = IPv6ULANAT66Lab }, "BRIDGE_IPV6_STRATEGY_INVALID"},
 		{"ipv6 mode", func(p *Plan) { p.WAN.IPv6Mode = WANIPv6KeepExisting }, "BRIDGE_IPV6_MODE_INVALID"},
-		{"wifi", func(p *Plan) {
+		{"wifi without an adapter", func(p *Plan) {
+			p.WiFi = &WiFiConfiguration{Enabled: true, SSID: "lab", Security: WiFiSecurityWPA2PSK, Passphrase: "correct horse", CountryCode: "US", BridgeWithLab: true}
+		}, "WIFI_INTERFACE_MISSING"},
+		{"wifi not sharing the device side", func(p *Plan) {
+			p.Interfaces = append(p.Interfaces, Interface{StableID: "usb-wlan", CurrentName: "wlx001122", Role: RoleWiFiAP})
 			p.WiFi = &WiFiConfiguration{Enabled: true, SSID: "lab", Security: WiFiSecurityWPA2PSK, Passphrase: "correct horse", CountryCode: "US"}
-		}, "BRIDGE_WIFI_UNAVAILABLE"},
+		}, "WIFI_LAB_BRIDGE_REQUIRED"},
+		{"adapter named like the bridge", func(p *Plan) {
+			p.Interfaces = append(p.Interfaces, Interface{StableID: "usb-wlan", CurrentName: InlineBridgeName, Role: RoleWiFiAP})
+			p.WiFi = &WiFiConfiguration{Enabled: true, SSID: "lab", Security: WiFiSecurityWPA2PSK, Passphrase: "correct horse", CountryCode: "US", BridgeWithLab: true}
+		}, "WIFI_BRIDGE_NAME_RESERVED"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -252,5 +260,72 @@ func TestInlineBridgeIPv6ArtifactsFollowTheHost(t *testing.T) {
 	}
 	if err := CheckIPv6Artifacts(plan, noIPv6); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func inlineBridgeWiFiPlan() Plan {
+	plan := validInlineBridgePlan()
+	plan.Interfaces = append(plan.Interfaces, Interface{StableID: "usb-0000:00:14.0-1", CurrentName: "wlx001122334455", Role: RoleWiFiAP})
+	plan.WiFi = &WiFiConfiguration{Enabled: true, SSID: "Bridge lab", Security: WiFiSecurityWPA2WPA3, Passphrase: "correct horse battery", CountryCode: "US", BridgeWithLab: true}
+	return plan
+}
+
+// The Wi-Fi access point joins the inline bridge: hostapd adds it to spbr0
+// beside the device port, so Wi-Fi devices reach the router through
+// ShakerProxy and keep the router's DHCP, gateway and DNS.
+func TestInlineBridgeWiFiAccessPointJoinsTheBridge(t *testing.T) {
+	plan := inlineBridgeWiFiPlan()
+	result := ValidateWithObserved(plan, append(bridgeObserved(), ObservedInterface{CurrentName: "wlx001122334455", StableID: "usb-0000:00:14.0-1"}))
+	if !result.Valid {
+		t.Fatalf("an inline bridge with an access point was rejected: %+v", result.Errors)
+	}
+	if !hasIssue(result.Warnings, "BRIDGE_WIFI_STP") {
+		t.Fatalf("the spanning-tree delay for Wi-Fi is not explained: %+v", result.Warnings)
+	}
+	ap, ok := BridgeAccessPoint(plan)
+	if !ok || ap.CurrentName != "wlx001122334455" || AccessPointBridgeName(plan) != InlineBridgeName {
+		t.Fatalf("bridge access point = %+v %q", ap, AccessPointBridgeName(plan))
+	}
+	if _, ok := BridgeAccessPoint(validInlineBridgePlan()); ok {
+		t.Fatal("a wired-only bridge reports an access point")
+	}
+	if lab, _ := LabInterface(plan); lab.CurrentName != InlineBridgeName || UsesManagedDHCP4(plan) {
+		t.Fatalf("the access point changed the bridge's lab interface or DHCP: %+v", lab)
+	}
+
+	config, err := RenderHostapdConf(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"interface=wlx001122334455\n", "bridge=spbr0\n", "wpa_key_mgmt=WPA-PSK SAE\n", "ieee80211w=1\n"} {
+		if !strings.Contains(config, want) {
+			t.Fatalf("hostapd configuration lacks %q:\n%s", want, config)
+		}
+	}
+	if strings.Contains(config, "bridge="+LabBridgeName) {
+		t.Fatal("the access point would join the routed lab bridge instead of the inline bridge")
+	}
+
+	preview := BuildPreview(plan, time.Unix(0, 0))
+	if !preview.Validation.Valid || preview.HostapdConf == "" || strings.Contains(preview.HostapdConf, "correct horse battery") {
+		t.Fatalf("preview lacks the redacted access point: valid=%v %q", preview.Validation.Valid, preview.HostapdConf)
+	}
+	if !strings.Contains(preview.NetplanYAML, "interfaces: [enp1s0, enp2s0]\n") || strings.Contains(preview.NetplanYAML, "wlx001122334455") {
+		t.Fatalf("Netplan must leave the access point to hostapd:\n%s", preview.NetplanYAML)
+	}
+	joined := strings.Join(preview.Impact, "\n")
+	for _, want := range []string{"from your router, through the bridge", "would join bridge spbr0 beside the device port enp2s0"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("impact lacks %q:\n%s", want, joined)
+		}
+	}
+	if !containsString(preview.ChangedObjects, ManagedHostapdPath) || !containsString(preview.ChangedObjects, HostapdUnit) {
+		t.Fatalf("changed objects lack the access point: %v", preview.ChangedObjects)
+	}
+	// An SSH session that arrives over the access point would end when the
+	// adapter becomes a bridge port.
+	ssh := ValidateWithObservedSSH(plan, bridgeObserved(), []ActiveSSHSession{{SourceAddress: "192.0.2.50", DestinationAddress: "192.0.2.10", DestinationPort: 22, DestinationInterface: "wlx001122334455"}})
+	if ssh.Valid || !hasIssue(ssh.Errors, "ACTIVE_SSH_ON_LAB_INTERFACE") {
+		t.Fatalf("an SSH session on the access point was accepted: %+v", ssh.Errors)
 	}
 }

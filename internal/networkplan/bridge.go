@@ -42,6 +42,17 @@ func InlineBridgeIPv6Address(plan Plan) bool {
 	return InlineBridge(plan) && effectiveWANIPv6Mode(plan.WAN.IPv6Mode) == WANIPv6SLAAC
 }
 
+// BridgeAccessPoint returns the Wi-Fi access point of a transparent-bridge
+// plan. hostapd adds it to the bridge, so Wi-Fi devices join the network
+// through ShakerProxy beside the wired device port: it is a second device
+// side port for recording and traffic policy.
+func BridgeAccessPoint(plan Plan) (Interface, bool) {
+	if !InlineBridge(plan) {
+		return Interface{}, false
+	}
+	return WiFiAccessPoint(plan)
+}
+
 // BridgePorts returns the upstream (router side, role WAN) and device side
 // (role LAB) ports of a transparent-bridge plan.
 func BridgePorts(plan Plan) (upstream, device Interface, ok bool) {
@@ -87,8 +98,10 @@ func inlineBridgeAddress(plan Plan) (netip.Prefix, netip.Addr, bool) {
 }
 
 func validateInlineBridge(plan Plan, roles map[InterfaceRole]int, addError, addWarning func(string, string, string)) {
-	if roles[RoleWAN] != 1 || roles[RoleLab] != 1 || roles[RoleWANLab] != 0 || roles[RoleMirror] != 0 || roles[RoleWiFiAP] != 0 {
-		addError("BRIDGE_ROLES_INVALID", "interfaces", "an inline bridge needs exactly one upstream port (role WAN, toward the router) and one device port (role LAB)")
+	// The Wi-Fi access point (role WIFI_AP) is optional; validateWiFi checks
+	// it like any other access point.
+	if roles[RoleWAN] != 1 || roles[RoleLab] != 1 || roles[RoleWANLab] != 0 || roles[RoleMirror] != 0 {
+		addError("BRIDGE_ROLES_INVALID", "interfaces", "an inline bridge needs exactly one upstream port (role WAN, toward the router) and one device port (role LAB), and may add ShakerProxy's Wi-Fi access point (role WIFI_AP)")
 	}
 	for _, port := range []InterfaceRole{RoleWAN, RoleLab} {
 		if iface, ok := InterfaceForRole(plan, port); ok && len(iface.CurrentName) > maxLinuxInterfaceName {
@@ -96,7 +109,7 @@ func validateInlineBridge(plan Plan, roles map[InterfaceRole]int, addError, addW
 		}
 	}
 	if WiFiEnabled(plan) {
-		addError("BRIDGE_WIFI_UNAVAILABLE", "wifi", "ShakerProxy's Wi-Fi access point cannot join an inline bridge yet; use a two-port or Wi-Fi lab for it")
+		addWarning("BRIDGE_WIFI_STP", "wifi", fmt.Sprintf("the Wi-Fi access point joins the bridge like a cabled port: spanning tree lets Wi-Fi devices through about %d seconds after it starts", 2*InlineBridgeForwardDelaySeconds))
 	}
 	if !plan.IPv4.Enabled {
 		addError("IPV4_REQUIRED_FOR_ROUTED_V1", "ipv4.enabled", "an inline bridge needs ShakerProxy's own IPv4 address on the network")
@@ -246,6 +259,9 @@ func buildInlineBridgePreview(plan Plan, preview *Preview) {
 		"Spanning tree is on, so cabling both ports to the same switch cannot loop",
 		"Active SSH preservation remains mandatory, and an independent rollback deadline is armed before the bridge is created",
 	}
+	// The access point joins the bridge when hostapd starts it (hostapd's
+	// bridge= setting), after Netplan has created the bridge.
+	addWiFiPreview(preview, plan)
 }
 
 func renderInlineBridgeNetplan(plan Plan) string {
