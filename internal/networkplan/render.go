@@ -21,6 +21,10 @@ func BuildPreviewWithValidation(plan Plan, validation ValidationResult, now time
 	}
 	preview.ChangedObjects = []string{"/etc/netplan/90-shakerproxy.yaml", "iptables filter/SHAKERPROXY-FORWARD"}
 	preview.Impact = []string{"IPv4 forwarding would be enabled only during confirmed apply", "Active SSH preservation remains mandatory", "An independent rollback deadline is required before loading this plan"}
+	if InlineBridge(plan) {
+		buildInlineBridgePreview(plan, &preview)
+		return preview
+	}
 	if plan.Topology == TopologyPassiveSensor {
 		preview.NetplanYAML = renderPassiveNetplan(plan)
 		preview.ChangedObjects = []string{"/etc/netplan/90-shakerproxy.yaml"}

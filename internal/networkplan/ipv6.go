@@ -62,7 +62,7 @@ func BlocksLabIPv6(plan Plan) bool {
 }
 
 func ipv6CapableTopology(topology Topology) bool {
-	return topology != TopologyPassiveSensor && topology != TopologySingleArm
+	return topology != TopologyPassiveSensor && topology != TopologySingleArm && topology != TopologyTransparentBridge
 }
 
 // LabIPv6Routing returns the effective lab IPv6 addressing (with defaults
