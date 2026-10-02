@@ -14,7 +14,11 @@ The wizard creates a 24-hour token directly after fresh administrator-password v
 system:read
 devices:read
 traffic:read
+captures:read
+cases:read
 ```
+
+All five are read scopes and none is sensitive; capture and case access is limited to summaries (no packet bytes, file names or exports).
 
 The wizard does not offer write scopes. The API marks the secret `display-once`; the UI shows it only after successful creation, automatically removes it from the page after ten minutes, and provides an immediate **Hide now** control.
 
@@ -83,7 +87,7 @@ Where practical, restrict the SSH key to `/usr/bin/shakerproxy-mcp`.
 
 ## What the AI receives
 
-Twenty-one read-only tools: `list_devices`, `find_device`, `device_report`, `device_activity`, `compare_runs`, `protocols`, `search_traffic`, `event_detail`, `follow_traffic`, `traffic_summary`, `dns_lookups`, `encrypted_dns`, `tls_issues`, `http_requests`, `http_exchange`, `test_sessions`, `system_status`, `dns_visibility`, `visibility_coverage`, `vpn_devices`, and `wifi_activity`. `http_exchange` (HTTP requests and responses, credentials redacted) needs a separate token with the sensitive `traffic:content` scope; everything else works with the investigator token. Devices can be named by friendly name, IP address, MAC address, or device ID, and every result includes plain-language summary lines.
+Twenty-five read-only tools: `list_devices`, `find_device`, `device_report`, `device_activity`, `device_controls`, `compare_runs`, `protocols`, `search_traffic`, `event_detail`, `follow_traffic`, `traffic_summary`, `dns_lookups`, `encrypted_dns`, `tls_issues`, `http_requests`, `http_exchange`, `test_sessions`, `system_status`, `diagnostics`, `dns_visibility`, `visibility_coverage`, `vpn_devices`, `wifi_activity`, `captures`, and `cases`. `http_exchange` (HTTP requests and responses, credentials redacted) needs a separate token with the sensitive `traffic:content` scope; everything else works with the investigator token. Devices can be named by friendly name, IP address, MAC address, or device ID, and every result includes plain-language summary lines.
 
 Try asking:
 

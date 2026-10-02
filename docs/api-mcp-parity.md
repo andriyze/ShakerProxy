@@ -8,8 +8,9 @@ deliberately left out of MCP.
 
 Scopes: a signed-in administrator session reaches every route. API tokens need
 the scope shown. MCP uses an API token, normally the investigator token
-(`system:read`, `devices:read`, `traffic:read`); `http_exchange` additionally
-needs `traffic:content`, a sensitive scope created separately (see
+(`system:read`, `devices:read`, `traffic:read`, `captures:read`, `cases:read`,
+all read scopes and none sensitive); `http_exchange` additionally needs
+`traffic:content`, a sensitive scope created separately (see
 [integrations](integrations.md)).
 
 ## Traffic
@@ -36,6 +37,8 @@ needs `traffic:content`, a sensitive scope created separately (see
 | --- | --- | --- | --- |
 | Device list: names, addresses, online, vendor | `GET /api/v1/agent/devices` (sessions: `/devices`) | `devices:read` | `list_devices` |
 | Device named by IP address; merged private-MAC records | `pinned_address`, `former_ids` on `/agent/devices` | `devices:read` | `list_devices` |
+| Platform in device titles ("GrapheneOS phone") and what showed it | `platform` on `/agent/devices` (sessions: `platform_hints` on `/devices`) | `devices:read` plus `traffic:read` | `list_devices` (`platform`, `platform_evidence`) |
+| Device lab controls (decrypt HTTPS, block internet, blocked domains) | `GET /api/v1/devices/{id}/controls` | `devices:read` | `device_controls` |
 | Find a device by name, IP, MAC or ID | `GET /api/v1/devices/resolve` | `devices:read` | `find_device` (and every `device` argument) |
 | Device report: domains, owners, protocols, HTTPS, findings | `GET /api/v1/devices/{id}/report` | `devices:read` | `device_report` |
 | Compare two test runs | `GET /api/v1/devices/{id}/compare` | `devices:read` | `compare_runs` |
@@ -48,6 +51,9 @@ needs `traffic:content`, a sensitive scope created separately (see
 | --- | --- | --- | --- |
 | Readiness: gateway mode, analyzers, ingestion, live analysis | `GET /api/v1/agent/system-overview` | `system:read` | `system_status` |
 | Visibility coverage check results and bypass findings | `GET /api/v1/coverage` | `system:read` | `visibility_coverage` |
+| `shakerproxy doctor` and the System page health checks | `GET /api/v1/system/diagnostics` | `system:read` | `diagnostics` |
+| Captures page: recordings, sizes, drops, holds | `GET /api/v1/agent/captures` (full records: `/captures`) | `captures:read` | `captures` |
+| Cases: case list, evidence, timeline, hold | `GET /api/v1/agent/cases`, `/agent/cases/{caseID}` (full records: `/cases`) | `cases:read` | `cases` |
 
 ## Gaps closed with this page
 
@@ -62,18 +68,26 @@ needs `traffic:content`, a sensitive scope created separately (see
 - Ten routes the UI or agents use were missing from
   `schemas/api/openapi.yaml`; the route check now reads every server file.
 
+## Gaps closed next
+
+- `platform` on agent devices and in `list_devices`, from the same hints the
+  Devices page uses (connectivity checks and DHCP requests), for callers that
+  may read traffic.
+- `device_controls`: a device's lab controls and whether they are enforced.
+- `captures` and `GET /api/v1/agent/captures`: the full capture list carries
+  every finished capture's file list (583 KB for 12 captures on a test lab),
+  so agents get one bounded summary per recording instead.
+- `cases`, `GET /api/v1/agent/cases` and `/agent/cases/{caseID}`: case
+  summaries, and one case's newest evidence and timeline. A case can hold
+  1,024 evidence items and 2,048 timeline events, so the agent view is
+  bounded.
+- `diagnostics`: the `shakerproxy doctor` checks, problems first.
+- The investigator token adds `captures:read` and `cases:read`.
+
 ## Still open
 
-- Platform hints (the "GrapheneOS phone" in device titles) are in
-  `GET /api/v1/devices` for sessions but not in the agent device projection or
-  MCP.
-- A device's current lab controls (HTTPS decryption, internet or domain blocks)
-  are readable with `GET /api/v1/devices/{id}/controls` (`devices:read`) but
-  have no MCP tool.
-- Capture list and status (`GET /api/v1/captures`, `captures:read`) and case
-  records (`cases:read`) have no MCP tools.
-- `shakerproxy doctor` diagnostics (`GET /api/v1/system/diagnostics`) are
-  summarized by `system_status` only.
+No read-only gap is known. Report one where the Web UI shows traffic or device
+facts that neither the agent API nor MCP returns.
 
 ## Deliberately not in MCP
 

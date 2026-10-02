@@ -29,7 +29,9 @@ test("no shell module patches window.fetch, sniffs the bearer token or observes 
 });
 
 test("MCP wizard creates only short-lived investigator credentials",()=>{
-  assert.match(mcp,/REQUIRED_MCP_SCOPES = \["system:read", "devices:read", "traffic:read"\]/);
+  assert.match(mcp,/REQUIRED_MCP_SCOPES = \["system:read", "devices:read", "traffic:read", "captures:read", "cases:read"\]/);
+  // Read scopes only: never a write scope or traffic:content.
+  assert.doesNotMatch(mcp.match(/REQUIRED_MCP_SCOPES = \[[^\]]*\]/)[0],/:write|traffic:content/);
   assert.match(mcp,/\/api\/v1\/auth\/tokens/);
   assert.match(mcp,/expires_in_seconds: 86400/);
   assert.match(mcp,/sensitive_scope_acknowledged: false/);
