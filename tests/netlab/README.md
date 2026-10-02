@@ -38,6 +38,17 @@ share the host network namespace. Product containers retain their normal
 AppArmor confinement. See `docs/testing/mitmproxy-netlab.md` for the assertions
 and remaining product boundary.
 
+`vpn-mode.sh` proves VPN mode (`docs/vpn-mode.md`) against the real kernel: a
+client namespace brings up WireGuard from the exact configuration gatewayd
+hands out; its DNS (to the VPN address and to 8.8.8.8) is answered through
+dnsd, its web request is NATed to the gateway address, conntrack reports it
+with its VPN address and a `wg-lab` capture contains it; a service on the
+gateway is unreachable, revoking cuts the device off and turning VPN mode off
+removes `wg-lab` and every `SHAKERPROXY-VPN-*` chain. Without kernel
+WireGuard it skips (and fails under `make netlab`). Set
+`SHAKERPROXY_NETLAB_BIN` to a directory with prebuilt `daemon.test` and
+`shakerproxy-dnsd` to skip the build.
+
 `firewall-coexistence.sh` builds synthetic Docker and administrator chains in a
 separate namespace, applies ShakerProxy-owned filter/NAT restore batches twice,
 asserts attachment jumps are not duplicated, simulates a reboot restore with

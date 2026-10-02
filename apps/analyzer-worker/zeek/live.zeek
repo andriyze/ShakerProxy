@@ -91,8 +91,24 @@ function narrow(c: connection, rec: Conn::Info): Reported
 	return totals;
 	}
 
+# On a quiet raw-IP capture (the VPN) the live analyzer keeps Zeek's clock
+# moving with loopback IPv4 packets of experimental protocol 253 (RFC 3692);
+# they are not traffic, so they never get a record.
+function is_tick(id: conn_id): bool
+	{
+	return id$orig_h == 127.0.0.1 && id$resp_h == 127.0.0.1 && get_port_transport_proto(id$resp_p) == unknown_transport;
+	}
+
+hook Conn::log_policy(rec: Conn::Info, id: Log::ID, filter: Log::Filter)
+	{
+	if ( is_tick(rec$id) )
+		break;
+	}
+
 event new_connection(c: connection)
 	{
+	if ( is_tick(c$id) )
+		return;
 	schedule interim_interval { interim(c$id, c$uid) };
 	}
 

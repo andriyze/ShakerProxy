@@ -47,6 +47,7 @@ type Backend interface {
 	EventMetadata(context.Context, string) (ingest.EventDetail, error)
 	DNSVisibility(context.Context) (agentapi.DNSVisibility, error)
 	VisibilityCoverage(context.Context) (coverage.Overview, error)
+	VPN(context.Context) (agentapi.VPN, error)
 }
 
 type Service struct {
@@ -83,6 +84,7 @@ const (
 	toolSystemStatus   = "system_status"
 	toolDNSVisibility  = "dns_visibility"
 	toolCoverage       = "visibility_coverage"
+	toolVPNDevices     = "vpn_devices"
 )
 
 // QuerySyntax is the cheat sheet embedded in search_traffic.
@@ -128,6 +130,8 @@ func New(backend Backend) (*mcp.Server, error) {
 		`Check whether every DNS lookup on the lab is visible: plain DNS forced through ShakerProxy, and encrypted DNS (DoH, DoT, DoQ) blocked so devices fall back to plain DNS; lists the blocked resolvers and names. Example: {}.`), service.dnsVisibility)
 	mcp.AddTool(server, readOnlyTool(toolCoverage, "Visibility coverage",
 		`Show which traffic types ShakerProxy is proven to see (DNS, DoH, DoT, DoQ, HTTP, HTTPS, QUIC, TCP, UDP, ICMP, SSH, NTP, mDNS, SSDP, and DNS, HTTP, HTTPS, QUIC, TCP, UDP and ICMPv6 over IPv6) from the last visibility coverage check, with how long each took to appear, and every way devices could bypass ShakerProxy in the current lab (another IPv6 router advertising, another DHCP server, device-to-device traffic, encrypted DNS). Example: {}.`), service.visibilityCoverage)
+	mcp.AddTool(server, readOnlyTool(toolVPNDevices, "VPN devices",
+		`List the devices on ShakerProxy's WireGuard VPN, which send all their traffic through ShakerProxy from any network, with VPN address, whether connected, last handshake and bytes; their traffic is under device names ending in "(VPN)". Example: {}.`), service.vpnDevices)
 	return server, nil
 }
 

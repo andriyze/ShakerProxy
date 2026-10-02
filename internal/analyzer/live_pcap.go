@@ -24,6 +24,9 @@ const (
 	pcapMagicMicroseconds = 0xA1B2C3D4
 	pcapSnapLength        = 262144
 	pcapLinkTypeEthernet  = 1
+	// pcapLinkTypeRaw is raw IP with no link header, as dumpcap records a
+	// WireGuard interface.
+	pcapLinkTypeRaw = 101
 )
 
 var errLiveLinkTypeChanged = errors.New("capture link-layer type changed within the live stream")
@@ -196,21 +199,46 @@ func (c *pcapngToPcap) block(blockType uint32, body []byte, out io.Writer) error
 // Tick writes a frame Zeek parses and ignores, stamped at, so Zeek's clock
 // keeps moving while the capture is quiet. Reading a trace, Zeek's clock
 // advances only with packets: without ticks, connection timeouts and the
-// records they write wait for the next packet. The frame is Ethernet with
-// the IEEE local experimental EtherType, which no Zeek analyzer claims;
-// other link types get no ticks. It reports whether a tick was written.
+// records they write wait for the next packet. On Ethernet the frame uses
+// the IEEE local experimental EtherType; on raw IP (the VPN) it is a
+// loopback IPv4 packet of experimental protocol 253 (RFC 3692). No Zeek
+// analyzer claims either. Other link types get no ticks. It reports whether
+// a tick was written.
 func (c *pcapngToPcap) Tick(at time.Time, out io.Writer) (bool, error) {
-	if !c.wroteHead || c.linkType != pcapLinkTypeEthernet || !at.After(c.last) {
+	if !c.wroteHead || !at.After(c.last) {
 		return false, nil
 	}
-	frame := make([]byte, 60)
-	binary.BigEndian.PutUint16(frame[12:14], 0x88B5)
+	var frame []byte
+	switch c.linkType {
+	case pcapLinkTypeEthernet:
+		frame = make([]byte, 60)
+		binary.BigEndian.PutUint16(frame[12:14], 0x88B5)
+	case pcapLinkTypeRaw:
+		frame = rawTickPacket()
+	default:
+		return false, nil
+	}
 	micros := at.Nanosecond() / 1000
 	if err := writePcapRecord(out, at.Unix(), int64(micros), frame, uint32(len(frame))); err != nil {
 		return false, err
 	}
 	c.last = at
 	return true, nil
+}
+
+// rawTickPacket is a 20-byte IPv4 header, 127.0.0.1 to 127.0.0.1, protocol
+// 253, with a valid checksum.
+func rawTickPacket() []byte {
+	packet := []byte{0x45, 0, 0, 20, 0, 0, 0, 0, 64, 253, 0, 0, 127, 0, 0, 1, 127, 0, 0, 1}
+	var sum uint32
+	for index := 0; index < len(packet); index += 2 {
+		sum += uint32(packet[index])<<8 | uint32(packet[index+1])
+	}
+	for sum > 0xffff {
+		sum = sum&0xffff + sum>>16
+	}
+	binary.BigEndian.PutUint16(packet[10:12], ^uint16(sum))
+	return packet
 }
 
 func writePcapRecord(out io.Writer, seconds, micros int64, data []byte, original uint32) error {

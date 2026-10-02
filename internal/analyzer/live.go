@@ -101,6 +101,9 @@ func validLiveStatus(status LiveStatus) bool {
 }
 
 type LiveAnalyzer struct {
+	// Recording is the name of the automatic recording to follow, such as
+	// "Lab traffic" or "VPN traffic"; empty follows the first one running.
+	Recording   string
 	CaptureRoot string
 	WorkRoot    string
 	State       StateStore
@@ -118,9 +121,9 @@ type LiveAnalyzer struct {
 	untakenEv uint64
 }
 
-func NewLiveAnalyzer(runner *Runner, coverage *LiveCoverage, logger *slog.Logger) *LiveAnalyzer {
+func NewLiveAnalyzer(runner *Runner, coverage *LiveCoverage, logger *slog.Logger, recording string) *LiveAnalyzer {
 	return &LiveAnalyzer{
-		CaptureRoot: runner.Config.CaptureRoot, WorkRoot: runner.Config.WorkRoot, State: runner.State, Sender: runner.Sender,
+		Recording: recording, CaptureRoot: runner.Config.CaptureRoot, WorkRoot: runner.Config.WorkRoot, State: runner.State, Sender: runner.Sender,
 		Coverage: coverage, Logger: logger, Now: time.Now, status: LiveStatus{State: LiveStateIdle},
 	}
 }
@@ -232,7 +235,8 @@ func sleepContext(ctx context.Context, delay time.Duration) {
 	}
 }
 
-// labRecording returns the running automatic lab recording, if there is one.
+// labRecording returns the running automatic recording this analyzer
+// follows, if there is one.
 func (l *LiveAnalyzer) labRecording() (string, error) {
 	entries, err := os.ReadDir(l.CaptureRoot)
 	if err != nil {
@@ -262,10 +266,12 @@ func (l *LiveAnalyzer) automatic(sessionID string) bool {
 	var session struct {
 		ID      string `json:"id"`
 		Request struct {
-			Automatic bool `json:"automatic"`
+			Name      string `json:"name"`
+			Automatic bool   `json:"automatic"`
 		} `json:"request"`
 	}
-	return json.Unmarshal(contents, &session) == nil && session.ID == sessionID && session.Request.Automatic
+	return json.Unmarshal(contents, &session) == nil && session.ID == sessionID && session.Request.Automatic &&
+		(l.Recording == "" || session.Request.Name == l.Recording)
 }
 
 // captureRunning reports whether dumpcap may still write the capture. Once

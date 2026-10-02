@@ -162,6 +162,7 @@ netlab: ## Network namespace lab suite (sudo)
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/syntax-validation.sh
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/ipv6-lab.sh
 	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/coverage-probes.sh
+	sudo SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/vpn-mode.sh
 	SHAKERPROXY_NETLAB_REQUIRE=1 ./tests/netlab/mitmproxy-container.sh
 
 netlab-mitmproxy: ## mitmproxy container lab test

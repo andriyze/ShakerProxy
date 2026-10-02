@@ -174,7 +174,7 @@ func recordLab(t *testing.T, live bool, traffic []trafficPacket) labRun {
 			t.Fatal(err)
 		}
 		runner.Live = coverage
-		analyzer = NewLiveAnalyzer(runner, coverage, nil)
+		analyzer = NewLiveAnalyzer(runner, coverage, nil, "")
 		workers.Add(1)
 		go func() {
 			defer workers.Done()

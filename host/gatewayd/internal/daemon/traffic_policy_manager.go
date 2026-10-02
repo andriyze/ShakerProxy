@@ -40,7 +40,10 @@ type TrafficPolicyManager struct {
 	OnboardingPath string
 	// BlockEvents reports blocked encrypted-DNS attempts in Traffic; nil
 	// disables it.
-	BlockEvents         *EncryptedDNSBlockMonitor
+	BlockEvents *EncryptedDNSBlockMonitor
+	// VPN returns the running WireGuard VPN segment, or nil; its devices get
+	// the same rules as lab devices.
+	VPN                 func() *trafficpolicy.Segment
 	onboardingMu        sync.Mutex
 	onboardingPublished bool
 	onboardingLast      []byte
@@ -51,6 +54,8 @@ type TrafficPolicyManager struct {
 	installedMu sync.Mutex
 	installed   map[string]installedSecurityBatch
 	mu          sync.Mutex
+	wake        chan struct{}
+	wakeOnce    sync.Once
 }
 
 func NewProductionTrafficPolicyManager(networkState *StateStore, policyPath, runtimePath, cloudPolicyStatusPath, coordinationLockPath string, logger *slog.Logger) *TrafficPolicyManager {
@@ -131,8 +136,23 @@ func (m *TrafficPolicyManager) reconcileLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-m.wakeChannel():
 		}
 	}
+}
+
+// Wake asks for a reconcile soon, for example when the VPN came up and its
+// devices need the lab's DNS and TLS rules.
+func (m *TrafficPolicyManager) Wake() {
+	select {
+	case m.wakeChannel() <- struct{}{}:
+	default:
+	}
+}
+
+func (m *TrafficPolicyManager) wakeChannel() chan struct{} {
+	m.wakeOnce.Do(func() { m.wake = make(chan struct{}, 1) })
+	return m.wake
 }
 
 func (m *TrafficPolicyManager) ownershipLoop(ctx context.Context) {
@@ -455,17 +475,19 @@ func (m *TrafficPolicyManager) preview(policy trafficpolicy.Policy) (gatewayprot
 
 func (m *TrafficPolicyManager) activeRenderContext(ctx context.Context, policy trafficpolicy.Policy) (trafficpolicy.RenderContext, bool, error) {
 	needsLab := trafficpolicy.NeedsLabContext(policy)
+	vpnSegment := m.vpnSegment()
 	state := m.NetworkState.Get()
-	if state.OperatingMode != gatewayprotocol.ModeRouted || state.activeNetworkPlan() == nil {
+	lab, plan, ok := confirmedLabPlan(m.NetworkState)
+	if !ok {
+		// VPN devices get the same rules as lab devices, with or without a lab.
+		if vpnSegment != nil {
+			return trafficpolicy.RenderContext{VPN: vpnSegment, IPv6Listeners: m.ipv6ListenersReady(ctx, policy)}, true, nil
+		}
 		if !needsLab {
 			return trafficpolicy.RenderContext{}, false, nil
 		}
-		return trafficpolicy.RenderContext{}, false, errors.New("active encrypted DNS, TLS or device controls require a confirmed routed network plan")
-	}
-	lab, plan, ok := confirmedLabPlan(m.NetworkState)
-	if !ok {
-		if !needsLab {
-			return trafficpolicy.RenderContext{}, false, nil
+		if state.OperatingMode != gatewayprotocol.ModeRouted || state.activeNetworkPlan() == nil {
+			return trafficpolicy.RenderContext{}, false, errors.New("active encrypted DNS, TLS or device controls require a confirmed routed network plan or VPN mode")
 		}
 		return trafficpolicy.RenderContext{}, false, errors.New("active traffic policy requires a configured IPv4 lab interface")
 	}
@@ -476,10 +498,19 @@ func (m *TrafficPolicyManager) activeRenderContext(ctx context.Context, policy t
 		LabCIDR:        plan.IPv4.LabCIDR,
 		LabGatewayIPv4: labGatewayIPv4(plan),
 		Devices:        m.deviceMatches(ctx, policy, lab.CurrentName),
+		VPN:            vpnSegment,
 	}
 	context.LabIPv6Prefix, context.LabGatewayIPv6 = labIPv6Context(plan)
 	context.IPv6Listeners = m.ipv6ListenersReady(ctx, policy)
 	return context, true, nil
+}
+
+// vpnSegment is the running VPN, or nil.
+func (m *TrafficPolicyManager) vpnSegment() *trafficpolicy.Segment {
+	if m.VPN == nil {
+		return nil
+	}
+	return m.VPN()
 }
 
 func (m *TrafficPolicyManager) now() time.Time {

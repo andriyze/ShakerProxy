@@ -9,6 +9,7 @@ import (
 
 	"shakerproxy.dev/shakerproxy/internal/conntrack"
 	"shakerproxy.dev/shakerproxy/internal/hostevents"
+	"shakerproxy.dev/shakerproxy/internal/trafficpolicy"
 )
 
 // DefaultConnectionEventSpool is the host event spool the DNS forwarder
@@ -36,6 +37,9 @@ type ConnectionReporter struct {
 	Store  *StateStore
 	Spool  *hostevents.Spool
 	Listen func() (connectionSource, error)
+	// VPN returns the running WireGuard VPN segment, or nil; its devices'
+	// connections are reported like lab devices'.
+	VPN    func() *trafficpolicy.Segment
 	Logger *slog.Logger
 	Now    func() time.Time
 
@@ -48,27 +52,29 @@ type connectionScope struct {
 	gateways map[netip.Addr]bool
 }
 
-// labConnectionScope returns the confirmed routed plan's lab networks and
-// gateway addresses, or nil when no lab routes.
-func labConnectionScope(store *StateStore) *connectionScope {
-	_, plan, ok := confirmedLabPlan(store)
-	if !ok {
-		return nil
-	}
+// labConnectionScope returns the client networks and gateway addresses of
+// the confirmed routed plan's lab and of the VPN, or nil when neither
+// routes.
+func labConnectionScope(store *StateStore, vpnSegment *trafficpolicy.Segment) *connectionScope {
 	scope := &connectionScope{gateways: map[netip.Addr]bool{}}
-	if prefix, err := netip.ParsePrefix(plan.IPv4.LabCIDR); err == nil {
-		scope.labs = append(scope.labs, prefix.Masked())
-	}
-	if gateway, err := netip.ParseAddr(labGatewayIPv4(plan)); err == nil {
-		scope.gateways[gateway] = true
-	}
-	if prefix, gateway := labIPv6Context(plan); prefix != "" {
-		if parsed, err := netip.ParsePrefix(prefix); err == nil {
-			scope.labs = append(scope.labs, parsed.Masked())
+	add := func(prefix4, gateway4, prefix6, gateway6 string) {
+		for _, text := range []string{prefix4, prefix6} {
+			if prefix, err := netip.ParsePrefix(text); err == nil {
+				scope.labs = append(scope.labs, prefix.Masked())
+			}
 		}
-		if parsed, err := netip.ParseAddr(gateway); err == nil {
-			scope.gateways[parsed] = true
+		for _, text := range []string{gateway4, gateway6} {
+			if gateway, err := netip.ParseAddr(text); err == nil {
+				scope.gateways[gateway] = true
+			}
 		}
+	}
+	if _, plan, ok := confirmedLabPlan(store); ok {
+		prefix6, gateway6 := labIPv6Context(plan)
+		add(plan.IPv4.LabCIDR, labGatewayIPv4(plan), prefix6, gateway6)
+	}
+	if vpnSegment != nil {
+		add(vpnSegment.IPv4CIDR, vpnSegment.GatewayIPv4, vpnSegment.IPv6Prefix, vpnSegment.GatewayIPv6)
 	}
 	if len(scope.labs) == 0 {
 		return nil
@@ -169,7 +175,13 @@ func (r *ConnectionReporter) Handle(event conntrack.Event) {
 	}})
 }
 
-func (r *ConnectionReporter) refreshScope() { r.scope.Store(labConnectionScope(r.Store)) }
+func (r *ConnectionReporter) refreshScope() {
+	var vpnSegment *trafficpolicy.Segment
+	if r.VPN != nil {
+		vpnSegment = r.VPN()
+	}
+	r.scope.Store(labConnectionScope(r.Store, vpnSegment))
+}
 
 func (r *ConnectionReporter) now() time.Time {
 	if r.Now != nil {
@@ -186,7 +198,7 @@ func (r *ConnectionReporter) log(level slog.Level, message string, attributes ..
 
 // ReportLabConnections runs a ConnectionReporter writing to spoolPath for
 // the daemon's lifetime. "off" or an unusable spool disables it (logged).
-func ReportLabConnections(ctx context.Context, store *StateStore, spoolPath string, logger *slog.Logger) {
+func ReportLabConnections(ctx context.Context, store *StateStore, vpnSegment func() *trafficpolicy.Segment, spoolPath string, logger *slog.Logger) {
 	if spoolPath == "" || spoolPath == "off" {
 		return
 	}
@@ -197,7 +209,7 @@ func ReportLabConnections(ctx context.Context, store *StateStore, spoolPath stri
 		}
 		return
 	}
-	reporter := &ConnectionReporter{Store: store, Spool: spool, Logger: logger, Listen: func() (connectionSource, error) {
+	reporter := &ConnectionReporter{Store: store, Spool: spool, VPN: vpnSegment, Logger: logger, Listen: func() (connectionSource, error) {
 		listener, err := conntrack.Listen()
 		if err != nil {
 			return nil, err

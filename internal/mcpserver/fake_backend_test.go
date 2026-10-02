@@ -91,6 +91,13 @@ func (f *fakeBackend) SystemOverview(context.Context) (agentapi.SystemOverview, 
 	return f.overview, nil
 }
 
+func (f *fakeBackend) VPN(context.Context) (agentapi.VPN, error) {
+	handshake := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+	return agentapi.VPN{Schema: 1, Revision: 3, Enabled: true, Up: true, Interface: "wg-lab", ListenPort: 51820, Endpoint: "192.168.10.177:51820",
+		IPv4CIDR: "10.89.0.0/24", GatewayIPv4: "10.89.0.1", Notes: []string{},
+		Peers: []agentapi.VPNPeer{{ID: "vpn-0123456789abcdef", Name: "Pixel", DeviceID: "device-0123456789abcdef0123456789abcdef", IPv4: "10.89.0.2", IPv6: "fd12:3456:789a:1::2", Connected: true, LastHandshake: &handshake, RemoteAddress: "203.0.113.7:41820", ReceivedBytes: 1024, SentBytes: 4096}}}, nil
+}
+
 func (f *fakeBackend) DNSVisibility(context.Context) (agentapi.DNSVisibility, error) {
 	return agentapi.DNSVisibility{Schema: 1, PolicyRevision: 2, ForcePlainDNS: true, BlockEncryptedDNS: true, Mode: "ENFORCE_LOCAL", UpstreamServers: []string{},
 		BlockedResolvers: []agentapi.DNSVisibilityResolver{{ID: "google", Provider: "Google Public DNS", Hostnames: []string{"dns.google"}, IPv4: []string{"8.8.8.8"}, IPv6: []string{}}},

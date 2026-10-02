@@ -339,6 +339,68 @@ paths:
         "401": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
+  /vpn:
+    get:
+      operationId: getVPN
+      description: VPN mode (WireGuard). A phone or laptop on any network scans a QR code in the WireGuard app and sends all of its traffic, IPv4, IPv6 and local-network destinations, through ShakerProxy, where it appears in Traffic under the device's name. Off by default; nothing listens until it is turned on. Lists the VPN devices with their addresses, last handshake and byte counters; never a private key. An administrator session or an API token with system:read.
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: VPN settings, devices and notes, content: {application/json: {schema: {$ref: "#/components/schemas/VPNStatus"}}}}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+    put:
+      operationId: setVPN
+      description: Recent confirmation. Turns VPN mode on or off and changes its settings; fields left out keep their value. The change is applied transactionally by the privileged gateway; when it cannot be applied the previous VPN keeps running (or none) and the answer is 409 with the reason. endpoint is what device configurations dial (host or host:port, empty for this host's address); to use the VPN from outside, forward the UDP port on your router to the appliance and set endpoint to your public address or name. The VPN network cannot change while devices use it.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                password: {type: string, maxLength: 1024}
+                expected_revision: {type: integer, minimum: 0}
+                enabled: {type: boolean}
+                listen_port: {type: integer, minimum: 1, maximum: 65535, default: 51820}
+                endpoint: {type: string, maxLength: 260}
+                ipv4_cidr: {type: string, default: 10.89.0.0/24}
+                allow_peer_to_peer: {type: boolean, default: false, description: Let VPN devices reach each other.}
+      responses:
+        "200": {description: VPN after the change, content: {application/json: {schema: {$ref: "#/components/schemas/VPNStatus"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /vpn/devices:
+    post:
+      operationId: addVPNDevice
+      description: Recent confirmation. Adds a VPN device and returns its WireGuard configuration once (config, also the QR payload the WireGuard apps scan, and file_name for a download). The configuration holds the device's private key, which ShakerProxy does not keep; add the device again if it is lost. The device's VPN address is named "<name> (VPN)" in Devices, so its traffic shows under that name at once. VPN mode must be on.
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [name], properties: {name: {type: string, minLength: 1, maxLength: 64}, password: {type: string, maxLength: 1024}}}}}}
+      responses:
+        "201": {description: The new device and its one-time configuration, headers: {Cache-Control: {schema: {const: no-store}}}, content: {application/json: {schema: {$ref: "#/components/schemas/VPNDeviceConfig"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /vpn/devices/{peerID}:
+    delete:
+      operationId: revokeVPNDevice
+      description: Recent confirmation. Revokes a VPN device; it is disconnected at once and cannot reconnect. Its entry in Devices keeps its name and recorded traffic.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: peerID, required: true, schema: {type: string, pattern: "^vpn-[a-f0-9]{16}$"}}
+      requestBody: {required: false, content: {application/json: {schema: {type: object, additionalProperties: false, properties: {password: {type: string, maxLength: 1024}}}}}}
+      responses:
+        "200": {description: The revoked device, content: {application/json: {schema: {$ref: "#/components/schemas/VPNDevice"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /traffic-policy:
     get:
       operationId: getTrafficPolicy
@@ -2496,6 +2558,59 @@ components:
         encrypted_dns: {$ref: "#/components/schemas/EncryptedDNSPolicy"}
         tls_interception: {$ref: "#/components/schemas/TLSInterceptionPolicy"}
         device_controls: {type: array, maxItems: 512, items: {$ref: "#/components/schemas/TrafficDeviceControl"}, description: "Per-device lab controls, normally managed with /devices/{device}/controls. A PUT without this field keeps the saved controls; an empty list clears them."}
+    VPNStatus:
+      type: object
+      additionalProperties: false
+      required: [schema, revision, enabled, up, interface, listen_port, server_public_key, ipv4_cidr, gateway_ipv4, ipv6_prefix, gateway_ipv6, ipv6_routed, allow_peer_to_peer, peers, notes]
+      properties:
+        schema: {const: 1}
+        revision: {type: integer, minimum: 0}
+        enabled: {type: boolean}
+        up: {type: boolean, description: The WireGuard interface is running as configured.}
+        interface: {type: string, examples: [wg-lab]}
+        listen_port: {type: integer}
+        endpoint: {type: string, description: "What device configurations dial (host:port)."}
+        endpoint_setting: {type: string, description: The administrator's override; empty uses default_endpoint_host and listen_port.}
+        default_endpoint_host: {type: string}
+        server_public_key: {type: string}
+        ipv4_cidr: {type: string}
+        gateway_ipv4: {type: string, description: ShakerProxy on the VPN; devices use it for DNS.}
+        ipv6_prefix: {type: string}
+        gateway_ipv6: {type: string}
+        ipv6_routed: {type: boolean, description: "VPN devices reach IPv6 sites (NAT66). Otherwise IPv6 stays inside the tunnel and devices use IPv4."}
+        allow_peer_to_peer: {type: boolean}
+        peers: {type: array, items: {$ref: "#/components/schemas/VPNDevice"}}
+        problem: {type: string, description: Why an enabled VPN is not up.}
+        notes: {type: array, items: {type: string}}
+    VPNDevice:
+      type: object
+      additionalProperties: false
+      required: [id, name, public_key, ipv4, ipv6, created_at, connected, received_bytes, sent_bytes]
+      properties:
+        id: {type: string, pattern: "^vpn-[a-f0-9]{16}$"}
+        name: {type: string}
+        device_id: {type: string, description: The device in Devices named by this VPN address.}
+        public_key: {type: string}
+        ipv4: {type: string}
+        ipv6: {type: string}
+        created_at: {type: string, format: date-time}
+        created_by: {type: string}
+        connected: {type: boolean, description: A handshake within the last three minutes.}
+        last_handshake: {type: string, format: date-time}
+        remote_address: {type: string, description: Where the device last connected from.}
+        received_bytes: {type: integer, minimum: 0}
+        sent_bytes: {type: integer, minimum: 0}
+    VPNDeviceConfig:
+      type: object
+      additionalProperties: false
+      required: [peer, config, file_name, device_name, warnings]
+      properties:
+        peer: {$ref: "#/components/schemas/VPNDevice"}
+        config: {type: string, description: "wg-quick configuration: full tunnel (AllowedIPs 0.0.0.0/0, ::/0) with DNS set to ShakerProxy's VPN address. Show it as a QR code for the WireGuard app or save it as file_name."}
+        file_name: {type: string}
+        device_id: {type: string}
+        device_name: {type: string}
+        warnings: {type: array, items: {type: string}}
     DNSVisibility:
       type: object
       additionalProperties: false

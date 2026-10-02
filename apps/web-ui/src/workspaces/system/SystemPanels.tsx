@@ -255,15 +255,15 @@ export function ServicePortPanel() {
   )
 }
 
-function liveAnalysisLine(live: AnalyzerLiveStatus): string {
+function liveAnalysisLine(live: AnalyzerLiveStatus, recording = "lab"): string {
   const counts = `${live.events_delivered.toLocaleString()} events · ${live.segments_handed_off.toLocaleString()} segments left to segment analysis`
   switch (live.state) {
     case "FOLLOWING":
-      return `Live analysis following the lab recording${live.lag_millis > 0 ? ` · ${Math.round(live.lag_millis / 1000)}s behind` : ""} · ${counts}`
+      return `Live analysis following the ${recording} recording${live.lag_millis > 0 ? ` · ${Math.round(live.lag_millis / 1000)}s behind` : ""} · ${counts}`
     case "RECOVERING":
-      return `Live analysis restarting · ${counts}${live.last_error ? ` · ${live.last_error}` : ""}`
+      return `Live analysis of the ${recording} recording restarting · ${counts}${live.last_error ? ` · ${live.last_error}` : ""}`
     case "IDLE":
-      return `Live analysis waiting for a lab recording · ${counts}`
+      return `Live analysis waiting for a ${recording} recording · ${counts}`
     default:
       return "Live analysis off · segments are analyzed as they close"
   }
@@ -314,6 +314,7 @@ export function AnalyzerHealthPanel({ report, error }: { report: AnalyzerStatusR
                   )}
                   {health.last_error && <small className="analyzer-error">Last error · {health.last_error}</small>}
                   {health.live && <small>{liveAnalysisLine(health.live)}</small>}
+                  {health.live_vpn && <small>{liveAnalysisLine(health.live_vpn, "VPN")}</small>}
                 </>
               ) : (
                 <p>{entry.failure ?? "Analyzer status is not configured"}</p>

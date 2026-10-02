@@ -205,6 +205,7 @@ export type AnalyzerHealth = {
   last_error?: string
   checked_at: string
   live?: AnalyzerLiveStatus
+  live_vpn?: AnalyzerLiveStatus
 }
 
 export type AnalyzerLiveStatus = {

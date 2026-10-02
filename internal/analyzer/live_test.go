@@ -435,3 +435,35 @@ func TestRunnerHandsSegmentsBetweenLiveAndOfflineAnalysis(t *testing.T) {
 		t.Fatalf("coverage outlived the checkpoint: %v", err)
 	}
 }
+
+// With the VPN on, the lab and the VPN each have an automatic recording, and
+// each live analyzer follows only its own.
+func TestLiveAnalyzersFollowTheirOwnRecording(t *testing.T) {
+	root := t.TempDir()
+	sessions := map[string]string{
+		"capture-0000000000000000000000000000000a": capture.LabRecordingName,
+		"capture-0000000000000000000000000000000b": capture.VPNRecordingName,
+		"capture-0000000000000000000000000000000c": "Manual capture",
+	}
+	for id, name := range sessions {
+		if err := os.MkdirAll(filepath.Join(root, id, "runtime"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		writeJSONFixture(t, filepath.Join(root, id, "session.json"), map[string]any{"id": id, "request": map[string]any{"name": name, "automatic": name != "Manual capture"}})
+		writeJSONFixture(t, filepath.Join(root, id, "runtime", "worker-status.json"), map[string]any{"schema": capture.SchemaVersion, "session_id": id, "state": capture.StateRunning})
+	}
+	state := NewStateStore(filepath.Join(t.TempDir(), "state"))
+	if err := state.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	for recording, want := range map[string]string{
+		capture.LabRecordingName: "capture-0000000000000000000000000000000a",
+		capture.VPNRecordingName: "capture-0000000000000000000000000000000b",
+		"Nothing by this name":   "",
+	} {
+		live := &LiveAnalyzer{Recording: recording, CaptureRoot: root, State: state}
+		if got, err := live.labRecording(); err != nil || got != want {
+			t.Fatalf("%q follows %q (%v), want %q", recording, got, err, want)
+		}
+	}
+}

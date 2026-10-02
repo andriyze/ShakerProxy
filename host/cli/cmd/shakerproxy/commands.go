@@ -33,8 +33,7 @@ var featured = []struct{ group, usage, summary string }{
 	{groupDevices, "device <ref>", "Details, controls and quick findings for one device"},
 	{groupDevices, "test start <ref>", "Start a named test run (stop it with `shakerproxy test stop`)"},
 	{groupDevices, "report <ref>", "Security findings (add --html report.html to share)"},
-	{groupDevices, "decrypt <ref> on", "Decrypt a device's HTTPS (install the CA first: `shakerproxy ca`)"},
-	{groupTraffic, "watch [<ref>]", "Live activity in plain language"},
+	{groupDevices, "decrypt <ref> on", "Decrypt a device's HTTPS (install the CA first: `shakerproxy ca`)"},	{groupTraffic, "watch [<ref>]", "Live activity in plain language"},
 	{groupTraffic, "search <query>", "Search recorded traffic, e.g. dns.query:*.example.com"},
 	{groupTraffic, "capture start", "Record packets to PCAP files"},
 	{groupSystem, "status", "Health and operating mode at a glance"},
@@ -94,6 +93,23 @@ func init() {
 			details:  "Blocking a domain also blocks its subdomains. Local network and ShakerProxy services keep working.\n" + refNote,
 			examples: []string{`shakerproxy block "Living room TV" internet`, "shakerproxy block tv ads.example.com"},
 			run:      (*cli).blockCommand},
+		{name: "vpn", group: groupDevices, summary: "VPN mode: route a phone or laptop through ShakerProxy from any network",
+			usage: []string{
+				"vpn [status]",
+				"vpn on [--port 51820] [--address HOST[:PORT]]",
+				"vpn add <name> [--save FILE]",
+				"vpn revoke <name | address | id>",
+				"vpn set [--address HOST[:PORT] | default] [--port N] [--peer-to-peer on|off]",
+				"vpn off",
+			},
+			details: "VPN mode runs a WireGuard server on this appliance. `vpn add` prints a QR code: scan it in the WireGuard\n" +
+				"app (iOS, Android) and the device sends all its traffic, IPv4, IPv6 and local networks, through ShakerProxy.\n" +
+				"It appears in Traffic as \"<name> (VPN)\". The QR code holds the device's private key and is shown once.\n" +
+				"To connect from outside this network, forward UDP 51820 on your router to this appliance and set\n" +
+				"--address to your public address or name. VPN devices cannot reach each other or ShakerProxy's\n" +
+				"management page. Changes ask for the admin password.",
+			examples: []string{"shakerproxy vpn on", "shakerproxy vpn add Pixel", "shakerproxy vpn set --address home.example.net:51820", "shakerproxy vpn revoke Pixel"},
+			run:      (*cli).vpnCommand},
 		{name: "unblock", group: groupDevices, summary: "Undo a block",
 			usage:    []string{"unblock <ref> internet", "unblock <ref> <domain>", "unblock <ref> --all"},
 			examples: []string{`shakerproxy unblock "Living room TV" internet`, "shakerproxy unblock tv --all"},

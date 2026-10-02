@@ -417,6 +417,10 @@ func (s *Server) inspectCoverageRouting(ctx context.Context) []coverage.Finding 
 		input.PolicyAvailable = true
 		input.BlockDoT, input.BlockDoQ, input.BlockKnownDoH, input.RedirectPlainDNS = dns.BlockDoT, dns.BlockDoQ, dns.BlockKnownDoH, dns.RedirectPlainDNS
 	}
+	var vpnStatus gatewayprotocol.VPNStatus
+	if s.gateway.Call(ctx, "GetVPN", gatewayprotocol.EmptyParams{}, &vpnStatus) == nil && vpnStatus.Enabled && vpnStatus.Up && !status.EmergencyBypass {
+		input.VPN, input.VPNDevices, input.VPNPeerToPeer, input.VPNIPv6Routed = true, len(vpnStatus.Peers), vpnStatus.AllowPeerToPeer, vpnStatus.IPv6Routed
+	}
 	// Zeek records an ICMPv6 router advertisement (type 134) as an icmp
 	// connection with the type as its source port.
 	input.ForeignRouterAdverts, input.RouterAdvertsSearched = s.coverageForeignSources(ctx, "protocol:icmp AND src.port:134 AND time:last_24h", own)

@@ -464,6 +464,18 @@ func (m *TrafficPolicyManager) writeRuntimePolicy(ctx context.Context, policy tr
 			labSources = append(labSources, prefix)
 		}
 	}
+	if segment := m.vpnSegment(); segment != nil {
+		labSources = append(labSources, segment.IPv4CIDR, segment.IPv6Prefix)
+		if matches == nil {
+			matches = map[string]trafficpolicy.DeviceMatch{}
+		}
+		for deviceID, match := range segment.Devices {
+			merged := matches[deviceID]
+			merged.IPv4 = append(merged.IPv4, match.IPv4...)
+			merged.IPv6 = append(merged.IPv6, match.IPv6...)
+			matches[deviceID] = merged
+		}
+	}
 	runtimePolicy, err := trafficpolicy.ProjectStandaloneProxyRuntimeWithIdentity(policy, trafficpolicy.LoadStandaloneDevicesBestEffort(), matches)
 	if err != nil {
 		return err
