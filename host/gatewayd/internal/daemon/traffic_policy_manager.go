@@ -43,7 +43,11 @@ type TrafficPolicyManager struct {
 	onboardingLast      []byte
 	warningsMu          sync.Mutex
 	warnings            map[string]string
-	mu                  sync.Mutex
+	// installed remembers each security batch last loaded and the chains'
+	// listing right after it, so an unchanged policy is not rewritten.
+	installedMu sync.Mutex
+	installed   map[string]installedSecurityBatch
+	mu          sync.Mutex
 }
 
 func NewProductionTrafficPolicyManager(networkState *StateStore, policyPath, runtimePath, cloudPolicyStatusPath, coordinationLockPath string, logger *slog.Logger) *TrafficPolicyManager {

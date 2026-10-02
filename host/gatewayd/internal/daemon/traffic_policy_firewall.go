@@ -143,7 +143,7 @@ func (e *natRedirectError) Unwrap() error { return e.err }
 // and attaches its hooks ahead of ShakerProxy's own hooks, then the NAT half.
 // A failure in the NAT half can therefore never leave the listeners exposed.
 func (m *TrafficPolicyManager) applyFamily(ctx context.Context, family firewallFamily, filter, nat []string) error {
-	if _, err := m.Runner.Run(ctx, family.restore, []string{"--noflush"}, []byte(renderFilterRestore(filter))); err != nil {
+	if err := m.restoreSecurityChains(ctx, family, "filter", renderFilterRestore(filter)); err != nil {
 		return err
 	}
 	if err := m.setHook(ctx, family.command, "INPUT", securityInputChain, "SHAKERPROXY-INPUT", hasRuleForChain(filter, "SHAKERPROXY-INPUT")); err != nil {
@@ -152,7 +152,7 @@ func (m *TrafficPolicyManager) applyFamily(ctx context.Context, family firewallF
 	if err := m.setForwardJump(ctx, family, hasRuleForChain(filter, "SHAKERPROXY-FORWARD")); err != nil {
 		return err
 	}
-	if _, err := m.Runner.Run(ctx, family.restore, []string{"--noflush"}, []byte(renderNATRestore(nat))); err != nil {
+	if err := m.restoreSecurityChains(ctx, family, "nat", renderNATRestore(nat)); err != nil {
 		return &natRedirectError{err: err}
 	}
 	if err := m.setJumpWith(ctx, family.command, "nat", "PREROUTING", securityPreroutingChain, len(nat) != 0); err != nil {
@@ -262,7 +262,7 @@ func (m *TrafficPolicyManager) cleanupFirewallFamilies(ctx context.Context) (err
 // detaches every client hook. Flushing the detached redirect chain is only
 // housekeeping.
 func (m *TrafficPolicyManager) cleanupFamily(ctx context.Context, family firewallFamily, filter []string) error {
-	if _, err := m.Runner.Run(ctx, family.restore, []string{"--noflush"}, []byte(renderFilterRestore(filter))); err != nil {
+	if err := m.restoreSecurityChains(ctx, family, "filter", renderFilterRestore(filter)); err != nil {
 		return err
 	}
 	if err := m.setHook(ctx, family.command, "INPUT", securityInputChain, "SHAKERPROXY-INPUT", true); err != nil {
@@ -274,8 +274,78 @@ func (m *TrafficPolicyManager) cleanupFamily(ctx context.Context, family firewal
 	if err := m.setJumpWith(ctx, family.command, "nat", "PREROUTING", securityPreroutingChain, false); err != nil {
 		return err
 	}
-	_, _ = m.Runner.Run(ctx, family.restore, []string{"--noflush"}, []byte(renderNATRestore(nil)))
+	_ = m.restoreSecurityChains(ctx, family, "nat", renderNATRestore(nil))
 	return nil
+}
+
+type installedSecurityBatch struct {
+	batch   string
+	listing string
+}
+
+// securityChainsByTable names the chains each security batch declares and
+// flushes; nothing else in the table is touched.
+var securityChainsByTable = map[string][]string{
+	"filter": {securityForwardChain, securityInputChain},
+	"nat":    {securityPreroutingChain},
+}
+
+// restoreSecurityChains loads one table's security batch unless that exact
+// batch is already installed and its chains still list exactly as they did
+// right after it was loaded. The batch is a single iptables-restore
+// transaction, so a rewrite never leaves a window without rules, but every
+// rewrite recreates the rules and zeroes their packet counters, and the
+// reconciler runs every 15 s. Skipping an unchanged batch keeps the counters
+// meaningful; a flushed, edited or deleted chain lists differently and is
+// rewritten. gatewayd remembers nothing across a restart, so it loads each
+// batch once per start.
+func (m *TrafficPolicyManager) restoreSecurityChains(ctx context.Context, family firewallFamily, table, batch string) error {
+	key := family.restore + " " + table
+	listing, listed := m.listSecurityChains(ctx, family, table)
+	m.installedMu.Lock()
+	installed, known := m.installed[key]
+	delete(m.installed, key)
+	m.installedMu.Unlock()
+	if listed && known && installed.batch == batch && installed.listing == listing {
+		m.rememberSecurityChains(key, installed)
+		return nil
+	}
+	if _, err := m.Runner.Run(ctx, family.restore, []string{"--noflush"}, []byte(batch)); err != nil {
+		return err
+	}
+	if listing, listed = m.listSecurityChains(ctx, family, table); listed {
+		m.rememberSecurityChains(key, installedSecurityBatch{batch: batch, listing: listing})
+	}
+	return nil
+}
+
+func (m *TrafficPolicyManager) rememberSecurityChains(key string, installed installedSecurityBatch) {
+	m.installedMu.Lock()
+	defer m.installedMu.Unlock()
+	if m.installed == nil {
+		m.installed = map[string]installedSecurityBatch{}
+	}
+	m.installed[key] = installed
+}
+
+// listSecurityChains returns the rule listing (iptables -S, which carries no
+// counters) of a table's security chains, or false when one cannot be listed,
+// for example because it does not exist yet.
+func (m *TrafficPolicyManager) listSecurityChains(ctx context.Context, family firewallFamily, table string) (string, bool) {
+	arguments := []string{"-w", "5"}
+	if table != "filter" {
+		arguments = append(arguments, "-t", table)
+	}
+	var listing strings.Builder
+	for _, chain := range securityChainsByTable[table] {
+		output, err := m.Runner.Run(ctx, family.command, append(append([]string{}, arguments...), "-S", chain), nil)
+		if err != nil {
+			return "", false
+		}
+		listing.Write(output)
+		listing.WriteByte('\n')
+	}
+	return listing.String(), true
 }
 
 func renderSecurityRestore(rules trafficpolicy.FirewallRules) string {
