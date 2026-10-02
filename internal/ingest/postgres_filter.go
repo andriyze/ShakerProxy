@@ -195,8 +195,25 @@ func likePattern(value string) string {
 }
 
 // compileTextPredicate implements a bare-word search: a case-insensitive
-// substring match over the DNS query, TLS server name, and HTTP host.
+// substring match over the DNS query, TLS server name, and HTTP host, or, for
+// a whole IP address or CIDR, a match on either endpoint of the event.
 func compileTextPredicate(predicate querylang.Predicate, args *[]any) (string, error) {
+	if predicate.IsAddress {
+		if predicate.Operator != querylang.OperatorEqual && predicate.Operator != querylang.OperatorNotEqual {
+			return "", errors.New("typed address search operator is unsupported")
+		}
+		*args = append(*args, predicate.Value)
+		comparison := "= $%d::inet"
+		if strings.Contains(predicate.Value, "/") {
+			comparison = "<<= $%d::cidr"
+		}
+		comparison = fmt.Sprintf(comparison, len(*args))
+		clause := fmt.Sprintf("(COALESCE(source_ip %[1]s, FALSE) OR COALESCE(destination_ip %[1]s, FALSE))", comparison)
+		if predicate.Operator == querylang.OperatorNotEqual {
+			clause = "NOT " + clause
+		}
+		return clause, nil
+	}
 	fields := []string{"dns_query", "tls_server_name", "http_host"}
 	if predicate.Value == "*" {
 		clause := "(dns_query IS NOT NULL OR tls_server_name IS NOT NULL OR http_host IS NOT NULL)"

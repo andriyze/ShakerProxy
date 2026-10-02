@@ -146,6 +146,7 @@ The event search understands the same classification:
 | `dns.query:*` | Every DNS lookup with a name, including DNS-over-HTTPS |
 | `proto:doh OR proto:dot OR proto:doq` | Encrypted DNS that may bypass the lab resolver |
 | `netflix` | A bare word searches DNS names, TLS server names and HTTP hosts |
+| `192.168.10.20` | A whole IP address (or a CIDR such as `192.168.10.0/24`) finds traffic to or from it; a fragment such as `192.168.10.` is searched as a host-name part like any other word |
 | `device.name:"Bench camera" NOT proto:tls` | Everything the camera sent that is not TLS |
 | `time:2026-09-29 protocol.exotic:true` | Exotic traffic on one UTC day |
 

@@ -50,6 +50,9 @@ type Predicate struct {
 	IsRelativeTime bool
 	Timestamp      time.Time
 	IsTimestamp    bool
+	// IsAddress marks a free-text term that is a whole IP address or CIDR;
+	// it matches events to or from that address instead of host names.
+	IsAddress bool
 }
 
 type Node struct {
@@ -285,13 +288,21 @@ func (p *parser) parsePredicate() (*Node, error) {
 		return nil, errors.New("query expected a field predicate")
 	}
 	p.index++
+	if strings.Contains(first.text, ":") && p.peek().kind != tokenOperator {
+		// A bare IPv6 address ("2001:db8::1") is a search term, not a
+		// field:value pair; no field name is a valid address.
+		if _, err := canonicalIPOrPrefix(first.text); err == nil {
+			return normalizePredicateNode(TextField, OperatorEqual, first.text)
+		}
+	}
 	field, value, hasColon := strings.Cut(first.text, ":")
 	operator := OperatorEqual
 	if !hasColon {
 		field = first.text
 		if p.peek().kind != tokenOperator {
 			// A bare word is a free-text search over DNS names, TLS server
-			// names, and HTTP hosts, so typing "netflix" just works.
+			// names, and HTTP hosts, so typing "netflix" just works. A whole
+			// IP address or CIDR matches events to or from it.
 			return normalizePredicateNode(TextField, OperatorEqual, first.text)
 		}
 		operator = Operator(p.peek().text)
@@ -406,8 +417,17 @@ func normalizePredicate(field string, operator Operator, value string) (Predicat
 		}
 		predicate.Value = strings.ToLower(strings.TrimSuffix(value, "."))
 	case TextField:
-		if !equalityOperator(operator) || !validHostnamePattern(value) {
-			return Predicate{}, fmt.Errorf("%q is not a search term; search a hostname fragment such as netflix, or use field:value such as dns.query:example.com", value)
+		if !equalityOperator(operator) {
+			return Predicate{}, errors.New("text search supports only equality or inequality")
+		}
+		// Only a whole address or CIDR is an address search; a fragment
+		// such as "192.168.10." stays a host-name substring, like any word.
+		if address, err := canonicalIPOrPrefix(value); err == nil {
+			predicate.Value, predicate.IsAddress = address, true
+			break
+		}
+		if !validHostnamePattern(value) {
+			return Predicate{}, fmt.Errorf("%q is not a search term; search a hostname fragment such as netflix, an IP address such as 192.168.10.20, or use field:value such as dns.query:example.com", value)
 		}
 		predicate.Value = strings.ToLower(strings.TrimSuffix(value, "."))
 	case "app.protocol":

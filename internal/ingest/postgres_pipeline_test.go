@@ -125,6 +125,13 @@ func TestPostgresFiltersCoverPassiveAnalyzersAndNegation(t *testing.T) {
 		"service!=dns":            5,
 		"tls.pinning:false":       1,
 		"tls.pinning:true":        0,
+		// A bare address finds traffic from or to it; a fragment does not.
+		"10.77.0.23":        6,
+		"10.77.0.1":         1,
+		"93.184.216.34":     5,
+		"NOT 93.184.216.34": 1,
+		"10.77.0.0/24":      6,
+		"10.77.0.":          0,
 	} {
 		filter, err := querylang.Parse(query)
 		if err != nil {
