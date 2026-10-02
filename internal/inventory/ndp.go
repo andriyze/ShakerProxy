@@ -290,11 +290,11 @@ func hasActiveNeighborAddress(device Device) bool {
 // timedAddressSource reports address windows whose activity follows the
 // clock: neighbor entries and observed leases.
 func timedAddressSource(source EvidenceSource) bool {
-	return isNeighborSource(source) || source == SourceObservedDHCP
+	return isNeighborSource(source) || source == SourceObservedDHCP || source == SourceObservedLAN
 }
 
 func validIdentitySource(source EvidenceSource) bool {
-	return source == SourceDHCP4Lease || source == SourceObservedDHCP || isNeighborSource(source)
+	return source == SourceDHCP4Lease || source == SourceObservedDHCP || source == SourceObservedLAN || isNeighborSource(source)
 }
 
 // validAddressEvidence accepts DHCPv4 lease windows for IPv4 and NDP windows
@@ -309,7 +309,7 @@ func validAddressEvidence(address AddressObservation) bool {
 		return parsed.Is4() && address.Family == "IPv4"
 	case SourceNDP:
 		return parsed.Is6() && !parsed.Is4In6() && parsed.Zone() == "" && address.Family == "IPv6"
-	case SourceARP, SourceObservedDHCP:
+	case SourceARP, SourceObservedDHCP, SourceObservedLAN:
 		return parsed.Is4() && address.Family == "IPv4"
 	}
 	return false
@@ -322,7 +322,7 @@ func validAddressSelector(address netip.Addr, source EvidenceSource) bool {
 		return address.Is4()
 	case SourceNDP:
 		return address.Is6() && !address.Is4In6() && address.Zone() == ""
-	case SourceARP, SourceObservedDHCP:
+	case SourceARP, SourceObservedDHCP, SourceObservedLAN:
 		return address.Is4()
 	}
 	return false
