@@ -2,6 +2,7 @@ package pcapng
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -37,6 +38,23 @@ type Membership struct {
 	LinkTypes    []uint16        `json:"link_types"`
 	MACAddresses []string        `json:"mac_addresses"`
 	IPAddresses  []string        `json:"ip_addresses"`
+}
+
+// MarshalJSON always writes the observation lists as lists: a segment with no
+// packets yet has none, and the web UI reads their lengths.
+func (m Membership) MarshalJSON() ([]byte, error) {
+	type plain Membership
+	p := plain(m)
+	if p.LinkTypes == nil {
+		p.LinkTypes = []uint16{}
+	}
+	if p.MACAddresses == nil {
+		p.MACAddresses = []string{}
+	}
+	if p.IPAddresses == nil {
+		p.IPAddresses = []string{}
+	}
+	return json.Marshal(p)
 }
 
 func Unavailable(state MembershipState) Membership {

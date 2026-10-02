@@ -402,7 +402,7 @@ export function CaptureSession({
               <code>{file.sha256}</code>
               <small>
                 {file.packet_membership?.state === "EXACT"
-                  ? `Exact packet membership: ${file.packet_membership.packet_count.toLocaleString()} packets · ${(file.packet_membership.mac_addresses.length + file.packet_membership.ip_addresses.length).toLocaleString()} observed identities`
+                  ? `Exact packet membership: ${file.packet_membership.packet_count.toLocaleString()} packets · ${((file.packet_membership.mac_addresses?.length ?? 0) + (file.packet_membership.ip_addresses?.length ?? 0)).toLocaleString()} observed identities`
                   : file.packet_membership
                     ? `Packet membership is not exact: ${formatDataClass(file.packet_membership.state).toLowerCase()}`
                     : "Legacy capture: packet membership was not indexed"}
