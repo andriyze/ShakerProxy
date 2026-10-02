@@ -935,6 +935,12 @@ export type RecentEvent = {
   alert_signature?: string
   alert_severity?: number
   alert_category?: string
+  // Bytes the connection's source sent, and what its destination sent back.
+  bytes_sent?: number
+  bytes_received?: number
+  // Who operates the destination (curated domain table), e.g. "Google".
+  destination_organization?: string
+  destination_category?: string
   http_method?: string
   http_host?: string
   http_path?: string

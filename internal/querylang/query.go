@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"shakerproxy.dev/shakerproxy/internal/domainclass"
 	"shakerproxy.dev/shakerproxy/internal/protocolclass"
 )
 
@@ -325,6 +326,14 @@ func (p *parser) parsePredicate() (*Node, error) {
 // TextField is the canonical field of a bare-word free-text search.
 const TextField = "text"
 
+// DestinationOwnerField and DestinationCategoryField select events by who
+// operates the destination they name (ShakerProxy's curated domain table):
+// owner:google, category:advertising.
+const (
+	DestinationOwnerField    = "dst.owner"
+	DestinationCategoryField = "dst.category"
+)
+
 var dateOnlyPattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
 
 // normalizePredicateNode normalizes one predicate. A date-only time value
@@ -377,6 +386,10 @@ func normalizePredicate(field string, operator Operator, value string) (Predicat
 		field = "device.tag"
 	case "proto", "app":
 		field = "app.protocol"
+	case "owner":
+		field = DestinationOwnerField
+	case "category":
+		field = DestinationCategoryField
 	}
 	if !validOperator(operator) || value == "" || len(value) > 1024 {
 		return Predicate{}, errors.New("query predicate is invalid")
@@ -459,6 +472,21 @@ func normalizePredicate(field string, operator Operator, value string) (Predicat
 		predicate.Value = strings.ToLower(value)
 		if predicate.Value != "true" && predicate.Value != "false" {
 			return Predicate{}, errors.New("protocol.exotic requires true or false")
+		}
+	case DestinationOwnerField:
+		predicate.Value = strings.ToLower(strings.TrimSpace(value))
+		if !equalityOperator(operator) || predicate.Value == "" || len(predicate.Value) > 64 || strings.ContainsAny(predicate.Value, "*\\%_") {
+			return Predicate{}, errors.New("owner requires part of an organization name, such as google or amazon")
+		}
+		for _, character := range predicate.Value {
+			if character < 0x20 || character == 0x7f {
+				return Predicate{}, errors.New("owner contains a control character")
+			}
+		}
+	case DestinationCategoryField:
+		predicate.Value = strings.ToLower(value)
+		if !equalityOperator(operator) || !validDestinationCategory(predicate.Value) {
+			return Predicate{}, errors.New("category requires a destination category such as advertising, analytics, telemetry or streaming")
 		}
 	case "dns.rcode":
 		if !equalityOperator(operator) || !validTextPattern(value) {
@@ -767,6 +795,27 @@ func validOperator(operator Operator) bool {
 
 func equalityOperator(operator Operator) bool {
 	return operator == OperatorEqual || operator == OperatorNotEqual
+}
+
+// destinationCategories are the categories of the curated domain table that
+// name a known destination ("unknown" selects nothing useful).
+func destinationCategories() []string {
+	values := []string{}
+	for _, category := range domainclass.Categories() {
+		if category != domainclass.CategoryUnknown {
+			values = append(values, string(category))
+		}
+	}
+	return values
+}
+
+func validDestinationCategory(value string) bool {
+	for _, category := range destinationCategories() {
+		if category == value {
+			return true
+		}
+	}
+	return false
 }
 
 func knownField(field string) bool {

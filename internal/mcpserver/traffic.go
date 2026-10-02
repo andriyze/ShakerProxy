@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,6 +103,13 @@ type eventLine struct {
 	DeviceID string    `json:"device_id,omitempty"`
 	Kind     string    `json:"kind"`
 	Summary  string    `json:"summary"`
+	// From and To are the connection's endpoints (address:port); Owner is who
+	// operates the destination, e.g. "Google (advertising)".
+	From          string `json:"from,omitempty"`
+	To            string `json:"to,omitempty"`
+	Owner         string `json:"owner,omitempty"`
+	BytesSent     *int64 `json:"bytes_sent,omitempty"`
+	BytesReceived *int64 `json:"bytes_received,omitempty"`
 }
 
 type eventList struct {
@@ -481,7 +490,19 @@ func newEventLine(event agentapi.Event) eventLine {
 	return eventLine{
 		RecordID: event.RecordID, Time: event.OccurredAt, Device: event.DeviceFriendlyName, DeviceID: event.DeviceID,
 		Kind: event.Kind, Summary: recentEventSummary(event),
+		From: hostPort(event.SourceIP, event.SourcePort), To: hostPort(event.DestinationIP, event.DestinationPort),
+		Owner: destinationOwnerLabel(event.RecentEvent), BytesSent: event.BytesSent, BytesReceived: event.BytesReceived,
 	}
+}
+
+func hostPort(address string, port int) string {
+	if address == "" {
+		return ""
+	}
+	if port == 0 {
+		return address
+	}
+	return net.JoinHostPort(address, strconv.Itoa(port))
 }
 
 func pageSummary(count int, singular, plural, scope string, more bool) string {

@@ -18,10 +18,26 @@ const maxSummaryBytes = 160
 // recentEventSummary prefers the control API's plain-language summary and
 // otherwise builds a short local one from existing event columns.
 func recentEventSummary(event agentapi.Event) string {
-	if summary := strings.TrimSpace(event.Summary); summary != "" {
-		return boundSummary(summary)
+	summary := strings.TrimSpace(event.Summary)
+	if summary == "" {
+		summary = localEventSummary(event.RecentEvent)
 	}
-	return boundSummary(localEventSummary(event.RecentEvent))
+	if owner := destinationOwnerLabel(event.RecentEvent); owner != "" {
+		summary += " — " + owner
+	}
+	return boundSummary(summary)
+}
+
+// destinationOwnerLabel names who operates the destination, e.g.
+// "Google (advertising)"; empty when unknown.
+func destinationOwnerLabel(event ingest.RecentEvent) string {
+	if event.DestinationOrganization == "" {
+		return ""
+	}
+	if event.DestinationCategory == "" {
+		return event.DestinationOrganization
+	}
+	return event.DestinationOrganization + " (" + event.DestinationCategory + ")"
 }
 
 func localEventSummary(event ingest.RecentEvent) string {

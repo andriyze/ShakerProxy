@@ -43,6 +43,9 @@ func (detail EventDetail) Validate() error {
 	if len(detail.Payload) == 0 || len(detail.Payload) > MaxPayloadBytes || detail.PayloadBytes != len(detail.Payload) || !json.Valid(detail.Payload) {
 		return errors.New("event detail payload is invalid")
 	}
+	if !validEventByteCounts(detail.Event) || !validEventDestinationOwner(detail.Event) {
+		return errors.New("event detail byte counts or destination owner are invalid")
+	}
 	return nil
 }
 

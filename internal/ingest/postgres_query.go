@@ -276,7 +276,7 @@ func buildEventWhere(query RecentEventQuery, relativeUpperBound bool) ([]string,
 	return clauses, args, nil
 }
 
-const eventSelect = `SELECT record_id, source, kind, occurred_at, received_at, source_version, parser_version,
+var eventSelect = `SELECT record_id, source, kind, occurred_at, received_at, source_version, parser_version,
 COALESCE(capture_session_id, ''), COALESCE(flow_id, ''), COALESCE(device_id, ''), confidence,
 COALESCE(host(source_ip), ''), COALESCE(host(destination_ip), ''), COALESCE(source_port, 0),
 COALESCE(destination_port, 0), COALESCE(protocol, ''), COALESCE(service, ''), COALESCE(network_bytes, 0),
@@ -292,7 +292,8 @@ COALESCE(app_protocol, ''), COALESCE(protocol_category, ''), COALESCE(protocol_v
 COALESCE(protocol_evidence, ''), COALESCE(protocol_exotic, false),
 COALESCE(http_method, ''), COALESCE(http_host, ''), COALESCE(http_path, ''), COALESCE(http_status, 0),
 COALESCE(alert_signature, ''), COALESCE(alert_severity, 0), COALESCE(alert_category, ''),
-` + blockedProjection + `
+` + blockedProjection + `,
+` + bytesProjection + `
 FROM normalized_events`
 
 // blockedProjection reads whether ShakerProxy refused the lookup or
@@ -303,6 +304,20 @@ CASE WHEN source <> 'HOST' THEN ''
      WHEN kind = '` + HostBlockedKind + `' THEN COALESCE(payload->>'reason', '')
      WHEN kind = '` + HostDNSKind + `' AND payload->>'blocked' = 'true' THEN COALESCE(NULLIF(payload->>'blocked_reason', ''), 'device-domain')
      ELSE '' END`
+
+// bytesProjection reads what each side of a connection sent from the
+// analyzer payload: Zeek conn's orig_bytes and resp_bytes (the IP-level
+// counts when those are missing) and Suricata flow's bytes_toserver and
+// bytes_toclient. Anything but a whole non-negative number reads as unknown.
+var bytesProjection = `CASE WHEN source = 'ZEEK' AND kind = 'zeek.conn' THEN COALESCE(` + jsonCount("payload->'orig_bytes'") + `, ` + jsonCount("payload->'orig_ip_bytes'") + `)
+     WHEN source = 'SURICATA' AND kind = 'suricata.flow' THEN ` + jsonCount("payload#>'{flow,bytes_toserver}'") + ` END,
+CASE WHEN source = 'ZEEK' AND kind = 'zeek.conn' THEN COALESCE(` + jsonCount("payload->'resp_bytes'") + `, ` + jsonCount("payload->'resp_ip_bytes'") + `)
+     WHEN source = 'SURICATA' AND kind = 'suricata.flow' THEN ` + jsonCount("payload#>'{flow,bytes_toclient}'") + ` END`
+
+// jsonCount is a JSON whole number of at most 15 digits as bigint, else NULL.
+func jsonCount(path string) string {
+	return "(CASE WHEN jsonb_typeof(" + path + ") = 'number' AND (" + path + ")::text ~ '^[0-9]{1,15}$' THEN (" + path + ")::text::bigint END)"
+}
 
 type eventQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -321,10 +336,12 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 		var dnsAnswersJSON string
 		var tlsClientRecentSuccess sql.NullBool
 		var attributionJSON string
+		var bytesSent, bytesReceived sql.NullInt64
 		if err := rows.Scan(&event.RecordID, &event.Source, &event.Kind, &event.OccurredAt, &event.ReceivedAt, &event.SourceVersion, &event.ParserVersion, &event.CaptureSessionID, &event.FlowID, &event.DeviceID, &event.Confidence, &event.SourceIP, &event.DestinationIP, &event.SourcePort, &event.DestinationPort, &event.Protocol, &event.Service, &event.NetworkBytes, &event.DNSQuery, &event.DNSRecordType, &event.DNSResponseCode, &dnsAnswerCount, &dnsAnswersJSON, &event.DNSName, &event.DetectionType, &event.DetectionSeverity, &event.DetectionState, &event.DetectionSummary, &event.DetectionScope, &event.TLSServerName, &event.TLSInterceptionState, &event.TLSFailureReason, &event.TLSPinningSuspected, &tlsClientRecentSuccess, &event.TLSBypassActivated, &event.TLSPlatform, &attributionJSON,
 			&event.AppProtocol, &event.ProtocolCategory, &event.ProtocolVisibility, &event.ProtocolEvidence, &event.ProtocolExotic,
 			&event.HTTPMethod, &event.HTTPHost, &event.HTTPPath, &event.HTTPStatus,
-			&event.AlertSignature, &event.AlertSeverity, &event.AlertCategory, &event.Blocked, &event.BlockedReason); err != nil {
+			&event.AlertSignature, &event.AlertSeverity, &event.AlertCategory, &event.Blocked, &event.BlockedReason,
+			&bytesSent, &bytesReceived); err != nil {
 			return nil, fmt.Errorf("decode %s normalized event: %w", queryKind, err)
 		}
 		if dnsAnswerCount.Valid {
@@ -350,6 +367,13 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 			event.AttributionEvidence = &evidence
 		}
 		event.BlockedReason = knownBlockReason(event.Blocked, event.BlockedReason)
+		if bytesSent.Valid {
+			event.BytesSent = &bytesSent.Int64
+		}
+		if bytesReceived.Valid {
+			event.BytesReceived = &bytesReceived.Int64
+		}
+		event.DestinationOrganization, event.DestinationCategory = destinationOwner(event)
 		event.Summary = EventSummary(event)
 		events = append(events, event)
 	}
