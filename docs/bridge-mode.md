@@ -41,6 +41,36 @@ AX88179); give the adapter a fixed name with a Netplan `match` rule if it is
 not always plugged in, because the plan selects ports by their stable
 identity.
 
+## Plan file
+
+On the Network page choose "Inline bridge between a device and your router".
+From the command line, write a plan file and check it with
+`shakerproxy config validate bridge.json`, then preview it with
+`shakerproxy plan bridge.json`. The router port has role `WAN`, the device
+port role `LAB`; ShakerProxy's address is the static `wan.ipv4_address`, and
+`ipv4` describes the network itself:
+
+```json
+{
+  "schema": 1,
+  "name": "TV bench",
+  "topology": "TRANSPARENT_BRIDGE",
+  "interfaces": [
+    {"stable_id": "pci-0000:01:00.0", "current_name": "enp1s0", "role": "WAN"},
+    {"stable_id": "usb-0000:00:14.0-2", "current_name": "enx00e04c680001", "role": "LAB"}
+  ],
+  "management": {"preserve_active_ssh": true},
+  "wan": {
+    "ipv4_mode": "STATIC", "ipv4_address": "192.168.1.20/24", "ipv4_gateway": "192.168.1.1",
+    "ipv6_mode": "NONE", "dns_mode": "USE_DHCP",
+    "upstream_nat": false, "clamp_mss": false,
+    "allow_working_wan_change": true, "allow_cloud_init_override": false
+  },
+  "ipv4": {"enabled": true, "lab_cidr": "192.168.1.0/24", "gateway_address": "192.168.1.20", "nat44": false, "client_isolation": false},
+  "ipv6": {"strategy": "OBSERVE_ONLY"}
+}
+```
+
 ## What happens when you apply it
 
 - The bridge `spbr0` is created over both ports with spanning tree on, so

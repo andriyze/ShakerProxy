@@ -1,10 +1,32 @@
 package networkplan
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+// The plan file in docs/bridge-mode.md must stay valid.
+func TestInlineBridgeDocsExamplePlanIsValid(t *testing.T) {
+	raw, err := os.ReadFile("../../docs/bridge-mode.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rest, found := strings.Cut(string(raw), "```json\n")
+	example, _, closed := strings.Cut(rest, "```")
+	if !found || !closed {
+		t.Fatal("docs/bridge-mode.md has no JSON plan example")
+	}
+	var plan Plan
+	if err := json.Unmarshal([]byte(example), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if result := Validate(plan); !result.Valid {
+		t.Fatalf("the documented plan is invalid: %+v", result.Errors)
+	}
+}
 
 func validInlineBridgePlan() Plan {
 	return Plan{
