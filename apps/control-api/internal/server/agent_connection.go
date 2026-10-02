@@ -10,6 +10,11 @@ import (
 
 const agentInvestigatorLifetime = 24 * time.Hour
 
+// agentInvestigatorScopes are read-only and none is sensitive: the
+// investigator sees devices, traffic metadata, system state, and capture
+// and case summaries, never HTTP content (traffic:content) or any write.
+var agentInvestigatorScopes = []apitoken.Scope{apitoken.ScopeSystemRead, apitoken.ScopeDevicesRead, apitoken.ScopeTrafficRead, apitoken.ScopeCapturesRead, apitoken.ScopeCasesRead}
+
 type createAgentInvestigatorRequest struct {
 	Name     string `json:"name"`
 	Password string `json:"password"`
@@ -46,7 +51,7 @@ func (s *Server) createAgentInvestigator(w http.ResponseWriter, r *http.Request)
 	created, err := s.apiTokens.Create(apitoken.CreateRequest{
 		Name:      request.Name,
 		Creator:   sessionUsername(r.Context()),
-		Scopes:    []apitoken.Scope{apitoken.ScopeSystemRead, apitoken.ScopeDevicesRead, apitoken.ScopeTrafficRead},
+		Scopes:    agentInvestigatorScopes,
 		ExpiresAt: time.Now().UTC().Add(agentInvestigatorLifetime),
 	})
 	if err != nil {
@@ -58,7 +63,7 @@ func (s *Server) createAgentInvestigator(w http.ResponseWriter, r *http.Request)
 		"profile":            "INVESTIGATOR",
 		"token":              created.Token,
 		"secret":             created.Secret,
-		"fixed_scopes":       []apitoken.Scope{apitoken.ScopeSystemRead, apitoken.ScopeDevicesRead, apitoken.ScopeTrafficRead},
+		"fixed_scopes":       agentInvestigatorScopes,
 		"expires_in_seconds": int64(agentInvestigatorLifetime / time.Second),
 	})
 }
