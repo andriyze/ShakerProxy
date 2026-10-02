@@ -29,6 +29,11 @@ type RoutingInput struct {
 	RouterAdvertsSearched bool
 	// WirelessAccessPoint is set when the plan runs ShakerProxy's own Wi-Fi.
 	WirelessAccessPoint bool
+	// WirelessClients says how traffic between two of its Wi-Fi devices
+	// travels: BRIDGED (through ShakerProxy), ISOLATED (they cannot reach
+	// each other), INSIDE_ACCESS_POINT (switched by the adapter, unseen), or
+	// "" when an older gateway does not say.
+	WirelessClients string
 	// Encrypted DNS policy (trafficpolicy.EncryptedDNSPolicy).
 	PolicyAvailable  bool
 	BlockDoT         bool
@@ -99,8 +104,17 @@ func inlineBridgeFindings(in RoutingInput) []Finding {
 		Fix:    "Connect one test device to the device port, or add ShakerProxy's Wi-Fi access point to the bridge for several."}
 	if in.WirelessAccessPoint {
 		dhcp = "Inline bridge: the network's router hands out addresses through ShakerProxy, to wired devices on the device port and to Wi-Fi devices on ShakerProxy's access point, so they need no setup and have no other way to their gateway than across the bridge."
-		peer.Detail = "Wi-Fi devices on ShakerProxy's access point reach the wired device and the rest of the network across the bridge, so that traffic is recorded, as is traffic between the device port and the router's side. Traffic sent directly between two Wi-Fi devices is forwarded inside the access point, and two devices behind the same switch on the device port still talk directly."
-		peer.Fix = "To see two devices talk to each other, put one on Wi-Fi and the other on the device port."
+		switch in.WirelessClients {
+		case "BRIDGED":
+			peer.Detail = "Wi-Fi devices on ShakerProxy's access point reach each other, the wired device and the rest of the network across the bridge: the access point hands traffic between two Wi-Fi devices to the bridge instead of switching it itself, so all of it is recorded. Two devices behind the same switch on the device port still talk directly."
+			peer.Fix = "Put the devices you test together on ShakerProxy's Wi-Fi, or one on Wi-Fi and one on the device port."
+		case "ISOLATED":
+			peer.Detail = "Wi-Fi client isolation is on, so Wi-Fi devices cannot reach each other; their traffic with the wired device and the rest of the network crosses the bridge and is recorded."
+			peer.Fix = "Turn off Wi-Fi client isolation to test devices that talk to each other (casting, AirPlay)."
+		default:
+			peer.Detail = "Wi-Fi devices on ShakerProxy's access point reach the wired device and the rest of the network across the bridge, so that traffic is recorded, as is traffic between the device port and the router's side. Traffic sent directly between two Wi-Fi devices is forwarded inside the access point, and two devices behind the same switch on the device port still talk directly."
+			peer.Fix = "To see two devices talk to each other, put one on Wi-Fi and the other on the device port."
+		}
 	}
 	return []Finding{
 		{ID: FindingIPv6, Title: "IPv6", Status: FindingOK,
@@ -205,9 +219,17 @@ func peerFinding(in RoutingInput, singleArm bool) Finding {
 		finding.Status = FindingGap
 		finding.Detail = "Devices on the shared network talk to each other directly. ShakerProxy only sees traffic devices send to it as their gateway, so AirPlay, Chromecast, local file sharing and SSH between lab devices are invisible."
 		finding.Fix = "Use ShakerProxy's Wi-Fi access point, which forwards device-to-device traffic through the appliance."
-	case in.WirelessAccessPoint:
+	case in.WirelessAccessPoint && in.WirelessClients == "BRIDGED":
 		finding.Status = FindingOK
-		finding.Detail = "Wi-Fi clients reach each other through ShakerProxy's access point, so their device-to-device traffic is recorded."
+		finding.Detail = "Wi-Fi devices reach each other and the wired lab port through ShakerProxy's lab bridge: the access point hands their traffic to the bridge instead of switching it itself, so device-to-device traffic is recorded. Devices behind the same switch on the wired lab port still talk directly."
+	case in.WirelessAccessPoint && in.WirelessClients == "ISOLATED":
+		finding.Status = FindingOK
+		finding.Detail = "Wi-Fi client isolation is on, so Wi-Fi devices cannot reach each other; everything they send crosses ShakerProxy."
+		finding.Fix = "Turn off Wi-Fi client isolation (and bridge the access point with a wired lab port) to test devices that talk to each other."
+	case in.WirelessAccessPoint:
+		finding.Status = FindingGap
+		finding.Detail = "Traffic directly between two Wi-Fi devices is switched inside ShakerProxy's access point and is not recorded, so AirPlay, casting and file sharing between them are invisible. Their traffic to the internet and to ShakerProxy is recorded."
+		finding.Fix = "Add a wired lab port and bridge it with the access point (bridge_with_lab): Wi-Fi devices then reach each other through ShakerProxy's bridge, and that traffic is recorded."
 	default:
 		finding.Status = FindingUnknown
 		finding.Detail = "Devices that share a switch on the lab side talk to each other directly; ShakerProxy sees only traffic that crosses it."

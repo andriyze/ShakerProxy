@@ -24,10 +24,14 @@ const (
 )
 
 // AccessPointTarget identifies the adapter hostapd drives and, when bridged,
-// the lab bridge hostapd must add it to.
+// the lab bridge hostapd must add it to. Hairpin turns on hairpin mode on the
+// access point's bridge port so traffic between two Wi-Fi devices, which
+// hostapd's ap_isolate hands to the bridge, goes back out to the other one
+// (networkplan.WiFiClientTrafficBridged).
 type AccessPointTarget struct {
 	Interface string
 	Bridge    string
+	Hairpin   bool
 }
 
 // AccessPointController starts the ShakerProxy access point during a guarded
@@ -79,7 +83,7 @@ func (a Applier) startAccessPoint(ctx context.Context, staged networkplan.Staged
 	if !ok {
 		return nil
 	}
-	target := AccessPointTarget{Interface: ap.CurrentName, Bridge: networkplan.AccessPointBridgeName(staged.Plan)}
+	target := AccessPointTarget{Interface: ap.CurrentName, Bridge: networkplan.AccessPointBridgeName(staged.Plan), Hairpin: networkplan.WiFiClientTrafficBridged(staged.Plan)}
 	if err := a.AccessPoint.StartAccessPoint(ctx, target); err != nil {
 		return fmt.Errorf("start ShakerProxy Wi-Fi access point: %w", err)
 	}
@@ -135,18 +139,41 @@ type accessPointCommandRunner func(context.Context, string, []string) (rollbackC
 type OSAccessPointService struct {
 	run          accessPointCommandRunner
 	readFile     func(string) ([]byte, error)
+	writeFile    func(string, []byte) error
 	readyTimeout time.Duration
 	pollInterval time.Duration
 }
 
 func (s OSAccessPointService) StartAccessPoint(ctx context.Context, target AccessPointTarget) error {
-	if !safeSysctlInterfaceName(target.Interface) || strings.Contains(target.Interface, ":") || target.Bridge != "" && target.Bridge != networkplan.LabBridgeName && target.Bridge != networkplan.InlineBridgeName {
+	if !safeSysctlInterfaceName(target.Interface) || strings.Contains(target.Interface, ":") || target.Bridge != "" && target.Bridge != networkplan.LabBridgeName && target.Bridge != networkplan.InlineBridgeName || target.Hairpin && target.Bridge == "" {
 		return errors.New("Wi-Fi access point target is invalid")
 	}
 	if result, err := s.command(ctx, []string{"restart", networkplan.HostapdUnit}); err != nil || result.exitCode != 0 {
 		return commandResultError("systemctl restart "+networkplan.HostapdUnit, result, err)
 	}
-	return s.waitReady(ctx, target)
+	if err := s.waitReady(ctx, target); err != nil {
+		return err
+	}
+	if target.Hairpin {
+		// hostapd added the port just now, with hairpin mode off.
+		if err := s.write(BridgePortHairpinPath(target.Interface), []byte("1")); err != nil {
+			return fmt.Errorf("send traffic between Wi-Fi devices back out of %s (bridge hairpin mode): %w", target.Interface, err)
+		}
+	}
+	return nil
+}
+
+// BridgePortHairpinPath is the sysfs attribute holding hairpin mode for an
+// interface that is a bridge port.
+func BridgePortHairpinPath(interfaceName string) string {
+	return "/sys/class/net/" + interfaceName + "/brport/hairpin_mode"
+}
+
+func (s OSAccessPointService) write(path string, value []byte) error {
+	if s.writeFile != nil {
+		return s.writeFile(path, value)
+	}
+	return os.WriteFile(path, value, 0)
 }
 
 func (s OSAccessPointService) waitReady(ctx context.Context, target AccessPointTarget) error {

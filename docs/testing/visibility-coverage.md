@@ -87,7 +87,7 @@ managed state, host inspection and DNS policy, plus the last 24 hours of recorde
 |---|---|
 | IPv6 | Another router advertises IPv6: Zeek recorded an ICMPv6 router advertisement (`protocol:icmp AND src.port:134`) from an address that is not one of the appliance's own, link-local included. This is a GAP whether or not ShakerProxy routes IPv6, since devices may pick the other router. Also a GAP when the lab interface has IPv6 that ShakerProxy did not configure while the lab does not route IPv6. UNKNOWN when recorded traffic could not be searched |
 | Address assignment | Another DHCP server answered on the lab network, or the lab is single-arm (the network's router hands out addresses, so only devices set by hand use ShakerProxy) |
-| Device-to-device traffic | Single-arm lab (devices talk directly); UNKNOWN for wired two-port labs; OK for ShakerProxy's Wi-Fi access point |
+| Device-to-device traffic | Single-arm lab (devices talk directly), and a Wi-Fi-only lab (two Wi-Fi devices talk inside the access point); UNKNOWN for wired two-port labs; OK when ShakerProxy's Wi-Fi access point is on a bridge (lab bridge or inline bridge), which sends traffic between Wi-Fi devices through ShakerProxy |
 | Encrypted DNS | DoT, DoQ or known DoH is not blocked by the DNS policy |
 | DNS sent to other resolvers | Plain DNS to other resolvers is not redirected to ShakerProxy |
 | Local discovery | Single-arm recordings keep only routed traffic, so mDNS and SSDP are not recorded |

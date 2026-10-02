@@ -109,6 +109,19 @@ func TestBridgeNetlabRole(t *testing.T) {
 			}
 		}
 		report(map[string]string{"netplan": preview.NetplanYAML, "firewall": preview.FirewallRestoreIPv4, "firewall_ipv6": preview.FirewallRestoreIPv6, "hostapd": preview.HostapdConf})
+	case "hairpin":
+		// What the applier (networkapply.OSAccessPointService) and the
+		// runtime keeper do once hostapd has added the access point to the
+		// bridge: hairpin mode sends traffic between two Wi-Fi devices,
+		// which ap_isolate hands to the bridge, back out to the other one.
+		ap := os.Getenv("SHAKERPROXY_BRIDGELAB_AP")
+		if !networkplan.WiFiClientTrafficBridged(plan) {
+			t.Fatal("the netlab access point does not hand its client traffic to the bridge")
+		}
+		if err := (networkapply.OSRuntimeMachine{}).SetBridgePortHairpin(ctx, ap); err != nil {
+			t.Fatal(err)
+		}
+		report(map[string]string{"hairpin": ap})
 	case "conntrack":
 		scope := labConnectionScope(store, nil)
 		listener, err := conntrack.Listen()

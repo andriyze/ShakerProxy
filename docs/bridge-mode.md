@@ -151,10 +151,21 @@ join your network through ShakerProxy:
   get through about eight seconds after it starts (the plan warns
   `BRIDGE_WIFI_STP`).
 
-Traffic between a wired device and a Wi-Fi device crosses both ports and is
-recorded twice (once per port). Traffic sent directly between two Wi-Fi
-devices is forwarded inside the access point and is not recorded, as in a
-Wi-Fi lab; put one of them on the device port to see it.
+Traffic between two Wi-Fi devices goes through the bridge too: `hostapd`
+runs with `ap_isolate=1` and ShakerProxy turns on hairpin mode on the access
+point's bridge port, so a phone casting to a TV on ShakerProxy's Wi-Fi is
+recorded, and mDNS/SSDP discovery between them keeps working (see
+[Traffic between Wi-Fi devices](wifi-access-point.md#traffic-between-wi-fi-devices)).
+With Wi-Fi client isolation they cannot reach each other.
+
+The recording takes frames from each device-side port in both directions, so
+some frames appear twice in it: traffic between a wired device and a Wi-Fi
+device (once per port), and traffic between two Wi-Fi devices (once as it
+enters the access point's port and once as it leaves). A single bridge-side
+view without duplicates would have to be taken on `spbr0`, where a redirected
+DNS query already shows ShakerProxy as its destination. Packet counts for that
+local traffic are therefore doubled; connections, names and contents are
+not.
 
 ## DNS, device rules and HTTPS
 
@@ -202,9 +213,10 @@ Wi-Fi lab; put one of them on the device port to see it.
   rule that answers DNS sent to ShakerProxy's own address follow the address
   ShakerProxy had when the plan was applied; DNS sent to any other resolver
   is answered whatever the router hands out.
-- Two devices behind the same switch on the device port talk directly, as do
-  two devices on ShakerProxy's Wi-Fi; put one on the device port and the other
-  on Wi-Fi to see their traffic to each other.
+- Two devices behind the same switch on the device port talk directly; put
+  one on ShakerProxy's Wi-Fi (or both) to see their traffic to each other.
+- Frames between two local devices are recorded twice (see
+  [Wi-Fi on the bridge](#wi-fi-on-the-bridge)).
 
 ## Proof
 
