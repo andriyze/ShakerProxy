@@ -120,3 +120,13 @@ test("rows say what an event is in plain words, not which analyzer wrote it", as
   assert.equal(eventTypeLabel({ kind: "http_request", http_host: "x.com" }), "Web request")
   assert.equal(eventTypeLabel({ kind: "tls_intercepted", tls_interception_state: "INTERCEPTED" }), "HTTPS")
 })
+
+test("devices say when they were last seen", async () => {
+  const { timeAgo } = await import("../../apps/web-ui/src/lib/format.ts")
+  const now = Date.parse("2026-10-01T12:00:00Z")
+  assert.equal(timeAgo("2026-10-01T11:59:40Z", now), "just now")
+  assert.equal(timeAgo("2026-10-01T11:56:00Z", now), "4 min ago")
+  assert.equal(timeAgo("2026-10-01T09:50:00Z", now), "2 h ago")
+  assert.equal(timeAgo("2026-09-28T12:00:00Z", now), "3 days ago")
+  assert.equal(timeAgo("not a date", now), "unknown")
+})

@@ -1,6 +1,6 @@
 import React, { FormEvent, useState } from "react"
 import { withPassword } from "../../shell/passwordPrompt"
-import { idempotencyKey } from "../../lib/format"
+import { timeAgo, idempotencyKey } from "../../lib/format"
 import { DeviceTrafficDeletionPreviewControl } from "./DeviceTrafficDeletion"
 import { api, describeError } from "../../api"
 import type { Device } from "../../types"
@@ -149,6 +149,9 @@ export function DeviceRow({
         <div>
           <strong>{device.friendly_name || device.hostnames?.at(-1)?.hostname || mac?.value || device.id}</strong>
           <code>{device.id}</code>
+          <small className={device.online ? "device-seen online" : "device-seen"}>
+            {device.online ? "Online now" : `Offline · last seen ${timeAgo(device.last_seen)}`}
+          </small>
           <span className="device-row-actions">
             <button type="button" className="quiet device-inspect" onClick={onInspect}>
               Report &amp; controls
