@@ -17,9 +17,18 @@ test("blocked encrypted DNS reads as one BLOCKED line", () => {
   assert.equal(blockReasonLabel("something new"), "encrypted DNS")
 })
 
-test("the DNS chip includes blocked attempts", () => {
+test("the DNS chip includes blocked attempts and DoH", () => {
   const dns = STREAM_KINDS.find((kind) => kind.id === "dns")
   assert.match(dns.query, /kind:shakerproxy\.blocked/)
+  assert.match(dns.query, /app\.protocol:doh/)
+})
+
+test("a DNS-over-HTTPS connection reads as DoH, a refused one stays BLOCKED", () => {
+  const conn = { ...base, source: "ZEEK", kind: "zeek.conn", app_protocol: "doh", tls_server_name: "dns.google", destination_ip: "8.8.8.8", destination_port: 443, network_bytes: 2048 }
+  assert.deepEqual(streamLine(conn), { kind: "dns", badge: "DoH", name: "dns.google", detail: "encrypted DNS, lookups hidden · 2 KB", peer: "8.8.8.8:443", problem: false })
+  const named = streamLine({ ...base, kind: "shakerproxy.conn", app_protocol: "doh", dns_name: "abc.dns.nextdns.io", destination_ip: "203.0.113.77", destination_port: 443 })
+  assert.equal(named.name, "abc.dns.nextdns.io")
+  assert.equal(streamLine({ ...conn, blocked: true, blocked_reason: "doh-ip" }).badge, "BLOCKED")
 })
 
 test("the DNS & HTTPS page leads with the two visibility switches", () => {

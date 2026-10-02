@@ -37,11 +37,11 @@ test("each kind of traffic reads as one line", () => {
 })
 
 test("chips compose one filter, including a client's merged records", () => {
-  assert.match(composeLiveQuery(DEFAULT_LIVE_FILTERS), /^\(\(kind:shakerproxy\.dns OR kind:zeek\.dns OR kind:shakerproxy\.blocked\) OR /)
+  assert.match(composeLiveQuery(DEFAULT_LIVE_FILTERS), /^\(\(kind:shakerproxy\.dns OR kind:zeek\.dns OR kind:shakerproxy\.blocked OR app\.protocol:doh\) OR /)
   const query = composeLiveQuery({ kinds: ["dns", "http"], clients: [PHONE], time: "last_1h", search: "github" }, "", (id) => (id === PHONE ? [FORMER] : []))
   assert.equal(
     query,
-    `time:last_1h AND ((kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked) OR ((http.host:* AND NOT source:SURICATA) OR (kind:shakerproxy.conn AND protocol:tcp AND dst.port:80))) AND (device.id:${PHONE} OR device.id:${FORMER}) AND github`,
+    `time:last_1h AND ((kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked OR app.protocol:doh) OR ((http.host:* AND NOT source:SURICATA) OR (kind:shakerproxy.conn AND protocol:tcp AND dst.port:80))) AND (device.id:${PHONE} OR device.id:${FORMER}) AND github`,
   )
   assert.equal(composeLiveQuery({ kinds: [], clients: [], time: "", search: "a b" }, "proto:mqtt"), `"a b" AND (proto:mqtt)`)
   // The server accepts 128 query terms: at most 12 device IDs go into one

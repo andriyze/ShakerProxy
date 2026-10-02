@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"shakerproxy.dev/shakerproxy/internal/protocolclass"
+	"shakerproxy.dev/shakerproxy/internal/trafficpolicy"
 )
 
 // ProtocolProjection is the protocolclass result stored with an event.
@@ -100,17 +101,24 @@ func classifiableEvent(envelope Envelope, network NetworkProjection) bool {
 // state. Unclassifiable events (host detections, engine statistics, meta
 // logs) return an empty projection.
 func ProjectProtocolFields(envelope Envelope, network NetworkProjection, tls TLSProjection) ProtocolProjection {
-	if !classifiableEvent(envelope, network) {
-		return ProtocolProjection{}
+	var projection ProtocolProjection
+	if classifiableEvent(envelope, network) {
+		projection = protocolProjection(protocolclass.Classify(protocolclass.Observation{
+			Transport:   network.Protocol,
+			Service:     classificationService(envelope, network),
+			ServerPort:  network.DestinationPort,
+			ClientPort:  network.SourcePort,
+			Intercepted: mitmproxyDecrypted(envelope, tls),
+		}))
 	}
-	classification := protocolclass.Classify(protocolclass.Observation{
-		Transport:   network.Protocol,
-		Service:     classificationService(envelope, network),
-		ServerPort:  network.DestinationPort,
-		ClientPort:  network.SourcePort,
-		Intercepted: mitmproxyDecrypted(envelope, tls),
-	})
-	return protocolProjection(classification)
+	// An analyzer that already recognised DoH keeps its own evidence and
+	// visibility (decrypted by the interception proxy, for example).
+	if projection.AppProtocol != "doh" {
+		if doh, ok := dohProjection(envelope, network, tls); ok {
+			return doh
+		}
+	}
+	return projection
 }
 
 // classificationService gives protocolclass Zeek's full analyzer list. The
@@ -132,6 +140,32 @@ func classificationService(envelope Envelope, network NetworkProjection) string 
 		return network.Service
 	}
 	return services
+}
+
+// dohProjection identifies DNS over HTTPS from the reviewed resolver catalog
+// (trafficpolicy): a TLS/QUIC server name that is a known DoH hostname, or
+// TCP/UDP 443 to a known DoH resolver address. Analyzers only see such a
+// connection as TLS or QUIC. Gateway-reported connections named by DNS get
+// the same classification when they are named (nameHostConnections).
+func dohProjection(envelope Envelope, network NetworkProjection, tls TLSProjection) (ProtocolProjection, bool) {
+	if !classifiableEvent(envelope, network) && !isHostConn(envelope) {
+		return ProtocolProjection{}, false
+	}
+	evidence := protocolclass.Evidence("")
+	switch {
+	case trafficpolicy.IsDoHHostname(tls.ServerName):
+		evidence = protocolclass.EvidenceAnalyzer
+	case network.DestinationPort == 443 && (network.Protocol == "tcp" || network.Protocol == "udp") && trafficpolicy.IsDoHResolverAddress(network.DestinationIP):
+		evidence = protocolclass.EvidencePort
+	default:
+		return ProtocolProjection{}, false
+	}
+	return dohProtocolProjection(evidence), true
+}
+
+func dohProtocolProjection(evidence protocolclass.Evidence) ProtocolProjection {
+	protocol, _ := protocolclass.Lookup("doh")
+	return ProtocolProjection{AppProtocol: protocol.ID, Category: string(protocol.Category), Visibility: string(protocol.Visibility), Evidence: string(evidence), Exotic: protocol.Exotic}
 }
 
 func protocolProjection(classification protocolclass.Classification) ProtocolProjection {

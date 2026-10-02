@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"shakerproxy.dev/shakerproxy/internal/protocolclass"
+	"shakerproxy.dev/shakerproxy/internal/trafficpolicy"
 )
 
 // connectionNameLookback is how far back a client's DNS answer may name a
@@ -36,6 +39,17 @@ func nameHostConnections(ctx context.Context, tx *sql.Tx, batch []PendingRecord)
    AND c.source_ip IS NOT NULL AND c.destination_ip IS NOT NULL AND c.dns_name IS NULL`, recordIDs)
 	if err != nil {
 		return fmt.Errorf("name gateway-reported connections: %w", err)
+	}
+	// A connection to a name the catalog knows as a DNS-over-HTTPS resolver
+	// is encrypted DNS, whatever address it resolved to.
+	doh := dohProtocolProjection(protocolclass.EvidenceAnalyzer)
+	_, err = tx.ExecContext(ctx, `UPDATE normalized_events c
+   SET app_protocol = $3, protocol_category = $4, protocol_visibility = $5, protocol_evidence = $6, protocol_exotic = $7
+ WHERE c.record_id = ANY($1) AND c.source = 'HOST' AND c.kind = '`+HostConnKind+`' AND c.dns_name IS NOT NULL
+   AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS doh(name) WHERE lower(c.dns_name) = doh.name OR lower(c.dns_name) LIKE '%.' || doh.name)`,
+		recordIDs, trafficpolicy.DoHHostnames(), doh.AppProtocol, doh.Category, doh.Visibility, doh.Evidence, doh.Exotic)
+	if err != nil {
+		return fmt.Errorf("classify DNS-over-HTTPS connections: %w", err)
 	}
 	return nil
 }

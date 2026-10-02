@@ -12,6 +12,42 @@ ShakerProxy can answer lab devices' DNS itself. That serves two purposes:
 Both are installed-host capabilities. They need a confirmed routed or
 single-arm network plan and are absent from the safe development profile.
 
+## See every lookup (the default)
+
+Two switches, both **on by default** once a lab is confirmed (DNS & HTTPS page,
+`shakerproxy dns`, `GET/PUT /api/v1/dns-visibility`, MCP `dns_visibility`):
+
+- **Force plain DNS through ShakerProxy**: every lab client's UDP/TCP port-53
+  DNS, to any resolver (8.8.8.8 included), is answered by `shakerproxy-dnsd`.
+  Plain DNS is never blocked. Without policy upstreams the host's resolvers
+  are used.
+- **Block encrypted DNS**: DNS over TLS/QUIC (port 853, any destination) and
+  TCP/UDP 443 to the catalog's DNS-over-HTTPS resolver addresses (Cloudflare,
+  Google, Quad9, OpenDNS, AdGuard, NextDNS, CleanBrowsing, Mullvad, Control D,
+  DNS.SB, AliDNS, DNSPod, Yandex) are rejected, and `shakerproxy-dnsd` answers
+  NXDOMAIN for their hostnames (with subdomains) and for the opt-out canaries
+  `use-application-dns.net` (Firefox) and `mask.icloud.com`,
+  `mask-h2.icloud.com` (iCloud Private Relay). Devices fall back to plain DNS.
+  Android Private DNS set to a specific provider loses internet while this is
+  on: set it to Automatic or Off.
+
+Every blocked attempt appears in Traffic: refused names as `shakerproxy.dns`
+lookups, refused connections as `shakerproxy.blocked` events (gatewayd reads
+the block rules' NFLOG group 853, at most one event per client, destination
+and reason a minute). Both carry `blocked` and `blocked_reason`.
+DNS-over-HTTPS connections that are not blocked are classified as
+`app.protocol:doh` (catalog hostname by TLS server name or looked-up name, or
+a catalog resolver address on 443).
+
+Migration: an installation still on the untouched observe-only default
+(revision 1, never changed) moves to these defaults when gatewayd starts. A
+policy an administrator applied is never changed.
+
+The resolver list is `BuiltinCatalog` in `internal/trafficpolicy/catalog.go`:
+add a provider there with its documented addresses, hostnames and source URL,
+bump `BuiltinCatalogRevision`, and keep `apps/mitmproxy/resolvers.json` (the
+interception proxy's DoH hostnames) in step.
+
 ## Packet path
 
 `shakerproxy-gatewayd` owns the revisioned policy and its fixed `iptables` and

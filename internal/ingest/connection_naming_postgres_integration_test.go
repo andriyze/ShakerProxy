@@ -138,6 +138,22 @@ func TestGatewayConnectionsAreNamedFromTheClientsDNSAnswers(t *testing.T) {
 	if connections != 2 {
 		t.Fatalf("searching github found %d connections, want 2", connections)
 	}
+	// A connection named by a DNS-over-HTTPS hostname is encrypted DNS even
+	// when the resolver's address is not in the catalog.
+	accept(HostDNSKind, at.Add(6*time.Minute), `{"source_ip":"192.168.10.201","source_port":40010,"destination_port":53,"protocol":"udp","service":"dns","query":"abc123.dns.nextdns.io","query_type":"A","response_code":"NOERROR","answer_count":1,"answers":[{"name":"abc123.dns.nextdns.io","type":"A","ttl":60,"data":"203.0.113.77"}],"blocked":false}`)
+	accept(HostConnKind, at.Add(6*time.Minute+time.Second), strings.Replace(connection("192.168.10.201", "203.0.113.77", 443), "37064", "37123", 1))
+	write()
+	dohQuery, err := ParseRecentEventQuery(url.Values{"limit": {"100"}, "q": {"proto:doh"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doh, err := sink.QueryRecent(ctx, dohQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doh.Events) != 1 || doh.Events[0].Kind != HostConnKind || doh.Events[0].DNSName != "abc123.dns.nextdns.io" || doh.Events[0].AppProtocol != "doh" || doh.Events[0].ProtocolCategory != "encrypted-dns" {
+		t.Fatalf("proto:doh found %+v", doh.Events)
+	}
 	// Top domains count the named connections right away: the lookup and
 	// the two connections the phone opened to github.com.
 	if found.Facets == nil {

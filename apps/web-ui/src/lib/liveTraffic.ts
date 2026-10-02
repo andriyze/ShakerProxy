@@ -17,7 +17,7 @@ export const STREAM_KINDS: { id: StreamKind; label: string; description: string;
     id: "dns",
     label: "DNS",
     description: "Name lookups and their answers",
-    query: "(kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked)",
+    query: "(kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked OR app.protocol:doh)",
   },
   {
     id: "tls",
@@ -176,6 +176,7 @@ const INSTANT_BADGES: Record<StreamKind, string> = { dns: "DNS", tls: "TLS", qui
 // streamLine is what one row says, e.g. DNS · maps.google.com · A → 142.250.1.1
 export function streamLine(event: RecentEvent): StreamLine {
   if (event.blocked) return blockedStreamLine(event)
+  if (event.app_protocol === "doh") return dohStreamLine(event)
   const kind = streamKind(event)
   const peer = endpoint(event.destination_ip, event.destination_port)
   const bytes = event.network_bytes ? compactBytes(event.network_bytes) : ""
@@ -296,6 +297,21 @@ const BLOCK_REASONS: Record<string, string> = {
 // blockReasonLabel names what ShakerProxy refused in plain language.
 export function blockReasonLabel(reason?: string): string {
   return BLOCK_REASONS[reason ?? ""] ?? "encrypted DNS"
+}
+
+// dohStreamLine is an encrypted DNS connection (DNS over HTTPS): its lookups
+// are hidden from ShakerProxy unless encrypted DNS is blocked or decrypted.
+function dohStreamLine(event: RecentEvent): StreamLine {
+  const peer = endpoint(event.destination_ip, event.destination_port)
+  const bytes = event.network_bytes ? compactBytes(event.network_bytes) : ""
+  return {
+    kind: "dns",
+    badge: "DoH",
+    name: event.tls_server_name || event.dns_name || peer || event.kind,
+    detail: ["encrypted DNS, lookups hidden", bytes].filter(Boolean).join(" · "),
+    peer,
+    problem: false,
+  }
 }
 
 // blockedStreamLine is a lookup or connection ShakerProxy refused: the device

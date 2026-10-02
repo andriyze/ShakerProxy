@@ -282,6 +282,64 @@ func BlockedResolverNames(policy Policy) []string {
 	return names
 }
 
+// DoHHostnames lists the catalog's DNS-over-HTTPS hostnames (wildcard
+// entries without their "*."), sorted. Each also covers its subdomains, so
+// cloudflare-dns.com covers mozilla.cloudflare-dns.com.
+func DoHHostnames() []string {
+	seen := map[string]bool{}
+	names := []string{}
+	for _, resolver := range BuiltinCatalog().Resolvers {
+		if !resolverSupportsTransport(resolver, TransportDoH) && !resolverSupportsTransport(resolver, TransportDoH3) {
+			continue
+		}
+		for _, hostname := range resolver.Hostnames {
+			name := strings.TrimPrefix(strings.ToLower(hostname), "*.")
+			if !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// IsDoHHostname reports a catalog DNS-over-HTTPS hostname or a subdomain of
+// one.
+func IsDoHHostname(name string) bool {
+	name = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
+	if name == "" {
+		return false
+	}
+	for _, host := range DoHHostnames() {
+		if name == host || strings.HasSuffix(name, "."+host) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsDoHResolverAddress reports an address of a catalog resolver that serves
+// DNS over HTTPS (TCP or UDP 443 to it is encrypted DNS).
+func IsDoHResolverAddress(raw string) bool {
+	address, err := netip.ParseAddr(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	address = address.Unmap()
+	for _, resolver := range BuiltinCatalog().Resolvers {
+		if !resolverSupportsTransport(resolver, TransportDoH) && !resolverSupportsTransport(resolver, TransportDoH3) {
+			continue
+		}
+		for _, candidate := range append(append([]string(nil), resolver.IPv4...), resolver.IPv6...) {
+			if parsed, err := netip.ParseAddr(candidate); err == nil && parsed == address {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // IsEncryptedDNSCanary reports one of EncryptedDNSCanaries.
 func IsEncryptedDNSCanary(name string) bool {
 	name = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
