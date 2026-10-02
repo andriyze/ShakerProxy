@@ -42,6 +42,7 @@ type RuntimeMachine interface {
 	SetBridgeNFCallIP6Tables(context.Context, int) error
 	SetIPv6AcceptRA(context.Context, string, int) error
 	SetIPv6Forwarding(context.Context, int) error
+	SetBridgePortHairpin(context.Context, string) error
 	OwnedRuleCount(context.Context, string, string, string) (int, bool, error)
 	HookPresent(context.Context, string, FirewallHook) (bool, error)
 }
@@ -65,6 +66,11 @@ type runtimeWork struct {
 	ipv6                networktransaction.IPv6RollbackSpec
 	ipv6Restore         string
 	ipv6Hooks           []FirewallHook
+	// accessPointHairpin is the access point whose bridge port needs hairpin
+	// mode so traffic between two Wi-Fi devices crosses the bridge
+	// (networkplan.WiFiClientTrafficBridged). hostapd adds the port, with
+	// hairpin off, whenever it starts.
+	accessPointHairpin string
 }
 
 // bind proves that the persisted preview still belongs to the confirmed plan
@@ -129,6 +135,13 @@ func (r RuntimeRestorer) bind(staged networkplan.StagedPlan) (runtimeWork, error
 		}
 		work.redirectsInterface = arm.CurrentName
 	}
+	if networkplan.WiFiClientTrafficBridged(staged.Plan) {
+		ap, ok := networkplan.WiFiAccessPoint(staged.Plan)
+		if !ok || !safeSysctlInterfaceName(ap.CurrentName) || strings.Contains(ap.CurrentName, ":") {
+			return runtimeWork{}, errors.New("Wi-Fi access point is unavailable for runtime restore")
+		}
+		work.accessPointHairpin = ap.CurrentName
+	}
 	work.bridgeNetfilter = networkplan.InlineBridge(staged.Plan)
 	work.bridgeNetfilterIPv6 = work.bridgeNetfilter && manifest.Rollback.BridgeNetfilterIPv6
 	if work.ipv6.Firewall != "" {
@@ -152,6 +165,20 @@ func (r RuntimeRestorer) Restore(ctx context.Context, staged networkplan.StagedP
 	if err != nil {
 		return err
 	}
+	if err := r.restoreFamilies(ctx, work); err != nil {
+		return err
+	}
+	// Until hostapd has added the access point to the bridge there is no
+	// port to set; the next check after it starts finds hairpin off.
+	if work.accessPointHairpin != "" && r.bridgePortHairpinOff(work.accessPointHairpin) {
+		if err := r.Machine.SetBridgePortHairpin(ctx, work.accessPointHairpin); err != nil {
+			return fmt.Errorf("send traffic between Wi-Fi devices through the bridge (hairpin mode on %s): %w", work.accessPointHairpin, err)
+		}
+	}
+	return nil
+}
+
+func (r RuntimeRestorer) restoreFamilies(ctx context.Context, work runtimeWork) error {
 	if err := r.Machine.LoadShakerProxyFirewall(ctx, work.iptablesPath, work.ipv4Restore); err != nil {
 		return fmt.Errorf("load ShakerProxy firewall batch: %w", err)
 	}
@@ -249,6 +276,9 @@ func (r RuntimeRestorer) Drift(ctx context.Context, staged networkplan.StagedPla
 	if work.redirectsInterface != "" {
 		r.expectSysctl(&drift, "/proc/sys/net/ipv4/conf/"+work.redirectsInterface+"/send_redirects", "0", "IPv4 redirects are enabled on the single-arm interface")
 	}
+	if work.accessPointHairpin != "" && r.bridgePortHairpinOff(work.accessPointHairpin) {
+		drift = append(drift, fmt.Sprintf("traffic between Wi-Fi devices would be dropped by the bridge (hairpin mode is off on %s)", work.accessPointHairpin))
+	}
 	if work.ipv6.Firewall != "" {
 		if err := checkFamily(work.ipv6.Ip6tablesPath, "ip6tables", work.ipv6Restore, work.ipv6Hooks); err != nil {
 			return nil, err
@@ -261,6 +291,13 @@ func (r RuntimeRestorer) Drift(ctx context.Context, staged networkplan.StagedPla
 		}
 	}
 	return drift, nil
+}
+
+// bridgePortHairpinOff reports whether an interface is a bridge port with
+// hairpin mode off. A missing port (hostapd not running) is not reported.
+func (r RuntimeRestorer) bridgePortHairpinOff(interfaceName string) bool {
+	raw, err := os.ReadFile(rootedPath(r.HostRoot, BridgePortHairpinPath(interfaceName)))
+	return err == nil && strings.TrimSpace(string(raw)) != "1"
 }
 
 func (r RuntimeRestorer) expectSysctl(drift *[]string, path, expected, message string) {
@@ -387,6 +424,14 @@ func (OSRuntimeMachine) SetBridgeNFCallIP6Tables(ctx context.Context, value int)
 
 func (OSRuntimeMachine) SetIPv6AcceptRA(ctx context.Context, interfaceName string, value int) error {
 	return (OSIPv6Machine{}).SetIPv6AcceptRA(ctx, interfaceName, value)
+}
+
+// SetBridgePortHairpin turns on hairpin mode for a bridge port.
+func (OSRuntimeMachine) SetBridgePortHairpin(_ context.Context, interfaceName string) error {
+	if !safeSysctlInterfaceName(interfaceName) || strings.Contains(interfaceName, ":") {
+		return errors.New("bridge port name is invalid")
+	}
+	return os.WriteFile(BridgePortHairpinPath(interfaceName), []byte("1"), 0)
 }
 
 func (OSRuntimeMachine) SetIPv6Forwarding(ctx context.Context, value int) error {

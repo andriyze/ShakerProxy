@@ -114,7 +114,7 @@ func TestApplierWritesAccessPointConfigAndStartsItBeforeDHCP(t *testing.T) {
 		}
 		want := AccessPointTarget{Interface: "wlan0"}
 		if bridged {
-			want.Bridge = networkplan.LabBridgeName
+			want.Bridge, want.Hairpin = networkplan.LabBridgeName, true
 		}
 		if len(accessPoint.starts) != 1 || accessPoint.starts[0] != want {
 			t.Fatalf("access point target is wrong: %+v", accessPoint.starts)
@@ -389,6 +389,38 @@ func TestOSAccessPointServiceRestartsAndWaitsForBridgedAccessPoint(t *testing.T)
 	}, nil)
 	if err := inline.StartAccessPoint(context.Background(), AccessPointTarget{Interface: "wlan0", Bridge: networkplan.InlineBridgeName}); err != nil {
 		t.Fatalf("an access point forwarding in the inline bridge was refused: %v", err)
+	}
+}
+
+// On a bridge without Wi-Fi client isolation, hairpin mode on the access
+// point's port sends traffic between two Wi-Fi devices back out to the other
+// one; it is set once hostapd has added the port, which starts with it off.
+func TestOSAccessPointServiceTurnsOnHairpinOnceTheAccessPointForwards(t *testing.T) {
+	_, service := osAccessPointFixture(map[string]string{
+		"/sys/class/net/wlan0/operstate":        "up\n",
+		"/sys/class/net/spbr0/brif/wlan0/state": "3\n",
+	}, nil)
+	written := map[string]string{}
+	service.writeFile = func(path string, value []byte) error {
+		written[path] = string(value)
+		return nil
+	}
+	if err := service.StartAccessPoint(context.Background(), AccessPointTarget{Interface: "wlan0", Bridge: networkplan.InlineBridgeName, Hairpin: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(written) != 1 || written["/sys/class/net/wlan0/brport/hairpin_mode"] != "1" {
+		t.Fatalf("hairpin mode was not turned on: %v", written)
+	}
+	written = map[string]string{}
+	if err := service.StartAccessPoint(context.Background(), AccessPointTarget{Interface: "wlan0", Bridge: networkplan.InlineBridgeName}); err != nil || len(written) != 0 {
+		t.Fatalf("hairpin mode was touched for an isolated access point: %v %v", err, written)
+	}
+	service.writeFile = func(string, []byte) error { return os.ErrPermission }
+	if err := service.StartAccessPoint(context.Background(), AccessPointTarget{Interface: "wlan0", Bridge: networkplan.InlineBridgeName, Hairpin: true}); err == nil || !strings.Contains(err.Error(), "hairpin") {
+		t.Fatalf("a failed hairpin write was not reported: %v", err)
+	}
+	if err := service.StartAccessPoint(context.Background(), AccessPointTarget{Interface: "wlan0", Hairpin: true}); err == nil {
+		t.Fatal("hairpin mode was accepted for an access point that is not a bridge port")
 	}
 }
 

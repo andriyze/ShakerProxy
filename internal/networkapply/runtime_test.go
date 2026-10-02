@@ -84,6 +84,14 @@ func (m *fakeRuntimeMachine) SetIPv4Forwarding(_ context.Context, value int) err
 	return nil
 }
 
+func (m *fakeRuntimeMachine) SetBridgePortHairpin(_ context.Context, name string) error {
+	if err := m.record("hairpin:" + name); err != nil {
+		return err
+	}
+	m.writeSysctl("sys/class/net/"+name+"/brport/hairpin_mode", "1")
+	return nil
+}
+
 func (m *fakeRuntimeMachine) SetBridgeNFCallIPTables(_ context.Context, value int) error {
 	if err := m.record(fmt.Sprintf("bridge-nf:%d", value)); err != nil {
 		return err
@@ -524,5 +532,57 @@ func TestOSRuntimeMachineInsertsMissingHooksBelowTheTrafficPolicyHook(t *testing
 	}
 	if allowedRuntimeCommand("/bin/sh", []string{"-c", "iptables -S"}) {
 		t.Fatal("shell accepted by the runtime allowlist")
+	}
+}
+
+// hostapd adds the access point to the bridge with hairpin mode off whenever
+// it starts (a reboot, a crash), which would drop traffic between two Wi-Fi
+// devices now that ap_isolate hands it to the bridge. The keeper finds that
+// as drift and turns hairpin back on; before hostapd runs there is no port.
+func TestRuntimeRestoreKeepsTheAccessPointHairpinOn(t *testing.T) {
+	inlineWiFi := func(isolated bool) func(*networkplan.StagedPlan) {
+		return func(staged *networkplan.StagedPlan) {
+			staged.Plan.Topology = networkplan.TopologyTransparentBridge
+			staged.Plan.Interfaces = []networkplan.Interface{{StableID: "up", CurrentName: "eth0", Role: networkplan.RoleWAN}, {StableID: "dev", CurrentName: "eth1", Role: networkplan.RoleLab}, {StableID: "wifi", CurrentName: "wlan0", Role: networkplan.RoleWiFiAP}}
+			staged.Plan.WAN = networkplan.WANConfiguration{IPv4Mode: networkplan.WANIPv4Static, IPv4Address: "192.0.2.20/24", IPv4Gateway: "192.0.2.1", IPv6Mode: networkplan.WANIPv6SLAAC, DNSMode: networkplan.WANDNSUseDHCP, AllowWorkingWANChange: true}
+			staged.Plan.IPv4 = networkplan.IPv4Configuration{Enabled: true, LabCIDR: "192.0.2.0/24", GatewayAddress: "192.0.2.20"}
+			staged.Plan.IPv6 = networkplan.IPv6Configuration{Strategy: networkplan.IPv6ObserveOnly}
+			staged.Plan.WiFi = &networkplan.WiFiConfiguration{Enabled: true, SSID: "Bridge lab", Security: networkplan.WiFiSecurityWPA2PSK, Passphrase: "correct horse battery", CountryCode: "US", BridgeWithLab: true, ClientIsolation: isolated}
+		}
+	}
+	bridge := confirmedRuntimeFixture(t, inlineWiFi(false))
+	bridge.machine.reboot()
+	if err := bridge.restorer.Restore(context.Background(), bridge.staged); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(bridge.machine.calls, "\n"), "hairpin") {
+		t.Fatalf("hairpin mode was set before hostapd added the port: %v", bridge.machine.calls)
+	}
+	if drift, err := bridge.restorer.Drift(context.Background(), bridge.staged); err != nil || len(drift) != 0 {
+		t.Fatalf("a not-yet-started access point counted as drift: %v %v", drift, err)
+	}
+	bridge.machine.writeSysctl("sys/class/net/wlan0/brport/hairpin_mode", "0")
+	drift, err := bridge.restorer.Drift(context.Background(), bridge.staged)
+	if err != nil || !strings.Contains(strings.Join(drift, "\n"), "hairpin mode is off on wlan0") {
+		t.Fatalf("hairpin mode off was not reported: %v %v", drift, err)
+	}
+	bridge.machine.calls = nil
+	if err := bridge.restorer.Restore(context.Background(), bridge.staged); err != nil {
+		t.Fatal(err)
+	}
+	if calls := bridge.machine.calls; len(calls) == 0 || calls[len(calls)-1] != "hairpin:wlan0" {
+		t.Fatalf("hairpin mode was not turned back on last: %v", calls)
+	}
+	if drift, err := bridge.restorer.Drift(context.Background(), bridge.staged); err != nil || len(drift) != 0 {
+		t.Fatalf("restore left drift: %v %v", drift, err)
+	}
+
+	isolated := confirmedRuntimeFixture(t, inlineWiFi(true))
+	isolated.machine.writeSysctl("sys/class/net/wlan0/brport/hairpin_mode", "0")
+	if err := isolated.restorer.Restore(context.Background(), isolated.staged); err != nil {
+		t.Fatal(err)
+	}
+	if drift, err := isolated.restorer.Drift(context.Background(), isolated.staged); err != nil || len(drift) != 0 || strings.Contains(strings.Join(isolated.machine.calls, "\n"), "hairpin") {
+		t.Fatalf("an isolated access point got hairpin mode: %v %v %v", drift, err, isolated.machine.calls)
 	}
 }
