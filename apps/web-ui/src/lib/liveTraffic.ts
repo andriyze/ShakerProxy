@@ -18,16 +18,29 @@ const DISCOVERY_PORTS: Record<number, string> = {
   546: "DHCPv6",
   547: "DHCPv6",
   3702: "WS-Disc",
+  10001: "UniFi",
 }
-const DISCOVERY_PORT_QUERY = Object.keys(DISCOVERY_PORTS)
-  .map((port) => `dst.port:${port}`)
-  .join(" OR ")
-const NOT_DISCOVERY = Object.keys(DISCOVERY_PORTS)
-  .map((port) => `NOT dst.port:${port}`)
-  .join(" AND ")
 
-export function discoveryProtocol(event: Pick<RecentEvent, "destination_port" | "kind">): string {
-  return DISCOVERY_PORTS[event.destination_port ?? 0] ?? (event.kind === "zeek.dhcp" ? "DHCP" : "")
+const DISCOVERY_LABELS: Record<string, string> = {
+  "ubnt-discovery": "UniFi",
+  "local-broadcast": "Bcast",
+  "netbios-ns": "NetBIOS",
+  "ws-discovery": "WS-Disc",
+}
+// Ingest classifies these (protocolclass): mDNS, SSDP, LLMNR, NetBIOS and
+// WS-Discovery are local-discovery; DHCP is network management.
+const DISCOVERY_QUERY = "(protocol.category:local-discovery OR app.protocol:dhcp OR app.protocol:dhcpv6)"
+const DISCOVERY_APPS = new Set(["mdns", "ssdp", "llmnr", "netbios-ns", "ws-discovery", "dhcp", "dhcpv6"])
+
+export function discoveryProtocol(event: Pick<RecentEvent, "destination_port" | "kind" | "app_protocol" | "protocol_category">): string {
+  const byPort = DISCOVERY_PORTS[event.destination_port ?? 0]
+  if (byPort) return byPort
+  if (event.kind === "zeek.dhcp") return "DHCP"
+  if (event.protocol_category === "local-discovery" || DISCOVERY_APPS.has(event.app_protocol ?? "")) {
+    const app = event.app_protocol ?? ""
+    return DISCOVERY_LABELS[app] ?? (app ? app.toUpperCase() : "Bcast")
+  }
+  return ""
 }
 
 // Each chip selects the events that carry that kind of information once. The
@@ -43,7 +56,7 @@ export const STREAM_KINDS: { id: StreamKind; label: string; description: string;
     label: "DNS",
     description: "Name lookups and their answers",
     query:
-      "(kind:shakerproxy.dns OR (kind:zeek.dns AND NOT dst.port:5353 AND NOT dst.port:5355) OR kind:shakerproxy.blocked OR app.protocol:doh OR app.protocol:dot OR app.protocol:doq)",
+      "(kind:shakerproxy.dns OR (kind:zeek.dns AND NOT protocol.category:local-discovery) OR kind:shakerproxy.blocked OR app.protocol:doh OR app.protocol:dot OR app.protocol:doq)",
   },
   {
     id: "tls",
@@ -67,7 +80,7 @@ export const STREAM_KINDS: { id: StreamKind; label: string; description: string;
     id: "discovery",
     label: "Discovery",
     description: "How devices find each other and announce their names: mDNS/Bonjour, SSDP/UPnP, LLMNR, NetBIOS, DHCP",
-    query: `((kind:zeek.dns OR kind:zeek.conn OR kind:zeek.dhcp) AND (${DISCOVERY_PORT_QUERY}))`,
+    query: `(${DISCOVERY_QUERY} AND NOT source:SURICATA)`,
   },
   { id: "alert", label: "Alerts", description: "Suricata alerts", query: "kind:suricata.alert" },
   {
@@ -75,11 +88,22 @@ export const STREAM_KINDS: { id: StreamKind; label: string; description: string;
     label: "Other",
     description: "Connections without a name: IP-only, NTP, ICMP and other protocols",
     query:
-      `((kind:zeek.conn AND NOT tls.sni:* AND NOT dst.port:53 AND ${NOT_DISCOVERY}) OR (kind:shakerproxy.conn AND NOT dst.port:443 AND NOT dst.port:80 AND NOT dst.port:53))`,
+      `((kind:zeek.conn AND NOT tls.sni:* AND NOT dst.port:53 AND NOT ${DISCOVERY_QUERY}) OR (kind:shakerproxy.conn AND NOT dst.port:443 AND NOT dst.port:80 AND NOT dst.port:53))`,
   },
 ]
 
 export const ALL_STREAM_KINDS: StreamKind[] = STREAM_KINDS.map((kind) => kind.id)
+
+// EVERYTHING_QUERY is every event except the analyzers' duplicate records.
+// Joining all chips' queries runs past the server's 128-term limit, so a
+// selection of most kinds is written as this minus the kinds left out.
+export const EVERYTHING_QUERY =
+  "NOT (kind:suricata.flow OR kind:suricata.dns OR kind:suricata.mdns OR kind:suricata.quic OR kind:suricata.tls OR kind:suricata.http OR kind:suricata.anomaly OR kind:zeek.ssl OR kind:zeek.quic OR kind:zeek.weird OR kind:zeek.known_services OR kind:zeek.software OR kind:zeek.reporter OR (kind:zeek.conn AND (dst.port:53 OR dst.port:5353 OR dst.port:5355)))"
+
+// queryTerms approximates how the server counts terms: words and brackets.
+export function queryTerms(query: string): number {
+  return query.match(/[()]|[^\s()]+/g)?.length ?? 0
+}
 
 export const STREAM_TIMES: [string, string][] = [
   ["Live", ""],
@@ -117,8 +141,14 @@ export function composeLiveQuery(filters: LiveFilters, advanced = "", formerIDs:
   const parts: string[] = []
   if (TIME.test(filters.time)) parts.push(`time:${filters.time}`)
   const kinds = STREAM_KINDS.filter((kind) => filters.kinds.includes(kind.id))
-  if (kinds.length === 1) parts.push(kinds[0].query)
-  else if (kinds.length > 1) parts.push(`(${kinds.map((kind) => kind.query).join(" OR ")})`)
+  const left = STREAM_KINDS.filter((kind) => !filters.kinds.includes(kind.id))
+  const union = (list: typeof STREAM_KINDS) => (list.length === 1 ? list[0].query : `(${list.map((kind) => kind.query).join(" OR ")})`)
+  if (kinds.length > 0) {
+    // The shorter of "these kinds" and "everything but the others".
+    const chosen = union(kinds)
+    const rest = left.length === 0 ? EVERYTHING_QUERY : `(${EVERYTHING_QUERY} AND NOT ${union(left)})`
+    parts.push(queryTerms(rest) < queryTerms(chosen) ? rest : chosen)
+  }
   // The server accepts 128 query terms; 12 device IDs leave room for the
   // kind chips, time, search and an advanced filter.
   const ids = Array.from(
