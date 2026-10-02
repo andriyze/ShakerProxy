@@ -70,3 +70,23 @@ event connection_state_remove(c: connection) &priority=0
 	else if ( c?$http && c$http?$host && c$http$host != "" )
 		c$conn$server_name = split_string1(c$http$host, /:/)[0];
 	}
+
+# dhcp.log: the client's parameter request list (option 55, in the order
+# the client asked) and the router the server hands out (option 3). With the
+# vendor class from the DHCP software script, the list is a fingerprint of
+# the client's DHCP implementation, so the inventory can tell what a device
+# is even when the network's router, not ShakerProxy, serves its lease.
+redef record DHCP::Info += {
+	client_param_list: vector of count &log &optional;
+	routers: vector of addr &log &optional;
+};
+
+event DHCP::aggregate_msgs(ts: time, id: conn_id, uid: string, is_orig: bool, msg: DHCP::Msg, options: DHCP::Options) &priority=5
+	{
+	# BOOTREQUEST (op 1) comes from the client, BOOTREPLY (op 2) from a
+	# server; a relayed or broadcast reply can arrive as an originator.
+	if ( msg$op == 1 && options?$param_list && |options$param_list| > 0 )
+		DHCP::log_info$client_param_list = options$param_list;
+	if ( msg$op == 2 && options?$routers && |options$routers| > 0 )
+		DHCP::log_info$routers = options$routers;
+	}

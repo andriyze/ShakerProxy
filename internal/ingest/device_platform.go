@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -57,6 +58,45 @@ var platformChecks = map[string]platformCheck{
 	"play.googleapis.com":                    {"Android device", 1},
 }
 
+// DHCPPlatform says what a device is from its DHCP request when only one
+// platform's DHCP client asks that way: the vendor class it sends (option
+// 60) or, for Apple devices, which send none, the order of the options they
+// ask for (option 55). Evidence is the value that matched, for the UI's
+// "Identified from its DHCP request: ...". Rank orders the hint against the
+// connectivity checks, which win a tie: they are more specific.
+func DHCPPlatform(vendorClass, parameterList string) (platform, evidence string, rank int, ok bool) {
+	lower := strings.ToLower(vendorClass)
+	switch {
+	case strings.HasPrefix(lower, "android-dhcp-"):
+		return "Android device", vendorClass, 1, true
+	case strings.HasPrefix(vendorClass, "MSFT "):
+		return "Windows PC", vendorClass, 2, true
+	case strings.HasPrefix(lower, "dhcpcd-"):
+		// dhcpcd is Linux's (Raspberry Pi OS, Arch) and older Android's.
+		return "Linux or Android device", vendorClass, 0, true
+	case strings.HasPrefix(lower, "udhcp "):
+		// BusyBox's client: routers, cameras, plugs and other embedded Linux.
+		return "Embedded Linux device", vendorClass, 0, true
+	case vendorClass == "" && appleParameterList(parameterList):
+		return "Apple device", "options " + parameterList, 1, true
+	}
+	return "", "", 0, false
+}
+
+// appleParameterList matches the option order of Apple's DHCP client on
+// iOS, iPadOS and macOS: subnet mask, then classless routes (121) before
+// the router, and auto-configuration (116 or 252, with 119) among the rest.
+func appleParameterList(list string) bool {
+	if !strings.HasPrefix(list, "1,121,3,6,15,") {
+		return false
+	}
+	options := map[string]bool{}
+	for _, option := range strings.Split(list, ",") {
+		options[option] = true
+	}
+	return options["119"] && options["252"]
+}
+
 // DevicePlatformHint says what a device most likely is and which check
 // showed it.
 type DevicePlatformHint struct {
@@ -84,6 +124,12 @@ func platformCheckDomains() []string {
 	}
 	sort.Strings(domains)
 	return domains
+}
+
+// DevicePlatformRank is how specific a connectivity-check hint is, on the
+// scale DHCPPlatform's rank uses.
+func DevicePlatformRank(hint DevicePlatformHint) int {
+	return platformChecks[hint.Domain].rank
 }
 
 // PreferDevicePlatformHint reports whether candidate is a better hint than

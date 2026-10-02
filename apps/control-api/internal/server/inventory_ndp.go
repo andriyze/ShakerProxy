@@ -32,6 +32,9 @@ func (s *Server) withNeighborEvidence(snapshot deviceinventory.Snapshot, err err
 		if table.Family != source.family {
 			return deviceinventory.Snapshot{}, fmt.Errorf("gateway %s returned the wrong address family", source.method)
 		}
+		if table.Family == gatewayprotocol.NeighborFamilyIPv4 {
+			s.noteIPv4Scope(deviceinventory.ObservedDHCPScope{Interface: table.Interface, VLANID: table.VLANID, ScopePlanSHA256: table.ScopePlanHash}, table.LabPrefix)
+		}
 		for _, neighbor := range table.Neighbors {
 			observations = append(observations, deviceinventory.NeighborObservation{
 				Address:         netip.MustParseAddr(neighbor.Address),

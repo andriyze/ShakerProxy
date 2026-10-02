@@ -142,11 +142,19 @@ func deviceDisplayName(device deviceinventory.Device) string {
 	if device.FriendlyName != "" {
 		return device.FriendlyName
 	}
+	name := ""
 	if len(device.SuggestedNames) > 0 {
-		return device.SuggestedNames[0].Name
+		name = device.SuggestedNames[0].Name
+	} else if len(device.Hostnames) > 0 {
+		name = device.Hostnames[len(device.Hostnames)-1].Hostname
 	}
-	if len(device.Hostnames) > 0 {
-		return device.Hostnames[len(device.Hostnames)-1].Hostname
+	// Hostname evidence is stored lower-cased; the name as the device sent
+	// it in DHCP ("iPad") reads better.
+	if observed := device.ObservedDHCP; observed != nil && name != "" && strings.EqualFold(observed.HostName, name) {
+		return observed.HostName
+	}
+	if name != "" {
+		return name
 	}
 	return device.ID
 }

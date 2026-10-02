@@ -1,6 +1,6 @@
 import React, { FormEvent, useEffect, useRef, useState } from "react"
 import { uniqueAddresses } from "../../lib/deviceAddresses"
-import { deviceTitle } from "../../lib/deviceTitle"
+import { deviceTitle, dhcpIdentityParts } from "../../lib/deviceTitle"
 import { withPassword } from "../../shell/passwordPrompt"
 import { idempotencyKey } from "../../lib/format"
 import { ErrorBox, FeatureBoundary } from "../../shell/common"
@@ -169,6 +169,15 @@ export function DeviceDetailDrawer({
                   {device.location ? ` · ${device.location}` : ""}
                 </small>
               </article>
+              {device.observed_dhcp && (
+                <article title="From the DHCP exchanges the lab recording saw, when the network's router, not ShakerProxy, gave the device its address.">
+                  <span>DHCP</span>
+                  <strong>{device.observed_dhcp.host_name || device.observed_dhcp.vendor_class || "Asked for an address"}</strong>
+                  <small>
+                    {dhcpIdentityParts(device).join(" · ")} · last {new Date(device.observed_dhcp.last_seen).toLocaleString()}
+                  </small>
+                </article>
+              )}
             </section>
             <div className="device-drawer-actions">
               <button type="button" onClick={onViewTraffic}>
@@ -224,6 +233,28 @@ export function DeviceDetailDrawer({
                   </article>
                 ))}
               </section>
+              {device.observed_dhcp && (
+                <section className="device-drawer-evidence">
+                  <h3>DHCP request seen on the lab</h3>
+                  <article>
+                    <strong>
+                      {device.observed_dhcp.host_name || "No name"} · {device.observed_dhcp.hardware_addr}
+                    </strong>
+                    <small>
+                      {[
+                        device.observed_dhcp.client_fqdn && `FQDN ${device.observed_dhcp.client_fqdn}`,
+                        device.observed_dhcp.vendor_class && `vendor class ${device.observed_dhcp.vendor_class}`,
+                        device.observed_dhcp.parameter_list && `options ${device.observed_dhcp.parameter_list}`,
+                        device.observed_dhcp.server && `server ${device.observed_dhcp.server}`,
+                        device.observed_dhcp.router && `gateway ${device.observed_dhcp.router}`,
+                        `last ${new Date(device.observed_dhcp.last_seen).toLocaleString()}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </small>
+                  </article>
+                </section>
+              )}
               <section className="device-drawer-evidence">
                 <h3>Address history</h3>
                 {uniqueAddresses(device.addresses).map((address) => (

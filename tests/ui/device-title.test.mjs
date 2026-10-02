@@ -68,3 +68,23 @@ test("devices, the drawer and Traffic all use the shared title", () => {
   assert.match(webUIFile("workspaces/traffic/TrafficTable.tsx"), /eventDeviceTitle\(item, directory\)/)
   assert.doesNotMatch(webUIFile("workspaces/devices/DeviceInventory.tsx"), /address assignments \(DHCP\)\. /)
 })
+
+test("a device the router leased is titled by its own DHCP name and says how it was identified", async () => {
+  const { dhcpIdentityParts, platformEvidence } = await import("../../apps/web-ui/src/lib/deviceTitle.ts")
+  const ipad = device({
+    hostnames: [{ hostname: "ipad", source: "OBSERVED_DHCP", confidence: 70, first_seen: "2026-10-02T01:00:00Z", last_seen: "2026-10-02T01:00:00Z" }],
+    observed_dhcp: { hardware_addr: "0e:47:eb:9f:1b:6a", host_name: "iPad", parameter_list: "1,121,3,6,15,108,114,119,252,95,44,46", server: "192.168.10.1", router: "192.168.10.1", last_seen: "2026-10-02T01:00:00Z" },
+  })
+  assert.equal(deviceTitle(ipad), "iPad · 192.168.10.201", "the device's own spelling, not the lower-cased evidence")
+  assert.equal(deviceTitle(device({ friendly_name: "Kitchen iPad", observed_dhcp: ipad.observed_dhcp, hostnames: ipad.hostnames })), "Kitchen iPad · 192.168.10.201")
+  assert.deepEqual(dhcpIdentityParts(ipad), ["calls itself iPad", "asks for options 1,121,3,6,15,108,114,119,252,95,44,46", "answered by 192.168.10.1"])
+  assert.deepEqual(dhcpIdentityParts(device()), [])
+  const android = device({ observed_dhcp: { hardware_addr: "3c:28:6d:65:54:a2", vendor_class: "android-dhcp-14", server: "192.168.10.1", router: "192.168.10.254", last_seen: "2026-10-02T01:00:00Z" } })
+  assert.deepEqual(dhcpIdentityParts(android), ["android-dhcp-14", "answered by 192.168.10.1 (gateway 192.168.10.254)"])
+  const dhcpHint = { platform: "Android device", source: "dhcp", detail: "android-dhcp-14", last_seen: "2026-10-02T01:00:00Z" }
+  assert.equal(deviceTitle(android, "", dhcpHint), "Android device · 192.168.10.201")
+  assert.equal(platformEvidence(dhcpHint), "Identified from its DHCP request: android-dhcp-14")
+  assert.equal(platformEvidence(GRAPHENE), "Identified from its system traffic to connectivitycheck.grapheneos.network")
+  assert.match(webUIFile("workspaces/devices/DeviceRow.tsx"), /platformEvidence\(platformHint\)/)
+  assert.match(webUIFile("workspaces/devices/DeviceDetailDrawer.tsx"), /dhcpIdentityParts\(device\)/)
+})

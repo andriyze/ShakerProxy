@@ -43,6 +43,19 @@ type DeviceHostname struct {
 	LastSeen   time.Time `json:"last_seen"`
 }
 
+// DeviceDHCP is the DHCP identity a device showed on the lab when another
+// server (the network's router) answered it.
+type DeviceDHCP struct {
+	HostName      string    `json:"host_name,omitempty"`
+	ClientFQDN    string    `json:"client_fqdn,omitempty"`
+	VendorClass   string    `json:"vendor_class,omitempty"`
+	ParameterList string    `json:"parameter_list,omitempty"`
+	Platform      string    `json:"platform,omitempty"`
+	Server        string    `json:"server,omitempty"`
+	Router        string    `json:"router,omitempty"`
+	LastSeen      time.Time `json:"last_seen"`
+}
+
 type Device struct {
 	Schema                int              `json:"schema"`
 	ID                    string           `json:"id"`
@@ -55,6 +68,7 @@ type Device struct {
 	Vendor                string           `json:"vendor,omitempty"`
 	Addresses             []DeviceAddress  `json:"addresses"`
 	Hostnames             []DeviceHostname `json:"hostnames"`
+	DHCP                  *DeviceDHCP      `json:"dhcp,omitempty"`
 	FirstSeen             time.Time        `json:"first_seen"`
 	LastSeen              time.Time        `json:"last_seen"`
 	Online                bool             `json:"online"`
@@ -187,6 +201,16 @@ func validateAgentDevice(device Device) error {
 	for _, id := range device.FormerIDs {
 		if !agentDeviceIDPattern.MatchString(id) || id == device.ID {
 			return errors.New("agent device API returned an invalid former device ID")
+		}
+	}
+	if dhcp := device.DHCP; dhcp != nil {
+		if !boundedAgentText(dhcp.HostName, 0, 253) || !boundedAgentText(dhcp.ClientFQDN, 0, 253) || !boundedAgentText(dhcp.VendorClass, 0, 255) || !boundedAgentText(dhcp.ParameterList, 0, 255) || !boundedAgentText(dhcp.Platform, 0, 64) || dhcp.LastSeen.IsZero() {
+			return errors.New("agent device API returned an invalid DHCP identity")
+		}
+		for _, value := range []string{dhcp.Server, dhcp.Router} {
+			if parsed, err := netip.ParseAddr(value); value != "" && (err != nil || !parsed.Is4() || parsed.String() != value) {
+				return errors.New("agent device API returned an invalid DHCP server")
+			}
 		}
 	}
 	return nil

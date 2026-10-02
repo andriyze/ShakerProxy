@@ -41,6 +41,9 @@ jobs:
         with: {go-version: "1.25.1", cache: true}
       - run: go mod tidy && git diff --exit-code
       - run: gofmt -w apps host internal && git diff --exit-code
+      - name: The published OpenAPI document parses as YAML
+        run: |
+          ruby -ryaml -e 'YAML.safe_load(File.read(ARGV[0]), aliases: true)' schemas/api/openapi.yaml
       - run: go vet ./...
       - run: go test -race ./...
       - run: go build ./apps/shakerproxy-mcp/cmd/shakerproxy-mcp

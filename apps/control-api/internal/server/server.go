@@ -97,6 +97,7 @@ type Server struct {
 	lastLeaseReadProblem        string
 	eventReader                 ingest.RecentEventReader
 	devicePlatforms             devicePlatformCache
+	observedDHCP                observedDHCPState
 	liveEventReader             ingest.LiveEventReader
 	ingestStatus                ingest.StatusReader
 	eventSnapshots              ingest.EventQuerySnapshotRepository
@@ -2177,14 +2178,14 @@ func (s *Server) refreshInventory() (deviceinventory.Snapshot, error) {
 		if errors.Is(err, fs.ErrPermission) {
 			s.noteLeaseReadProblem(err)
 		}
-		return s.withNeighborEvidence(s.inventory.Snapshot())
+		return s.withObservedDHCP(s.withNeighborEvidence(s.inventory.Snapshot()))
 	}
 	if err != nil {
 		return deviceinventory.Snapshot{}, err
 	}
 	s.noteLeaseReadProblem(nil)
 	s.scopeDHCP4Leases(leases)
-	return s.withNeighborEvidence(s.inventory.ReconcileDHCP4(leases))
+	return s.withObservedDHCP(s.withNeighborEvidence(s.inventory.ReconcileDHCP4(leases)))
 }
 
 // readKeaDHCP4Leases is replaced in tests.

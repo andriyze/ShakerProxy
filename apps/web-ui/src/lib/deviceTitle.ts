@@ -56,7 +56,12 @@ export function deviceName(device: Device, hint?: DevicePlatformHint): { name: s
   const friendly = device.friendly_name?.trim()
   if (friendly) return { name: friendly, source: "friendly" }
   const broadcast = newest(device.hostnames ?? [], (hostname) => hostname.last_seen)?.hostname?.trim()
-  if (broadcast) return { name: broadcast, source: "broadcast" }
+  if (broadcast) {
+    // Hostname evidence is lower-cased; the DHCP request keeps the device's
+    // own spelling ("iPad").
+    const spelled = device.observed_dhcp?.host_name?.trim()
+    return { name: spelled && spelled.toLowerCase() === broadcast.toLowerCase() ? spelled : broadcast, source: "broadcast" }
+  }
   if (hint?.platform) return { name: hint.platform, source: "platform" }
   if (device.vendor?.name) return { name: device.vendor.name, source: "vendor" }
   const macs = (device.identities ?? []).filter((identity) => identity.kind === "MAC")
@@ -64,6 +69,26 @@ export function deviceName(device: Device, hint?: DevicePlatformHint): { name: s
     return { name: PRIVATE_ADDRESS_NAME, source: "private" }
   }
   return { name: "", source: "" }
+}
+
+// platformEvidence says how a platform hint was found, for the line under a
+// device's title.
+export function platformEvidence(hint: DevicePlatformHint): string {
+  if (hint.source === "dhcp") return `Identified from its DHCP request: ${hint.detail ?? ""}`.trim()
+  return `Identified from its system traffic to ${hint.domain ?? ""}`.trim()
+}
+
+// dhcpIdentityParts is what a device's DHCP request on the lab said, for the
+// Devices page: its own name, its DHCP client and the server that answered.
+export function dhcpIdentityParts(device: Device): string[] {
+  const observed = device.observed_dhcp
+  if (!observed) return []
+  const parts: string[] = []
+  if (observed.host_name) parts.push(`calls itself ${observed.host_name}`)
+  if (observed.vendor_class) parts.push(observed.vendor_class)
+  if (observed.parameter_list) parts.push(`asks for options ${observed.parameter_list}`)
+  if (observed.server) parts.push(`answered by ${observed.server}${observed.router && observed.router !== observed.server ? ` (gateway ${observed.router})` : ""}`)
+  return parts
 }
 
 // deviceTitle is "<name> · <IPv4>", or whichever of the two is known, or the
