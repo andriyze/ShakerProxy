@@ -294,7 +294,13 @@ export function WifiPlanEditor({ value, onChange, interfaces, roles, onRoleChang
               </button>
             </div>
           ) : (
-            <p className="lgf-hint">{hasWiredLab ? "Wi-Fi and wired lab devices share one lab network (bridged), so they can see each other." : "There is no wired lab port in this plan, so the Wi-Fi network is the lab network."}</p>
+            <p className="lgf-hint">
+              {topology === "TRANSPARENT_BRIDGE"
+                ? "The access point joins ShakerProxy's inline bridge beside the device port: Wi-Fi devices get their address, gateway and DNS from your router through ShakerProxy, and are recorded and controlled like the wired device."
+                : hasWiredLab
+                  ? "Wi-Fi and wired lab devices share one lab network (bridged), so they can see each other."
+                  : "There is no wired lab port in this plan, so the Wi-Fi network is the lab network."}
+            </p>
           )}
           <div className="lgf-check-list">
             <label className="lgf-checkbox">

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { inlineBridgeFields, routerGuess } from "../../apps/web-ui/src/lib/inlineBridgePlan.ts"
-import { extensionsApply } from "../../apps/web-ui/src/lib/planExtensions.ts"
+import { extensionApplies, extensionsApply } from "../../apps/web-ui/src/lib/planExtensions.ts"
 import { webUIFile } from "./web-ui-source.mjs"
 
 test("an inline bridge can keep getting its address from the router", () => {
@@ -43,9 +43,17 @@ test("the router is guessed from the network ShakerProxy is on", () => {
   assert.equal(routerGuess("not an address"), "")
 })
 
-test("the Network page offers the inline bridge without Wi-Fi or IPv6 extensions", async () => {
-  assert.equal(extensionsApply("TRANSPARENT_BRIDGE"), false)
+test("the Network page offers the inline bridge with the Wi-Fi access point but not the IPv6 extension", async () => {
+  assert.equal(extensionsApply("TRANSPARENT_BRIDGE"), true)
+  assert.equal(extensionApplies("TRANSPARENT_BRIDGE", "wifi"), true)
+  assert.equal(extensionApplies("TRANSPARENT_BRIDGE", "ipv6"), false)
+  assert.equal(extensionApplies("TWO_NIC", "ipv6"), true)
+  assert.equal(extensionApplies("SINGLE_ARM", "wifi"), false)
   const source = await webUIFile("workspaces/network/NetworkPlanBuilder.tsx")
   assert.match(source, /<option value="TRANSPARENT_BRIDGE">/)
   assert.doesNotMatch(source, /Transparent inline bridge · post-v1/)
+  assert.doesNotMatch(source, /Not available on a bridge yet/)
+  // The access point's settings are merged onto the bridge plan, not onto
+  // the routed plan the form would otherwise build.
+  assert.match(source, /mergePlanExtensions\(finalPlan, extensionValues, activeKeys\)/)
 })

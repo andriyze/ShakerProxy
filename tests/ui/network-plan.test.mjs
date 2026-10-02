@@ -96,7 +96,8 @@ test("the plan builder renders registered plan extensions and restores staged ch
   assert.match(builder, /sortedPlanExtensions\(\)/)
   assert.match(builder, /<extension\.Component planKey=\{extension\.planKey\}/)
   assert.match(builder, /onRoleChange=\{updateRole\}/)
-  assert.match(builder, /!\(useExtensions && claimedKeys\.has\("ipv6"\)\)/)
+  // The shell's own IPv6 control appears only where the IPv6 extension does not.
+  assert.match(builder, /!activeKeys\.has\("ipv6"\)/)
   assert.match(builder, /status\?\.staged_network_plan/)
   assert.match(builder, /restored: true/)
   const types = webUIFile("types.ts")
