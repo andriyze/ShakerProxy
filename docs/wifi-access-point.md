@@ -141,7 +141,9 @@ to `/etc/shakerproxy/hostapd/shakerproxy.conf`, which only root can read.
   private, and some devices cannot join hidden networks.
 - `client_isolation: true` stops Wi-Fi devices from talking to each other
   directly. In the bridged layout, Wi-Fi devices can still reach wired lab
-  devices; to block that too, also set `ipv4.client_isolation`.
+  devices; to block that too, also set `ipv4.client_isolation`. Leave it off
+  to test devices that talk to each other (casting, AirPlay): see
+  [Traffic between Wi-Fi devices](#traffic-between-wi-fi-devices).
 - `bridge_with_lab` is required when the plan also has a wired `LAB` interface.
 
 ## How it works
@@ -160,6 +162,40 @@ to `/etc/shakerproxy/hostapd/shakerproxy.conf`, which only root can read.
 - Rollback (by the watchdog, a failed health check, or an expired deadline)
   stops and disables the access point before DHCP and restores or removes
   `/etc/shakerproxy/hostapd/shakerproxy.conf`.
+
+## Traffic between Wi-Fi devices
+
+An access point normally switches traffic between two of its own Wi-Fi
+devices inside the adapter: a phone casting to a TV on the same Wi-Fi never
+reaches the rest of the network, so nothing records it.
+
+In the bridged layouts (`lgbr0`, and the access point on an
+[inline bridge](bridge-mode.md#wi-fi-on-the-bridge)) ShakerProxy sends that
+traffic through its bridge instead:
+
+- `hostapd` runs with `ap_isolate=1`, so the adapter hands frames between its
+  own devices to the bridge instead of switching them itself.
+- Hairpin mode on the access point's bridge port lets the bridge send them
+  back out of the port they came in on, to the other device. gatewayd turns
+  it on as soon as `hostapd` has added the adapter to the bridge, and the
+  runtime check (every 30 seconds) turns it back on whenever `hostapd`
+  re-adds the port (after a reboot or a restart), which it does with
+  hairpin mode off.
+- The traffic now crosses the bridge, so the lab recording, conntrack's
+  instant connection events, the firewall and the DNS and device rules see
+  it like any other lab traffic.
+- Broadcast and multicast between Wi-Fi devices (mDNS/Bonjour, SSDP, the
+  discovery AirPlay and Chromecast use) are flooded back out of the access
+  point by the bridge, so discovery keeps working. Each device ignores its
+  own frames coming back, as it does with any access point.
+
+With `client_isolation: true`, hairpin mode stays off and Wi-Fi devices cannot
+reach each other at all.
+
+In the Wi-Fi-only layout there is no bridge, so traffic directly between two
+Wi-Fi devices is still switched inside the adapter and not recorded; the
+preview and the visibility coverage check say so. Add a wired lab port with
+`bridge_with_lab: true` to record it.
 
 ## Troubleshooting
 
@@ -196,10 +232,10 @@ sudo hostapd_cli -p /run/shakerproxy-hostapd -i wlan0 all_sta
 - One access point per ShakerProxy; one SSID.
 - No WPA-Enterprise (802.1X), no radar-detection (DFS) channels, no 6 GHz, and
   20 MHz channel width only.
-- Traffic sent directly between two Wi-Fi devices stays inside the access point
-  and is not captured. Traffic to the Internet, to ShakerProxy, and between Wi-Fi
-  and wired lab devices is. To observe device-to-device traffic, put one of the
-  devices on the wired lab port in the bridged layout.
+- In the Wi-Fi-only layout, traffic sent directly between two Wi-Fi devices
+  stays inside the access point and is not captured. In the bridged layouts
+  it crosses ShakerProxy's bridge and is recorded (see
+  [Traffic between Wi-Fi devices](#traffic-between-wi-fi-devices)).
 - IPv6 on the lab network follows the plan's IPv6 strategy; with a routed
   strategy the access point (or `lgbr0`) gets the lab IPv6 address and
   router advertisements. See [IPv6 in the lab](ipv6.md).
