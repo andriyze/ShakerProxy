@@ -22,7 +22,7 @@ func MethodTimeout(method string) time.Duration {
 		// Host inspection walks interfaces, firewall state, and SSH sessions;
 		// the connectivity probe alone has a 7 second internal budget.
 		return 20 * time.Second
-	case "StartCapture", "StopCapture", "SetLabRecording", "GetCaptureStats", "ListCaptures", "ReadCaptureArtifact",
+	case "StartCapture", "StopCapture", "SetLabRecording", "GetCaptureStats", "ListCaptures", "ReadCaptureArtifact", "ReadCaptureFlow",
 		"ApplyTrafficPolicy", "RollbackTrafficPolicy", "PreviewTrafficPolicy",
 		"SetOperatingMode", "EnableEmergencyBypass", "DisableEmergencyBypass",
 		"SetCaptureEvidenceHold":

@@ -1519,6 +1519,28 @@ paths:
         "422": {$ref: "#/components/responses/Error"}
         "429": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
+  /events/{recordID}/http-exchange:
+    get:
+      operationId: getHTTPExchange
+      description: >-
+        Administrator session only (API tokens are refused: headers and bodies are plaintext evidence).
+        Returns the HTTP/1.x request/response exchanges of the event's connection, like "Follow HTTP stream":
+        for cleartext HTTP read back from the packet recording's closed files around the event time (bounded
+        to 12 files and 320 KiB per direction, bodies previewed up to 64 KiB after chunked and gzip/deflate
+        decoding, binary bodies as a hex dump of the first 256 bytes); for decrypted HTTPS from the request
+        and response events mitmproxy recorded, subject to content retention. State UNAVAILABLE carries a
+        plain reason (encrypted, headers-only recording, files already replaced); RETRY means the part of the
+        recording is still being written. Each read is logged with the administrator name.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: recordID, required: true, schema: {type: string, pattern: "^[a-f0-9]{64}$"}}
+      responses:
+        "200": {description: The connection's exchanges or why they are unavailable, content: {application/json: {schema: {$ref: "#/components/schemas/HTTPExchange"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /protocols:
     get:
       operationId: listProtocols
@@ -4179,6 +4201,92 @@ components:
         replayed: {type: boolean}
         unchanged: {type: boolean}
         deleted: {type: boolean}
+    HTTPExchangeHeaders:
+      type: object
+      additionalProperties: false
+      required: [items, bytes]
+      properties:
+        items:
+          type: array
+          maxItems: 128
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, value]
+            properties:
+              name: {type: string, maxLength: 256}
+              value: {type: string, maxLength: 4096}
+              sensitive: {type: boolean, description: Credentials and cookies; the UI masks them until revealed.}
+              truncated: {type: boolean}
+        bytes: {type: integer, minimum: 0}
+        truncated: {type: boolean}
+    HTTPExchangeBody:
+      type: object
+      additionalProperties: false
+      required: [content_type, body_bytes, decoded_preview, preview_bytes, preview_encoding, preview, truncated, complete]
+      properties:
+        content_type: {type: string}
+        content_encoding: {type: string}
+        body_bytes: {type: integer, minimum: 0, description: Size after transfer decoding, before decompression.}
+        decoded_preview: {type: boolean}
+        preview_bytes: {type: integer, minimum: 0, maximum: 65536}
+        preview_encoding: {type: string, enum: [utf-8, hex]}
+        preview: {type: string, description: Text, or a hexdump -C style dump of the first 256 bytes. Display as inert text.}
+        truncated: {type: boolean}
+        complete: {type: boolean, description: False when the recording ends before the body does.}
+        note: {type: string}
+    HTTPExchange:
+      type: object
+      additionalProperties: false
+      required: [schema, record_id, source, state, matched, exchanges]
+      properties:
+        schema: {const: 1}
+        record_id: {type: string, pattern: "^[a-f0-9]{64}$"}
+        source: {type: string, enum: [CAPTURE, DECRYPTED]}
+        state: {type: string, enum: [AVAILABLE, UNAVAILABLE, RETRY]}
+        reason: {type: string}
+        matched: {type: integer, minimum: -1, description: Index of the exchange this event describes, or -1.}
+        notes: {type: array, items: {type: string}}
+        exchanges:
+          type: array
+          maxItems: 32
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              request:
+                type: object
+                additionalProperties: false
+                required: [method, target, proto, headers, body]
+                properties:
+                  method: {type: string}
+                  target: {type: string, maxLength: 8192}
+                  proto: {type: string}
+                  headers: {$ref: "#/components/schemas/HTTPExchangeHeaders"}
+                  body: {$ref: "#/components/schemas/HTTPExchangeBody"}
+              response:
+                type: object
+                additionalProperties: false
+                required: [proto, status_code, status, headers, body]
+                properties:
+                  proto: {type: string}
+                  status_code: {type: integer}
+                  status: {type: string}
+                  headers: {$ref: "#/components/schemas/HTTPExchangeHeaders"}
+                  body: {$ref: "#/components/schemas/HTTPExchangeBody"}
+        capture:
+          type: object
+          additionalProperties: false
+          properties:
+            session_id: {type: string, pattern: "^capture-[a-f0-9]{32}$"}
+            segments_read: {type: integer, minimum: 0}
+            segments_missing: {type: integer, minimum: 0}
+            packets: {type: integer, minimum: 0}
+            first_packet_at: {type: string, format: date-time}
+            last_packet_at: {type: string, format: date-time}
+            from_start: {type: boolean}
+            closed: {type: boolean}
+            incomplete: {type: boolean}
     DeviceMutationResult:
       type: object
       additionalProperties: false

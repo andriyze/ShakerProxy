@@ -884,6 +884,19 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 			return nil, &gatewayprotocol.RPCError{Code: -32054, Message: err.Error()}
 		}
 		return result, nil
+	case "ReadCaptureFlow":
+		if s.captures == nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32040, Message: "capture is unavailable in this daemon profile"}
+		}
+		var params gatewayprotocol.ReadCaptureFlowParams
+		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil || params.Request.Validate() != nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32602, Message: "invalid parameters"}
+		}
+		result, err := s.captures.ReadFlow(ctx, params.Request)
+		if err != nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32058, Message: err.Error()}
+		}
+		return result, nil
 	case "ReadCaptureArtifact":
 		if s.captures == nil {
 			return nil, &gatewayprotocol.RPCError{Code: -32040, Message: "capture is unavailable in this daemon profile"}
@@ -1239,6 +1252,11 @@ func (s *Server) auditDetails(req gatewayprotocol.Request, result any) (string, 
 		var params gatewayprotocol.ReadCaptureArtifactParams
 		if gatewayprotocol.DecodeParams(req.Params, &params) == nil && capture.ValidSessionID(params.SessionID) {
 			return "", append(captureAuditObjects(params.SessionID), "capture export "+params.FileName)
+		}
+	case "ReadCaptureFlow":
+		var params gatewayprotocol.ReadCaptureFlowParams
+		if gatewayprotocol.DecodeParams(req.Params, &params) == nil && params.Request.Validate() == nil {
+			return "", append(captureAuditObjects(params.Request.SessionID), "capture flow "+params.Request.Client+" -> "+params.Request.Server)
 		}
 	case "PreviewCaptureDeletion":
 		var params gatewayprotocol.PreviewCaptureDeletionParams
