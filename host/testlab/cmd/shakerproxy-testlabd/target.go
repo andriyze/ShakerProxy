@@ -80,7 +80,9 @@ func serveHTTP() {
 		host, _, _ := net.SplitHostPort(r.RemoteAddr)
 		_, _ = w.Write([]byte(host + "\n"))
 	})
-	_ = http.ListenAndServe(":8080", mux)
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		listenFailed(":8080", err)
+	}
 }
 
 func serveTLS(certificate tls.Certificate, address string) {
@@ -89,7 +91,7 @@ func serveTLS(certificate tls.Certificate, address string) {
 		MinVersion:   tls.VersionTLS12,
 	})
 	if err != nil {
-		return
+		listenFailed(address, err)
 	}
 	defer listener.Close()
 	for {
@@ -107,7 +109,7 @@ func serveTLS(certificate tls.Certificate, address string) {
 func serveDNS() {
 	connection, err := net.ListenPacket("udp", ":53")
 	if err != nil {
-		return
+		listenFailed(":53", err)
 	}
 	defer connection.Close()
 	buffer := make([]byte, 512)

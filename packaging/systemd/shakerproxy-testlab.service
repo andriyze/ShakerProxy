@@ -18,8 +18,8 @@ RestartSec=2s
 Environment=SHAKERPROXY_TESTLAB_SOCKET=/var/lib/shakerproxy/control-api/testlab/testlab.sock
 Environment=SHAKERPROXY_CONTROL_API_GID=65532
 NoNewPrivileges=yes
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN
-AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_NET_BIND_SERVICE
 ProtectSystem=strict
 ProtectHome=yes
 ProtectKernelLogs=yes

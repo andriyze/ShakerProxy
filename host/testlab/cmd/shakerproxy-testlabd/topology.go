@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -112,18 +113,58 @@ func setupLab(ctx context.Context) error {
 		return err
 	}
 
-	command := exec.CommandContext(ctx, "ip", "netns", "exec", targetNS, os.Args[0], "--target-server")
+	// The target outlives this request: the coverage check prepares the lab
+	// in one request and probes it in later ones, so a request-bound process
+	// was killed before the probes ran. cleanupLab stops it with the rest of
+	// the target namespace.
+	command := exec.Command("ip", "netns", "exec", targetNS, os.Args[0], "--target-server")
+	stderr := &boundedOutput{limit: 2048}
 	command.Stdout = nil
-	command.Stderr = nil
+	command.Stderr = stderr
 	if err := command.Start(); err != nil {
 		return err
 	}
-	return waitForTarget(ctx)
+	exited := make(chan error, 1)
+	go func() { exited <- command.Wait() }()
+	if err := waitForTarget(ctx, exited); err != nil {
+		if message := strings.TrimSpace(stderr.String()); message != "" {
+			return fmt.Errorf("%w: %s", err, message)
+		}
+		return err
+	}
+	return nil
 }
 
-func waitForTarget(ctx context.Context) error {
+// boundedOutput keeps the first bytes a helper writes to stderr.
+type boundedOutput struct {
+	mu    sync.Mutex
+	limit int
+	data  []byte
+}
+
+func (b *boundedOutput) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if room := b.limit - len(b.data); room > 0 {
+		b.data = append(b.data, p[:min(room, len(p))]...)
+	}
+	return len(p), nil
+}
+
+func (b *boundedOutput) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.data)
+}
+
+func waitForTarget(ctx context.Context, exited <-chan error) error {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			return fmt.Errorf("virtual target stopped while starting (%v)", err)
+		default:
+		}
 		probeCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		_, err := runCommand(probeCtx, "ip", "netns", "exec", normalNS, "curl", "--fail", "--silent", "--max-time", "1", "http://"+targetIPv4+":8080/health")
 		cancel()

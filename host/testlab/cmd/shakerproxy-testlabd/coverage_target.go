@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -26,7 +28,7 @@ func serveCoverageEndpoints(certificate tls.Certificate) {
 func serveSSHBanner(address string) {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		return
+		listenFailed(address, err)
 	}
 	defer listener.Close()
 	for {
@@ -46,7 +48,7 @@ func serveSSHBanner(address string) {
 func serveNTP(address string) {
 	connection, err := net.ListenPacket("udp", address)
 	if err != nil {
-		return
+		listenFailed(address, err)
 	}
 	defer connection.Close()
 	buffer := make([]byte, 128)
@@ -69,7 +71,7 @@ func serveNTP(address string) {
 func serveTCPEcho(address string) {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		return
+		listenFailed(address, err)
 	}
 	defer listener.Close()
 	for {
@@ -88,7 +90,7 @@ func serveTCPEcho(address string) {
 func serveUDPEcho(address string) {
 	connection, err := net.ListenPacket("udp", address)
 	if err != nil {
-		return
+		listenFailed(address, err)
 	}
 	defer connection.Close()
 	buffer := make([]byte, 2048)
@@ -117,4 +119,11 @@ func serveDoH(certificate tls.Certificate, address string) {
 	})
 	server := &http.Server{Addr: address, Handler: mux, ReadHeaderTimeout: 3 * time.Second, TLSConfig: &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12}}
 	_ = server.ListenAndServeTLS("", "")
+}
+
+// listenFailed stops the target: a target missing an endpoint makes its probe
+// fail for a reason the coverage report could not name.
+func listenFailed(address string, err error) {
+	fmt.Fprintf(os.Stderr, "virtual target cannot listen on %s: %v\n", address, err)
+	os.Exit(3)
 }
