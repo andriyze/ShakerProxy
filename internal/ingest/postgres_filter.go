@@ -95,6 +95,9 @@ func compileEventPredicate(predicate querylang.Predicate, nameResolutions, tagRe
 	if predicate.Field == querylang.TextField {
 		return compileTextPredicate(predicate, args)
 	}
+	if predicate.Field == querylang.DestinationOwnerField || predicate.Field == querylang.DestinationCategoryField {
+		return compileDestinationOwnerPredicate(predicate, args)
+	}
 	column := eventFilterColumns[predicate.Field]
 	if column == "" {
 		return "", errors.New("typed event filter field is unsupported")

@@ -507,3 +507,28 @@ func TestAnalyzerBatchStoresEachEventAndReportsQuarantines(t *testing.T) {
 		t.Fatalf("an unauthenticated batch returned %d", recorder.Code)
 	}
 }
+
+// Each event used to be queued for the cloud connector separately, a local
+// request and a durable write apiece, so a busy Suricata batch outlasted the
+// analyzer's 15 s timeout and analysis fell behind. A batch now queues once.
+func TestAnalyzerBatchQueuesCloudMetadataOnce(t *testing.T) {
+	server := testServer(t)
+	queue := &retryingCloudMetadataQueue{}
+	server.cloudMetadata = queue
+	lines := []string{}
+	for index := 0; index < 40; index++ {
+		lines = append(lines, fmt.Sprintf(`{"ts":%d.%06d,"uid":"Ccloud%03d","_path":"conn","id.orig_h":"10.77.0.111","id.resp_h":"1.1.1.1"}`, time.Now().Unix(), index, index))
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/adapters/zeek/batch", strings.NewReader(strings.Join(lines, "\n")+"\n"))
+	request.Header.Set("Content-Type", "application/x-ndjson")
+	request.Header.Set("Authorization", "Bearer "+testToken)
+	request.Header.Set("X-ShakerProxy-Source-Version", "8.2.1")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("batch response %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if queue.calls != 1 || len(queue.events) < 40 {
+		t.Fatalf("cloud queue calls=%d events=%d, want one call carrying the whole batch", queue.calls, len(queue.events))
+	}
+}

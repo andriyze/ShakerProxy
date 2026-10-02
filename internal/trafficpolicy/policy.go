@@ -37,10 +37,28 @@ const (
 )
 
 // DefaultPolicy is maximum visibility: once a lab is confirmed, every lab
-// client's plain DNS is answered by ShakerProxy and encrypted DNS (DoT, DoQ,
-// catalog DoH by address and by name) is blocked so devices fall back to
-// plain DNS. Without a confirmed lab it installs nothing.
+// client's plain DNS is answered by ShakerProxy. Encrypted DNS (DoT, DoQ, DoH)
+// is identified and labelled but not blocked: blocking it, so devices fall
+// back to plain DNS, is a choice the tester makes. Without a confirmed lab it
+// installs nothing.
 func DefaultPolicy() Policy {
+	policy := LegacyDefaultPolicy()
+	policy.Name = DefaultPolicyName
+	policy.EncryptedDNS = policy.EncryptedDNS.WithSwitches(true, false)
+	return policy
+}
+
+// BlockingPolicy is the default with "Block encrypted DNS" turned on.
+func BlockingPolicy() Policy {
+	policy := DefaultPolicy()
+	policy.EncryptedDNS = policy.EncryptedDNS.WithSwitches(true, true)
+	return policy
+}
+
+// blockingDefaultPolicy is the default 0.1.0-beta.11 wrote, which also
+// blocked encrypted DNS. It is kept to recognize an installation that got it
+// automatically, so it moves to the current default.
+func blockingDefaultPolicy() Policy {
 	policy := LegacyDefaultPolicy()
 	policy.Name = DefaultPolicyName
 	policy.EncryptedDNS = policy.EncryptedDNS.WithSwitches(true, true)
@@ -82,10 +100,33 @@ func IsUntouchedLegacyDefault(document Document) bool {
 	return err == nil && current == legacy
 }
 
-// MigrateUntouchedDefault returns the policy that replaces an untouched
-// legacy default: the visibility default at the next revision.
+// isUntouchedBlockingDefault reports the beta.11 default as an installation
+// wrote it: on a fresh install (revision 1, nothing before) or by migrating
+// an untouched legacy default (revision 2, the legacy default before).
+func isUntouchedBlockingDefault(document Document) bool {
+	written := blockingDefaultPolicy()
+	written.Revision = document.Policy.Revision
+	switch {
+	case document.Policy.Revision == 1 && document.Previous == nil:
+	case document.Policy.Revision == 2 && document.Previous != nil:
+		legacy, legacyErr := Digest(LegacyDefaultPolicy())
+		previous, previousErr := Digest(*document.Previous)
+		if legacyErr != nil || previousErr != nil || legacy != previous {
+			return false
+		}
+	default:
+		return false
+	}
+	expected, expectedErr := Digest(written)
+	current, currentErr := Digest(document.Policy)
+	return expectedErr == nil && currentErr == nil && expected == current
+}
+
+// MigrateUntouchedDefault returns the policy that replaces a default nobody
+// changed (the observe-only legacy default, or beta.11's blocking default):
+// the current default at the next revision.
 func MigrateUntouchedDefault(document Document) (Policy, bool) {
-	if !IsUntouchedLegacyDefault(document) {
+	if !IsUntouchedLegacyDefault(document) && !isUntouchedBlockingDefault(document) {
 		return Policy{}, false
 	}
 	policy := DefaultPolicy()

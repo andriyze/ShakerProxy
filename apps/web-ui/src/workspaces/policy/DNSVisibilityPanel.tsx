@@ -51,7 +51,10 @@ export function DNSVisibilityPanel({ available, onChanged }: { available: boolea
     <section className="panel dns-visibility" aria-labelledby="dns-visibility-title">
       <p className="eyebrow">DNS</p>
       <h2 id="dns-visibility-title">See every lookup</h2>
-      <p>Both switches apply to every device on the lab network. They are on by default.</p>
+      <p>
+        Both switches apply to every device on the lab network. Plain DNS is forced through ShakerProxy by default;
+        encrypted DNS (DoH, DoT, DoQ) is identified and labelled in Traffic but not blocked unless you turn blocking on.
+      </p>
       <label className="dns-switch">
         <input
           type="checkbox"

@@ -868,7 +868,7 @@ export type AttributionEvidence = {
   device_id: string
   address: string
   endpoint: "SOURCE" | "DESTINATION"
-  source: "DHCP4_LEASE" | "NDP" | "ARP"
+  source: "DHCP4_LEASE" | "NDP" | "ARP" | "PINNED_ADDRESS"
   confidence: number
   valid_from: string
   valid_until: string
@@ -935,6 +935,12 @@ export type RecentEvent = {
   alert_signature?: string
   alert_severity?: number
   alert_category?: string
+  // Bytes the connection's source sent, and what its destination sent back.
+  bytes_sent?: number
+  bytes_received?: number
+  // Who operates the destination (curated domain table), e.g. "Google".
+  destination_organization?: string
+  destination_category?: string
   http_method?: string
   http_host?: string
   http_path?: string

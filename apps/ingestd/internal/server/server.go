@@ -449,15 +449,19 @@ func (s *Server) acceptAdapterBatch(w http.ResponseWriter, r *http.Request, norm
 		}
 		return
 	}
+	// One cloud queue call per batch, not one per event: queueing each event
+	// separately (a local request and a durable write each) made a busy batch
+	// outlast the analyzer's timeout, so analysis fell behind and retried.
+	acceptedEnvelopes := make([]ingest.Envelope, 0, len(accepted))
 	for index, result := range accepted {
-		if !result.Accepted {
-			continue
+		if result.Accepted {
+			acceptedEnvelopes = append(acceptedEnvelopes, envelopes[index])
 		}
-		if err := s.enqueueCloudMetadata(r.Context(), envelopes[index]); err != nil {
-			s.logger.Warn("cloud metadata queue unavailable; analyzer should retry", "event_id", envelopes[index].EventID, "error", err)
-			writeError(w, http.StatusServiceUnavailable, "cloud_queue_unavailable", "events are safe locally but cloud queueing must be retried")
-			return
-		}
+	}
+	if err := s.enqueueCloudMetadataBatch(r.Context(), acceptedEnvelopes); err != nil {
+		s.logger.Warn("cloud metadata queue unavailable; analyzer should retry", "events", len(acceptedEnvelopes), "error", err)
+		writeError(w, http.StatusServiceUnavailable, "cloud_queue_unavailable", "events are safe locally but cloud queueing must be retried")
+		return
 	}
 	for _, result := range results {
 		if result.Quarantined {
@@ -468,14 +472,25 @@ func (s *Server) acceptAdapterBatch(w http.ResponseWriter, r *http.Request, norm
 }
 
 func (s *Server) enqueueCloudMetadata(ctx context.Context, envelope ingest.Envelope) error {
-	if s.cloudMetadata == nil {
+	return s.enqueueCloudMetadataBatch(ctx, []ingest.Envelope{envelope})
+}
+
+// enqueueCloudMetadataBatch queues the cloud metadata of many events in as few
+// calls as the connector's per-call limit allows.
+func (s *Server) enqueueCloudMetadataBatch(ctx context.Context, envelopes []ingest.Envelope) error {
+	if s.cloudMetadata == nil || len(envelopes) == 0 {
 		return nil
 	}
-	events := cloudconnector.ProjectNormalizedEvents(envelope, time.Now().UTC())
-	if len(events) == 0 {
-		return nil
+	now := time.Now().UTC()
+	var events []cloudconnector.LocalMetadataEvent
+	for _, envelope := range envelopes {
+		events = append(events, cloudconnector.ProjectNormalizedEvents(envelope, now)...)
 	}
-	err := s.cloudMetadata.Enqueue(ctx, events)
+	var err error
+	for start := 0; start < len(events) && err == nil; start += cloudconnector.MaxMetadataEnqueueEvents {
+		end := min(start+cloudconnector.MaxMetadataEnqueueEvents, len(events))
+		err = s.cloudMetadata.Enqueue(ctx, events[start:end])
+	}
 	if err != nil && cloudConnectorNotRunning(err) {
 		// The cloud connector is optional. When it is not running, local
 		// ingestion continues and cloud copies of these events are skipped;

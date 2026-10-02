@@ -12,16 +12,20 @@ ShakerProxy can answer lab devices' DNS itself. That serves two purposes:
 Both are installed-host capabilities. They need a confirmed routed or
 single-arm network plan and are absent from the safe development profile.
 
-## See every lookup (the default)
+## See every lookup
 
-Two switches, both **on by default** once a lab is confirmed (DNS & HTTPS page,
-`shakerproxy dns`, `GET/PUT /api/v1/dns-visibility`, MCP `dns_visibility`):
+Two switches once a lab is confirmed (DNS & HTTPS page, `shakerproxy dns`,
+`GET/PUT /api/v1/dns-visibility`, MCP `dns_visibility`). Forcing plain DNS is
+**on by default**; blocking encrypted DNS is **off by default**: encrypted DNS
+is identified and labelled DoH, DoT or DoQ in Traffic (`proto:doh`,
+`proto:dot`, `proto:doq`) so testers see a device using it, and blocking it is
+a choice for when the lookups themselves matter.
 
 - **Force plain DNS through ShakerProxy**: every lab client's UDP/TCP port-53
   DNS, to any resolver (8.8.8.8 included), is answered by `shakerproxy-dnsd`.
   Plain DNS is never blocked. Without policy upstreams the host's resolvers
   are used.
-- **Block encrypted DNS**: DNS over TLS/QUIC (port 853, any destination) and
+- **Block encrypted DNS** (off by default): DNS over TLS/QUIC (port 853, any destination) and
   TCP/UDP 443 to the catalog's DNS-over-HTTPS resolver addresses (Cloudflare,
   Google, Quad9, OpenDNS, AdGuard, NextDNS, CleanBrowsing, Mullvad, Control D,
   DNS.SB, AliDNS, DNSPod, Yandex) are rejected, and `shakerproxy-dnsd` answers

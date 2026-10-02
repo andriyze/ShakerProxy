@@ -94,10 +94,10 @@ func (m *TrafficPolicyManager) Ensure(ctx context.Context) error {
 	// default to maximum visibility; an administrator's policy is kept.
 	if migrated, ok := trafficpolicy.MigrateUntouchedDefault(document); ok {
 		if next, migrateErr := m.PolicyStore.Apply(migrated, document.Policy.Revision); migrateErr != nil {
-			m.warn("the untouched observe-only DNS policy could not move to the visibility default", migrateErr)
+			m.warn("the untouched default DNS policy could not move to the visibility default", migrateErr)
 		} else {
 			document = next
-			m.log("traffic policy moved to the visibility default: plain DNS forced through ShakerProxy, encrypted DNS blocked", document)
+			m.log("traffic policy moved to the visibility default: plain DNS forced through ShakerProxy; encrypted DNS identified, not blocked", document)
 		}
 	}
 	cloudOwned, ownershipErr := m.cloudPolicyOwnership()

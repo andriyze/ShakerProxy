@@ -3,7 +3,32 @@ import type { RecentEvent } from "../types"
 // The live Traffic stream shows each lookup, connection and web request on one
 // line: what kind it is, which client, and what it talked to.
 
-export type StreamKind = "dns" | "tls" | "quic" | "http" | "alert" | "other"
+export type StreamKind = "dns" | "tls" | "quic" | "http" | "discovery" | "alert" | "other"
+
+// Discovery is how devices find each other and announce themselves on the
+// network (AirPlay, casting, smart-home apps), mostly multicast.
+const DISCOVERY_PORTS: Record<number, string> = {
+  5353: "mDNS",
+  5355: "LLMNR",
+  1900: "SSDP",
+  137: "NetBIOS",
+  138: "NetBIOS",
+  67: "DHCP",
+  68: "DHCP",
+  546: "DHCPv6",
+  547: "DHCPv6",
+  3702: "WS-Disc",
+}
+const DISCOVERY_PORT_QUERY = Object.keys(DISCOVERY_PORTS)
+  .map((port) => `dst.port:${port}`)
+  .join(" OR ")
+const NOT_DISCOVERY = Object.keys(DISCOVERY_PORTS)
+  .map((port) => `NOT dst.port:${port}`)
+  .join(" AND ")
+
+export function discoveryProtocol(event: Pick<RecentEvent, "destination_port" | "kind">): string {
+  return DISCOVERY_PORTS[event.destination_port ?? 0] ?? (event.kind === "zeek.dhcp" ? "DHCP" : "")
+}
 
 // Each chip selects the events that carry that kind of information once. The
 // analyzers record the same traffic several times (Suricata flows, Zeek's
@@ -17,7 +42,8 @@ export const STREAM_KINDS: { id: StreamKind; label: string; description: string;
     id: "dns",
     label: "DNS",
     description: "Name lookups and their answers",
-    query: "(kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked OR app.protocol:doh)",
+    query:
+      "(kind:shakerproxy.dns OR (kind:zeek.dns AND NOT dst.port:5353 AND NOT dst.port:5355) OR kind:shakerproxy.blocked OR app.protocol:doh OR app.protocol:dot OR app.protocol:doq)",
   },
   {
     id: "tls",
@@ -37,13 +63,19 @@ export const STREAM_KINDS: { id: StreamKind; label: string; description: string;
     description: "Cleartext web requests, and decrypted HTTPS when decryption is on",
     query: "((http.host:* AND NOT source:SURICATA) OR (kind:shakerproxy.conn AND protocol:tcp AND dst.port:80))",
   },
+  {
+    id: "discovery",
+    label: "Discovery",
+    description: "How devices find each other and announce their names: mDNS/Bonjour, SSDP/UPnP, LLMNR, NetBIOS, DHCP",
+    query: `((kind:zeek.dns OR kind:zeek.conn OR kind:zeek.dhcp) AND (${DISCOVERY_PORT_QUERY}))`,
+  },
   { id: "alert", label: "Alerts", description: "Suricata alerts", query: "kind:suricata.alert" },
   {
     id: "other",
     label: "Other",
     description: "Connections without a name: IP-only, NTP, ICMP and other protocols",
     query:
-      "((kind:zeek.conn AND NOT tls.sni:* AND NOT dst.port:53 AND NOT dst.port:5353) OR (kind:shakerproxy.conn AND NOT dst.port:443 AND NOT dst.port:80 AND NOT dst.port:53))",
+      `((kind:zeek.conn AND NOT tls.sni:* AND NOT dst.port:53 AND ${NOT_DISCOVERY}) OR (kind:shakerproxy.conn AND NOT dst.port:443 AND NOT dst.port:80 AND NOT dst.port:53))`,
   },
 ]
 
@@ -144,6 +176,7 @@ function instantConnectionKind(event: RecentEvent): StreamKind {
 export function streamKind(event: RecentEvent): StreamKind {
   if (event.kind === INSTANT_CONNECTION) return instantConnectionKind(event)
   if (event.alert_signature || event.kind === "suricata.alert") return "alert"
+  if (discoveryProtocol(event)) return "discovery"
   if (event.dns_query) return "dns"
   if (event.http_method || event.http_host || event.kind.endsWith(".http")) return "http"
   if (event.kind.endsWith(".quic") || (event.tls_server_name && event.protocol?.toLowerCase() === "udp")) return "quic"
@@ -171,12 +204,12 @@ function endpoint(address?: string, port?: number): string {
 // reported whose details (server name, bytes) are still being analyzed.
 export type StreamLine = { kind: StreamKind; badge: string; name: string; detail: string; peer: string; problem: boolean; pending?: boolean }
 
-const INSTANT_BADGES: Record<StreamKind, string> = { dns: "DNS", tls: "TLS", quic: "QUIC", http: "HTTP", alert: "ALERT", other: "" }
+const INSTANT_BADGES: Record<StreamKind, string> = { dns: "DNS", tls: "TLS", quic: "QUIC", http: "HTTP", discovery: "", alert: "ALERT", other: "" }
 
 // streamLine is what one row says, e.g. DNS · maps.google.com · A → 142.250.1.1
 export function streamLine(event: RecentEvent): StreamLine {
   if (event.blocked) return blockedStreamLine(event)
-  if (event.app_protocol === "doh") return dohStreamLine(event)
+  if (event.app_protocol === "doh" || event.app_protocol === "dot" || event.app_protocol === "doq") return dohStreamLine(event)
   const kind = streamKind(event)
   const peer = endpoint(event.destination_ip, event.destination_port)
   const bytes = event.network_bytes ? compactBytes(event.network_bytes) : ""
@@ -235,6 +268,24 @@ export function streamLine(event: RecentEvent): StreamLine {
         peer,
         problem: event.tls_interception_state === "FAILED",
       }
+    case "discovery": {
+      // An mDNS/LLMNR question or announcement names a service or a device
+      // ("_googlecast._tcp.local", "Living-Room-TV.local"); SSDP and the rest
+      // are shown by protocol and group.
+      const answers = event.dns_answers ?? []
+      return {
+        kind,
+        badge: discoveryProtocol(event),
+        name: event.dns_query || peer || event.kind,
+        detail: event.dns_query
+          ? [event.dns_record_type ?? "", answers.length ? `→ ${answers.slice(0, 2).join(", ")}${answers.length > 2 ? ` +${answers.length - 2}` : ""}` : ""]
+              .filter(Boolean)
+              .join(" ")
+          : bytes,
+        peer: event.dns_query ? peer : "",
+        problem: false,
+      }
+    }
     case "alert":
       return {
         kind,
@@ -301,12 +352,14 @@ export function blockReasonLabel(reason?: string): string {
 
 // dohStreamLine is an encrypted DNS connection (DNS over HTTPS): its lookups
 // are hidden from ShakerProxy unless encrypted DNS is blocked or decrypted.
+// dohStreamLine is encrypted DNS ShakerProxy identified but cannot read:
+// DNS over HTTPS, over TLS (TCP 853) or over QUIC (UDP 853).
 function dohStreamLine(event: RecentEvent): StreamLine {
   const peer = endpoint(event.destination_ip, event.destination_port)
   const bytes = event.network_bytes ? compactBytes(event.network_bytes) : ""
   return {
     kind: "dns",
-    badge: "DoH",
+    badge: event.app_protocol === "dot" ? "DoT" : event.app_protocol === "doq" ? "DoQ" : "DoH",
     name: event.tls_server_name || event.dns_name || peer || event.kind,
     detail: ["encrypted DNS, lookups hidden", bytes].filter(Boolean).join(" · "),
     peer,
@@ -376,4 +429,41 @@ export function mergeInstantConnections<T extends RecentEvent>(events: readonly 
         network_bytes: Math.max(event.network_bytes ?? 0, found.bytes) || undefined,
       }
     })
+}
+
+// StreamEnd is one side of a row: what it is, then its address.
+export type StreamEnd = { primary: string; secondary: string }
+
+// streamEnds says where traffic went from and to. The device side carries its
+// name; the other side its address, so each row reads "Pixel
+// 192.168.10.201:42612 → 140.82.121.4:443". inbound marks traffic towards
+// the device.
+export function streamEnds(event: RecentEvent, deviceName: string): { from: StreamEnd; to: StreamEnd; inbound: boolean } {
+  const source = endpoint(event.source_ip, event.source_port)
+  const destination = endpoint(event.destination_ip, event.destination_port)
+  const inbound = event.attribution_evidence?.endpoint === "DESTINATION"
+  const protocol = (event.protocol ?? "").toUpperCase()
+  const remote = (address: string): StreamEnd => ({ primary: address || "—", secondary: protocol })
+  const local = (address: string): StreamEnd => ({ primary: deviceName || address || "—", secondary: deviceName ? address : "" })
+  if (event.kind === "shakerproxy.dns") {
+    return { from: local(source), to: { primary: "ShakerProxy DNS", secondary: destination || "port 53" }, inbound: false }
+  }
+  return inbound
+    ? { from: remote(source), to: local(destination), inbound }
+    : { from: local(source), to: remote(destination), inbound }
+}
+
+// whatSecondary is the line under a row's subject: who operates the
+// destination and what kind of service it is.
+export function ownerLine(event: RecentEvent): string {
+  const category = event.destination_category && event.destination_category !== "unknown" ? event.destination_category.replace(/-/g, " ") : ""
+  return [event.destination_organization ?? "", category].filter(Boolean).join(" · ")
+}
+
+// transferLine is bytes each way when known ("↑ 3 KB ↓ 22 KB"), else the total.
+export function transferLine(event: RecentEvent): string {
+  const sent = event.bytes_sent
+  const received = event.bytes_received
+  if (sent !== undefined || received !== undefined) return `↑ ${compactBytes(sent ?? 0)} ↓ ${compactBytes(received ?? 0)}`
+  return event.network_bytes ? compactBytes(event.network_bytes) : ""
 }

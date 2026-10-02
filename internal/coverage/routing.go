@@ -153,8 +153,8 @@ func encryptedDNSFindings(in RoutingInput) []Finding {
 		encrypted.Detail = "Encrypted DNS to known resolvers is blocked, so devices fall back to DNS that ShakerProxy records."
 	} else {
 		encrypted.Status = FindingGap
-		encrypted.Detail = fmt.Sprintf("%s is allowed. ShakerProxy sees which resolver a device uses, but not the names it looks up.", joinWords(missing))
-		encrypted.Fix = "On DNS & HTTPS, block encrypted DNS so devices fall back to plain DNS."
+		encrypted.Detail = fmt.Sprintf("%s is allowed and shown in Traffic as DoH, DoT or DoQ: ShakerProxy sees which resolver a device uses, but not the names it looks up.", joinWords(missing))
+		encrypted.Fix = "To see those names, turn on Block encrypted DNS on DNS & HTTPS; devices then fall back to plain DNS."
 	}
 	plain := Finding{ID: FindingPlainDNS, Title: "DNS sent to other resolvers"}
 	if in.RedirectPlainDNS {
@@ -171,9 +171,8 @@ func encryptedDNSFindings(in RoutingInput) []Finding {
 func discoveryFinding(singleArm bool) Finding {
 	finding := Finding{ID: FindingLocalDiscovery, Title: "Local discovery (mDNS/Bonjour, SSDP)"}
 	if singleArm {
-		finding.Status = FindingGap
-		finding.Detail = "Single-arm recordings keep only traffic routed through ShakerProxy, so the multicast discovery AirPlay, Chromecast and smart-home apps use is not recorded."
-		finding.Fix = "Use a two-port or Wi-Fi lab, where the lab segment is recorded in full."
+		finding.Status = FindingOK
+		finding.Detail = "The recording keeps every device's multicast and broadcast on the shared network (mDNS/Bonjour, SSDP, LLMNR, NetBIOS, DHCP), the discovery AirPlay, Chromecast and smart-home apps use. Unicast traffic between two devices still does not cross ShakerProxy."
 	} else {
 		finding.Status = FindingOK
 		finding.Detail = "The lab segment is recorded in full, including multicast discovery."

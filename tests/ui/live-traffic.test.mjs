@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   ALL_STREAM_KINDS,
+  STREAM_KINDS,
   DEFAULT_LIVE_FILTERS,
   composeLiveQuery,
   eventsPerMinute,
@@ -37,11 +38,12 @@ test("each kind of traffic reads as one line", () => {
 })
 
 test("chips compose one filter, including a client's merged records", () => {
-  assert.match(composeLiveQuery(DEFAULT_LIVE_FILTERS), /^\(\(kind:shakerproxy\.dns OR kind:zeek\.dns OR kind:shakerproxy\.blocked OR app\.protocol:doh\) OR /)
+  const chip = (id) => STREAM_KINDS.find((kind) => kind.id === id).query
+  assert.ok(composeLiveQuery(DEFAULT_LIVE_FILTERS).startsWith(`(${chip("dns")} OR `))
   const query = composeLiveQuery({ kinds: ["dns", "http"], clients: [PHONE], time: "last_1h", search: "github" }, "", (id) => (id === PHONE ? [FORMER] : []))
   assert.equal(
     query,
-    `time:last_1h AND ((kind:shakerproxy.dns OR kind:zeek.dns OR kind:shakerproxy.blocked OR app.protocol:doh) OR ((http.host:* AND NOT source:SURICATA) OR (kind:shakerproxy.conn AND protocol:tcp AND dst.port:80))) AND (device.id:${PHONE} OR device.id:${FORMER}) AND github`,
+    `time:last_1h AND (${chip("dns")} OR ${chip("http")}) AND (device.id:${PHONE} OR device.id:${FORMER}) AND github`,
   )
   assert.equal(composeLiveQuery({ kinds: [], clients: [], time: "", search: "a b" }, "proto:mqtt"), `"a b" AND (proto:mqtt)`)
   // The server accepts 128 query terms: at most 12 device IDs go into one
@@ -135,4 +137,47 @@ test("type chips include the connections the gateway reports", async () => {
   assert.match(query.http, /kind:shakerproxy\.conn AND protocol:tcp AND dst\.port:80/)
   assert.match(query.other, /kind:shakerproxy\.conn AND NOT dst\.port:443 AND NOT dst\.port:80 AND NOT dst\.port:53/)
   assert.match(webUIFile("workspaces/traffic/TrafficStream.tsx"), /mergeInstantConnections\(foldSplitConnections\(/)
+})
+
+test("encrypted DNS is identified by kind", () => {
+  const line = (app_protocol, extra = {}) => streamLine({ ...base, kind: "zeek.conn", app_protocol, ...extra })
+  assert.equal(line("dot", { protocol: "tcp", destination_ip: "1.1.1.1", destination_port: 853 }).badge, "DoT")
+  assert.equal(line("doq", { protocol: "udp", destination_ip: "94.140.14.14", destination_port: 853 }).badge, "DoQ")
+  assert.equal(line("doh", { protocol: "tcp", tls_server_name: "dns.google", destination_port: 443 }).badge, "DoH")
+  for (const kind of ["dot", "doq", "doh"]) assert.equal(line(kind).kind, "dns")
+  assert.match(composeLiveQuery({ ...DEFAULT_LIVE_FILTERS, kinds: ["dns"] }), /app\.protocol:dot OR app\.protocol:doq/)
+})
+
+test("discovery traffic on the network has its own type", () => {
+  const mdns = streamLine({ ...base, kind: "zeek.dns", protocol: "udp", source_ip: "192.168.10.50", destination_ip: "224.0.0.251", destination_port: 5353, dns_query: "_googlecast._tcp.local", dns_record_type: "PTR", dns_answers: ["Living-Room-TV._googlecast._tcp.local"] })
+  assert.deepEqual([mdns.kind, mdns.badge, mdns.name, mdns.detail], ["discovery", "mDNS", "_googlecast._tcp.local", "PTR → Living-Room-TV._googlecast._tcp.local"])
+  const ssdp = streamLine({ ...base, kind: "zeek.conn", protocol: "udp", destination_ip: "239.255.255.250", destination_port: 1900, network_bytes: 410 })
+  assert.deepEqual([ssdp.kind, ssdp.badge, ssdp.name], ["discovery", "SSDP", "239.255.255.250:1900"])
+  const chip = (id) => STREAM_KINDS.find((kind) => kind.id === id).query
+  for (const port of [5353, 1900, 5355, 137, 67]) assert.match(chip("discovery"), new RegExp(`dst\\.port:${port}\\b`))
+  assert.match(chip("dns"), /NOT dst\.port:5353/)
+  assert.match(chip("other"), /NOT dst\.port:1900/)
+  assert.ok(composeLiveQuery(DEFAULT_LIVE_FILTERS).length < 2048)
+})
+
+test("rows say where traffic went from and to", async () => {
+  const { streamEnds, ownerLine, transferLine } = await import("../../apps/web-ui/src/lib/liveTraffic.ts")
+  const outbound = { ...base, kind: "zeek.conn", protocol: "tcp", source_ip: "192.168.10.201", source_port: 42612, destination_ip: "140.82.121.4", destination_port: 443, attribution_evidence: { endpoint: "SOURCE" } }
+  assert.deepEqual(streamEnds(outbound, "Pixel"), { from: { primary: "Pixel", secondary: "192.168.10.201:42612" }, to: { primary: "140.82.121.4:443", secondary: "TCP" }, inbound: false })
+  const inbound = { ...outbound, source_ip: "52.1.2.3", source_port: 443, destination_ip: "192.168.10.201", destination_port: 50000, attribution_evidence: { endpoint: "DESTINATION" } }
+  const ends = streamEnds(inbound, "Pixel")
+  assert.equal(ends.inbound, true)
+  assert.equal(ends.to.primary, "Pixel")
+  assert.equal(ends.from.primary, "52.1.2.3:443")
+  assert.equal(streamEnds({ ...base, kind: "shakerproxy.dns", source_ip: "192.168.10.201", source_port: 41000, destination_ip: "192.168.10.177", destination_port: 53 }, "Pixel").to.primary, "ShakerProxy DNS")
+  assert.equal(ownerLine({ ...base, destination_organization: "GitHub", destination_category: "cloud-platform" }), "GitHub · cloud platform")
+  assert.equal(transferLine({ ...base, bytes_sent: 3100, bytes_received: 22600 }), "↑ 3 KB ↓ 22 KB")
+  assert.equal(transferLine({ ...base, network_bytes: 512 }), "512 B")
+})
+
+test("the Traffic page has a wide view", () => {
+  const traffic = webUIFile("workspaces/traffic/TrafficWorkspace.tsx")
+  assert.match(traffic, /document\.body\.classList\.toggle\("traffic-wide", wide\)/)
+  assert.match(traffic, /traffic_view/)
+  assert.match(webUIFile("styles/live-traffic.css"), /body\.traffic-wide main\.workspace\{max-width:none/)
 })

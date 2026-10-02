@@ -87,7 +87,7 @@ func TestBlockedEncryptedDNSAttemptsBecomeTrafficEvents(t *testing.T) {
 }
 
 func TestBlockedEventReasonsMatchTheRenderedRules(t *testing.T) {
-	rules, err := trafficpolicy.RenderFirewall(trafficpolicy.DefaultPolicy(), trafficpolicy.RenderContext{LabInterface: "ens18", LabCIDR: "192.168.10.0/24", LabGatewayIPv4: "192.168.10.177"})
+	rules, err := trafficpolicy.RenderFirewall(trafficpolicy.BlockingPolicy(), trafficpolicy.RenderContext{LabInterface: "ens18", LabCIDR: "192.168.10.0/24", LabGatewayIPv4: "192.168.10.177"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestBlockedEventReasonsMatchTheRenderedRules(t *testing.T) {
 		}
 	}
 	if len(prefixes) == 0 {
-		t.Fatal("the default policy logs no blocked attempts")
+		t.Fatal("the blocking policy logs no blocked attempts")
 	}
 	for prefix := range prefixes {
 		if blockReasons[prefix] == "" {
@@ -127,7 +127,7 @@ func TestAnUntouchedObserveDefaultMovesToVisibilityAtStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.Policy.Revision != 2 || document.Policy.Name != trafficpolicy.DefaultPolicyName || !document.Policy.EncryptedDNS.ForcePlainDNS() || !document.Policy.EncryptedDNS.BlockEncryptedDNS() || document.Previous == nil {
+	if document.Policy.Revision != 2 || document.Policy.Name != trafficpolicy.DefaultPolicyName || !document.Policy.EncryptedDNS.ForcePlainDNS() || document.Policy.EncryptedDNS.BlockEncryptedDNS() || document.Previous == nil {
 		t.Fatalf("policy after startup = %+v", document.Policy)
 	}
 	// An administrator's own choice, here observe-only again, is kept.

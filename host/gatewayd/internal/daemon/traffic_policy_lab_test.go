@@ -305,7 +305,7 @@ func readOnboardingEndpoints(t *testing.T, path string) OnboardingEndpoints {
 // use ShakerProxy as their resolver (DHCP's default) had no DNS at all.
 // The default is now maximum visibility: every lab client's plain DNS is
 // answered by ShakerProxy and encrypted DNS is blocked.
-func TestDefaultPolicyAnswersAllLabDNSAndBlocksEncryptedDNS(t *testing.T) {
+func TestDefaultPolicyAnswersAllLabDNSAndBlocksEncryptedDNSOnlyWhenAsked(t *testing.T) {
 	runner := &fakeTrafficRunner{}
 	manager := labTestManager(t, runner)
 	if err := manager.ReconcileNow(t.Context()); err != nil {
@@ -315,18 +315,35 @@ func TestDefaultPolicyAnswersAllLabDNSAndBlocksEncryptedDNS(t *testing.T) {
 	for _, expected := range []string{
 		"-i lab0 -s 10.77.0.0/24 -d 10.77.0.1 -p udp --dport 53 -j REDIRECT --to-ports 1053",
 		"-i lab0 -s 10.77.0.0/24 ! -d 10.77.0.0/24 -p udp --dport 53 -j REDIRECT --to-ports 1053",
-		"-i lab0 -s 10.77.0.0/24 ! -d 10.77.0.0/24 -p tcp --dport 853 -j REJECT --reject-with tcp-reset",
-		"-i lab0 -s 10.77.0.0/24 -d 8.8.8.8 -p tcp --dport 443 -j REJECT --reject-with tcp-reset",
 	} {
 		if !strings.Contains(v4, expected) {
 			t.Fatalf("default policy lacks %q:\n%s", expected, v4)
 		}
 	}
+	// Encrypted DNS is identified, not blocked, until the tester turns
+	// blocking on.
+	if strings.Contains(v4, "--dport 853 -j REJECT") || strings.Contains(v4, "-d 8.8.8.8 -p tcp --dport 443 -j REJECT") {
+		t.Fatalf("the default blocks encrypted DNS:\n%s", v4)
+	}
+	blocking := trafficpolicy.BlockingPolicy()
+	blocking.Revision = 2
+	if _, err := manager.Apply(t.Context(), blocking, 1); err != nil {
+		t.Fatal(err)
+	}
+	v4 = runner.lastRestore("/usr/sbin/iptables-restore")
+	for _, expected := range []string{
+		"-i lab0 -s 10.77.0.0/24 ! -d 10.77.0.0/24 -p tcp --dport 853 -j REJECT --reject-with tcp-reset",
+		"-i lab0 -s 10.77.0.0/24 -d 8.8.8.8 -p tcp --dport 443 -j REJECT --reject-with tcp-reset",
+	} {
+		if !strings.Contains(v4, expected) {
+			t.Fatalf("blocking policy lacks %q:\n%s", expected, v4)
+		}
+	}
 	// An administrator who turns both switches off gets observe-only: only
 	// DNS sent to ShakerProxy itself is answered.
 	observe := trafficpolicy.LegacyDefaultPolicy()
-	observe.Revision = 2
-	if _, err := manager.Apply(t.Context(), observe, 1); err != nil {
+	observe.Revision = 3
+	if _, err := manager.Apply(t.Context(), observe, 2); err != nil {
 		t.Fatal(err)
 	}
 	v4 = runner.lastRestore("/usr/sbin/iptables-restore")

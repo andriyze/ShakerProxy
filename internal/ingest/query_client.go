@@ -295,6 +295,9 @@ func validateRecentEventPage(page RecentEventPage, query RecentEventQuery) error
 		if event.BlockedReason != "" && (!event.Blocked || !validBlockReasons[event.BlockedReason]) {
 			return errors.New("event query service returned an invalid block reason")
 		}
+		if !validEventByteCounts(event) || !validEventDestinationOwner(event) {
+			return errors.New("event query service returned invalid byte counts or destination owner")
+		}
 		if !validTLSProjection(event) {
 			return errors.New("event query service returned an invalid TLS projection")
 		}

@@ -43,7 +43,17 @@ type Attributor struct {
 	mu        sync.Mutex
 	loadedAt  time.Time
 	addresses map[string][]addressWindow
+	pinned    map[string]string
 }
+
+// PinnedAddressConfidence is the confidence of attribution by an address an
+// administrator named a device by: certain about the name, but not proof of
+// which hardware sent the packet.
+const PinnedAddressConfidence = 60
+
+// SourcePinnedAddress attributes traffic by an address an administrator
+// named a device by (Devices > Add a device).
+const SourcePinnedAddress EvidenceSource = "PINNED_ADDRESS"
 
 // ResolveIPv4 keeps the original IPv4-only contract.
 func (a *Attributor) ResolveIPv4(address netip.Addr, occurredAt time.Time) (AddressAttribution, error) {
@@ -80,9 +90,29 @@ func (a *Attributor) ResolveAddress(address netip.Addr, occurredAt time.Time) (A
 			return AddressAttribution{}, err
 		}
 		a.addresses = buildAddressIndex(snapshot)
+		a.pinned = buildPinnedIndex(snapshot)
 		a.loadedAt = now
 	}
-	return resolveAddressWindows(a.addresses[address.String()], occurredAt.UTC()), nil
+	result := resolveAddressWindows(a.addresses[address.String()], occurredAt.UTC())
+	// A named address decides when the observed windows do not: traffic in the
+	// seconds after a phone reconnects with a new private MAC arrives before
+	// its new neighbor entry is seen, and a stale window may still name an
+	// older record.
+	if deviceID, named := a.pinned[address.String()]; named && (!result.Matched || result.Ambiguous) {
+		at := occurredAt.UTC()
+		return AddressAttribution{DeviceID: deviceID, Address: address.String(), Confidence: PinnedAddressConfidence, Source: SourcePinnedAddress, ValidFrom: at, ValidUntil: at.Add(time.Second), Matched: true}, nil
+	}
+	return result, nil
+}
+
+func buildPinnedIndex(snapshot Snapshot) map[string]string {
+	index := make(map[string]string)
+	for _, device := range snapshot.Devices {
+		if device.PinnedAddress != "" {
+			index[device.PinnedAddress] = device.ID
+		}
+	}
+	return index
 }
 
 func buildAddressIndex(snapshot Snapshot) map[string][]addressWindow {
