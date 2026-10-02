@@ -76,6 +76,8 @@ export function TrafficWorkspace() {
   const [filters, setFilters] = useState<LiveFilters>(() => liveFiltersFromURL(window.location.search))
   const [holding, setHolding] = useState(false)
   const [wide, setWide] = useState(() => new URLSearchParams(window.location.search).get("traffic_view") === "wide")
+  const wideRef = useRef(wide)
+  wideRef.current = wide
   const setWideView = (next: boolean) => {
     setWide(next)
     const url = new URL(window.location.href)
@@ -201,7 +203,9 @@ export function TrafficWorkspace() {
       let cursor = ""
       while (active && !cursor) {
         await waitUntilVisible()
-        const parameters = new URLSearchParams({ limit: "30" })
+        // The Live view's facets and timeline count what is loaded, so it starts
+        // with the most the event service returns at once.
+        const parameters = new URLSearchParams({ limit: wideRef.current ? "100" : "30" })
         if (source) parameters.set("source", source)
         if (query) parameters.set("q", query)
         try {

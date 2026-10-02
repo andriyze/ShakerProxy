@@ -124,3 +124,9 @@ body.traffic-wide .live-shell.inspecting{grid-template-columns:240px minmax(0,1f
 .event-detail-drawer.docked{position:sticky;top:8px;right:auto;width:auto;height:calc(100vh - 140px);box-shadow:none;border:1px solid #1f3a40;border-radius:8px;z-index:1}
 body.traffic-wide .stream-rows{max-height:calc(100vh - 330px)}
 body.traffic-wide .live-shell .stream-head,body.traffic-wide .live-shell .stream-row{grid-template-columns:64px 60px minmax(120px,1fr) 14px minmax(140px,1fr) minmax(200px,2.2fr) minmax(130px,1.1fr)}
+body.traffic-wide .live-domains{display:none}
+.live-toolbar label{display:flex;align-items:center;gap:6px}
+body.traffic-wide .live-filters{padding:6px 10px;gap:4px}
+body.traffic-wide .live-chip{min-height:24px;padding:2px 9px;font-size:12px}
+body.traffic-wide .live-search input{min-height:26px}
+
