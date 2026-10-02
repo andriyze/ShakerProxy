@@ -296,12 +296,12 @@ func TestServerIgnoresClientsOutsideTheLab(t *testing.T) {
 	server := &Server{Provider: staticProvider{runtime}, Timeout: 2 * time.Second}
 	query := queryFor("example.com")
 	for _, client := range []string{"8.8.8.8", "2001:db8:2::5", "::ffff:198.51.100.1"} {
-		if response := server.answer(context.Background(), "udp", query, netip.MustParseAddr(client)); response != nil {
+		if response, _ := server.answer(context.Background(), "udp", query, netip.MustParseAddr(client)); response != nil {
 			t.Fatalf("answered a query from %s", client)
 		}
 	}
 	for _, client := range []string{"127.0.0.1", "10.77.0.23", "fd12::5", "fe80::1", "100.64.1.1", "2001:db8:1::5"} {
-		if response := server.answer(context.Background(), "udp", query, netip.MustParseAddr(client)); response == nil || rcode(response) != 0 {
+		if response, _ := server.answer(context.Background(), "udp", query, netip.MustParseAddr(client)); response == nil || rcode(response) != 0 {
 			t.Fatalf("refused a lab client %s", client)
 		}
 	}

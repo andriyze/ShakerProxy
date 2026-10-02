@@ -158,7 +158,49 @@ ORDER BY 1, 4, 2`, MaxEventFacetInput+1, MaxEventFacetInput, MaxEventFacetValues
 		facet.OtherCount = matchedCount - shown
 		result.Fields = append(result.Fields, *facet)
 	}
+	domains, err := readEventDomains(ctx, queryer, clauses, args)
+	if err != nil {
+		return EventFacets{}, err
+	}
+	result.Domains = domains
 	return result, nil
+}
+
+// readEventDomains builds the Domains facet from the same newest matching
+// events as the other facets. An observation is the connection's addresses
+// and ports (Zeek's ssl.log has no transport field), so the same connection
+// reported by several analyzers, or split across capture segments, counts
+// once; rows without addresses count individually.
+func readEventDomains(ctx context.Context, queryer eventQueryer, clauses []string, args []any) (EventDomainFacet, error) {
+	statement := fmt.Sprintf(`WITH facet_input AS MATERIALIZED (
+SELECT lower(rtrim(COALESCE(tls_server_name, http_host, dns_query), '.')) AS host,
+COALESCE(host(source_ip) || ' ' || source_port || ' ' || host(destination_ip) || ' ' || destination_port, record_id) AS observation
+FROM normalized_events WHERE `+strings.Join(clauses, " AND ")+`
+ORDER BY occurred_at DESC, record_id DESC LIMIT %d
+), named AS MATERIALIZED (
+SELECT host, observation FROM facet_input
+WHERE host IS NOT NULL AND host <> '' AND host !~ '(^|[.])(local|arpa)$'
+)
+SELECT host, count(DISTINCT observation)::bigint, (SELECT count(DISTINCT observation) FROM named)::bigint
+FROM named GROUP BY host ORDER BY 2 DESC, 1 LIMIT %d`, MaxEventFacetInput, maxEventDomainHostRows)
+	rows, err := queryer.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return EventDomainFacet{}, fmt.Errorf("query normalized event domains: %w", err)
+	}
+	defer rows.Close()
+	var hosts []EventFacetValue
+	var total int64
+	for rows.Next() {
+		var host EventFacetValue
+		if err := rows.Scan(&host.Value, &host.Count, &total); err != nil {
+			return EventDomainFacet{}, fmt.Errorf("decode normalized event domains: %w", err)
+		}
+		hosts = append(hosts, host)
+	}
+	if err := rows.Err(); err != nil {
+		return EventDomainFacet{}, fmt.Errorf("read normalized event domains: %w", err)
+	}
+	return groupEventDomains(hosts, total), nil
 }
 
 func (s PostgresSink) QueryAfter(ctx context.Context, query LiveEventQuery) (LiveEventBatch, error) {

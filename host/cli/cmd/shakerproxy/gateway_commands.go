@@ -114,6 +114,9 @@ func (c *cli) statusCommand(args []string) error {
 		if status.ActiveCaptureID != "" {
 			captureText = c.style(styleGreen, "recording") + " " + status.ActiveCaptureID
 		}
+		if recording := status.LabRecording; recording != nil {
+			captureText = labRecordingText(c, *recording)
+		}
 	}
 	rows = append(rows, [2]string{"Capture", captureText})
 	policy := "not available in this daemon profile"
@@ -459,8 +462,54 @@ func (c *cli) captureCommand(args []string) error {
 		return c.captureStats(args[1:])
 	case "export":
 		return c.captureExport(args[1:])
+	case "auto":
+		return c.captureAuto(args[1:])
 	default:
-		return unknownSubcommand("capture", subcommand, []string{"start", "stop", "list", "stats", "export"})
+		return unknownSubcommand("capture", subcommand, []string{"start", "stop", "list", "stats", "export", "auto"})
+	}
+}
+
+// captureAuto shows or changes automatic lab recording: gatewayd records the
+// lab whenever a confirmed lab plan routes, unless it is turned off.
+func (c *cli) captureAuto(args []string) error {
+	if err := expectArgs("capture", args, 0, 1, "on|off"); err != nil {
+		return err
+	}
+	var recording gatewayprotocol.LabRecordingStatus
+	switch {
+	case len(args) == 0:
+		var status gatewayprotocol.Status
+		if err := c.gatewayCall("GetManagedState", gatewayprotocol.EmptyParams{}, &status); err != nil {
+			return err
+		}
+		if status.LabRecording == nil {
+			return withHints("automatic lab recording is not available in this daemon profile", "Check the gateway: shakerproxy status")
+		}
+		recording = *status.LabRecording
+	case args[0] == "on" || args[0] == "off":
+		if err := c.gatewayCall("SetLabRecording", gatewayprotocol.SetLabRecordingParams{Enabled: args[0] == "on"}, &recording); err != nil {
+			return err
+		}
+	default:
+		return usagef("capture", "capture auto takes on or off.")
+	}
+	if c.jsonOutput {
+		return c.printJSON(recording)
+	}
+	c.println("Automatic lab recording: " + labRecordingText(c, recording))
+	return nil
+}
+
+func labRecordingText(c *cli, recording gatewayprotocol.LabRecordingStatus) string {
+	switch {
+	case recording.Recording && recording.Manual:
+		return c.style(styleGreen, "recording") + " " + recording.SessionID + " (manual capture; automatic recording resumes when it ends)"
+	case recording.Recording:
+		return c.style(styleGreen, "recording lab traffic") + " " + recording.SessionID
+	case !recording.Enabled:
+		return "off. Turn it on: sudo shakerproxy capture auto on"
+	default:
+		return "not recording. " + recording.Reason
 	}
 }
 
@@ -621,6 +670,9 @@ func (c *cli) captureStop(args []string) error {
 	}
 	if c.jsonOutput {
 		return c.printJSON(view)
+	}
+	if view.Session.Request.Automatic {
+		c.println("Automatic lab recording is now off. Turn it back on: sudo shakerproxy capture auto on")
 	}
 	if view.Manifest != nil {
 		c.printf("Stopped %s: %s in %s, %s packets.\n", sessionID, humanBytes(view.Manifest.TotalSizeBytes), plural(len(view.Manifest.Files), "file", "files"), humanCount(int64(view.Manifest.PacketsCaptured)))

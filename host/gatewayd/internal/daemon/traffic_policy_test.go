@@ -39,6 +39,56 @@ type fakeTrafficRunner struct {
 	order map[string][]string
 	// failRestore, when set, can fail a restore batch.
 	failRestore func(executable, stdin string) error
+	// contents holds the rules restore batches loaded into declared chains
+	// ("6:" prefix for ip6tables), which -S lists like iptables does.
+	contents map[string][]string
+}
+
+// loadLocked applies a restore batch's chain declarations, flushes and
+// appends to contents.
+func (r *fakeTrafficRunner) loadLocked(executable, batch string) {
+	if r.contents == nil {
+		r.contents = map[string][]string{}
+	}
+	prefix := ""
+	if strings.Contains(executable, "ip6tables") {
+		prefix = "6:"
+	}
+	for _, line := range strings.Split(batch, "\n") {
+		fields := strings.Fields(line)
+		switch {
+		case len(fields) == 0:
+		case strings.HasPrefix(fields[0], ":"):
+			chain := strings.TrimPrefix(fields[0], ":")
+			if _, exists := r.contents[prefix+chain]; !exists {
+				r.contents[prefix+chain] = []string{}
+			}
+		case fields[0] == "-F" && len(fields) > 1:
+			r.contents[prefix+fields[1]] = []string{}
+		case fields[0] == "-A" && len(fields) > 1:
+			r.contents[prefix+fields[1]] = append(r.contents[prefix+fields[1]], line)
+		}
+	}
+}
+
+// flush simulates another tool emptying a chain.
+func (r *fakeTrafficRunner) flush(prefix, chain string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.contents[prefix+chain] = []string{}
+}
+
+// restores counts the restore batches sent so far.
+func (r *fakeTrafficRunner) restores() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := 0
+	for _, call := range r.calls {
+		if strings.HasSuffix(call.executable, "tables-restore") {
+			count++
+		}
+	}
+	return count
 }
 
 // lastRestore returns the most recent filter batch followed by the most
@@ -101,8 +151,11 @@ func (r *fakeTrafficRunner) Run(_ context.Context, executable string, arguments 
 	r.calls = append(r.calls, call)
 	if strings.HasSuffix(executable, "tables-restore") {
 		if r.failRestore != nil {
-			return nil, r.failRestore(executable, string(stdin))
+			if err := r.failRestore(executable, string(stdin)); err != nil {
+				return nil, err
+			}
 		}
+		r.loadLocked(executable, string(stdin))
 		return nil, nil
 	}
 	prefix := ""
@@ -122,6 +175,9 @@ func (r *fakeTrafficRunner) Run(_ context.Context, executable string, arguments 
 		}
 		if value == "-S" && index+1 < len(arguments) {
 			parent := arguments[index+1]
+			if rules, loaded := r.contents[prefix+parent]; loaded {
+				return []byte(strings.Join(append([]string{"-N " + parent}, rules...), "\n") + "\n"), nil
+			}
 			var listing strings.Builder
 			for _, child := range r.order[prefix+parent] {
 				fmt.Fprintf(&listing, "-A %s -j %s\n", parent, child)
@@ -252,6 +308,111 @@ func TestTrafficPolicyManagerAppliesOnlyFixedFirewallCommands(t *testing.T) {
 	}
 	if !runner.jumps["DOCKER-USER->"+securityForwardChain] || !runner.jumps["INPUT->"+securityInputChain] || !runner.jumps["PREROUTING->"+securityPreroutingChain] {
 		t.Fatalf("expected security jumps were not attached: %#v", runner.jumps)
+	}
+}
+
+func dnsRedirectPolicyManager(t *testing.T) (*TrafficPolicyManager, *fakeTrafficRunner) {
+	t.Helper()
+	root := t.TempDir()
+	runner := &fakeTrafficRunner{}
+	manager := &TrafficPolicyManager{
+		NetworkState: routedTrafficState(),
+		PolicyStore:  &trafficpolicy.Store{Path: filepath.Join(root, "policy.json")},
+		RuntimePath:  filepath.Join(root, "runtime", "policy.json"),
+		Runner:       runner,
+		Probe:        func(context.Context, int) error { return nil },
+	}
+	if err := manager.Ensure(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	policy := trafficpolicy.DefaultPolicy()
+	policy.Revision = 2
+	policy.EncryptedDNS.Mode = trafficpolicy.EncryptedDNSEnforceLocal
+	policy.EncryptedDNS.RedirectPlainDNS = true
+	policy.EncryptedDNS.UpstreamServers = []string{"1.1.1.1:53"}
+	if _, err := manager.Apply(t.Context(), policy, 1); err != nil {
+		t.Fatal(err)
+	}
+	return manager, runner
+}
+
+// The reconciler runs every 15 s. Reloading unchanged chains zeroed their
+// packet counters each time, so counters on the lab's DNS redirect and
+// listener protection never showed real traffic.
+func TestTrafficPolicyReconcileLeavesUnchangedChainsAlone(t *testing.T) {
+	manager, runner := dnsRedirectPolicyManager(t)
+	if err := manager.ReconcileNow(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	before := runner.restores()
+	for range 3 {
+		if err := manager.ReconcileNow(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if after := runner.restores(); after != before {
+		t.Fatalf("unchanged policy was reloaded %d times by 3 reconciles", after-before)
+	}
+	if !runner.jumps["PREROUTING->"+securityPreroutingChain] || !runner.jumps["INPUT->"+securityInputChain] {
+		t.Fatalf("security hooks were detached: %#v", runner.jumps)
+	}
+}
+
+func TestTrafficPolicyReconcileRestoresAFlushedChainInOneBatch(t *testing.T) {
+	manager, runner := dnsRedirectPolicyManager(t)
+	if err := manager.ReconcileNow(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	runner.flush("", securityPreroutingChain)
+	before := runner.restores()
+	if err := manager.ReconcileNow(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if after := runner.restores(); after != before+1 {
+		t.Fatalf("a flushed redirect chain took %d restores, want exactly 1", after-before)
+	}
+	batch := runner.lastRestore("/usr/sbin/iptables-restore")
+	nat := batch[strings.Index(batch, "*nat"):]
+	// One transaction declares, flushes and refills the chain, so the
+	// redirect is never missing while it is replaced.
+	for _, expected := range []string{":" + securityPreroutingChain, "-F " + securityPreroutingChain, "--dport 53 -j REDIRECT --to-ports 1053", "COMMIT"} {
+		if !strings.Contains(nat, expected) {
+			t.Fatalf("NAT restore batch lacks %q:\n%s", expected, nat)
+		}
+	}
+	runner.mu.Lock()
+	restored := strings.Join(runner.contents[securityPreroutingChain], "\n")
+	runner.mu.Unlock()
+	if !strings.Contains(restored, "--dport 53 -j REDIRECT --to-ports 1053") {
+		t.Fatalf("DNS redirect was not restored: %q", restored)
+	}
+}
+
+func TestTrafficPolicyReconcileReloadsAfterAFailedRestore(t *testing.T) {
+	manager, runner := dnsRedirectPolicyManager(t)
+	runner.flush("", securityInputChain)
+	runner.mu.Lock()
+	runner.failRestore = func(_, stdin string) error {
+		if strings.HasPrefix(stdin, "*filter") {
+			return errors.New("iptables-restore: resource busy")
+		}
+		return nil
+	}
+	runner.mu.Unlock()
+	if err := manager.ReconcileNow(t.Context()); err == nil {
+		t.Fatal("a failed filter restore was not reported")
+	}
+	runner.mu.Lock()
+	runner.failRestore = nil
+	runner.mu.Unlock()
+	if err := manager.ReconcileNow(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	runner.mu.Lock()
+	protected := len(runner.contents[securityInputChain])
+	runner.mu.Unlock()
+	if protected == 0 {
+		t.Fatal("listener protection was not reloaded after the failed restore")
 	}
 }
 

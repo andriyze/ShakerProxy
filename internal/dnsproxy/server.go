@@ -35,7 +35,10 @@ type Server struct {
 	MaxConcurrent int
 	// HedgeDelay is how long one upstream may stay silent before the next
 	// is queried in parallel. Defaults to a quarter of Timeout, at most 500ms.
-	HedgeDelay   time.Duration
+	HedgeDelay time.Duration
+	// Observer, when set, receives every answered lab query after its answer
+	// was sent.
+	Observer     LookupObserver
 	nextUpstream atomic.Uint64
 	health       upstreamHealth
 	blockLog     blockLogLimiter
@@ -111,9 +114,10 @@ func (s *Server) serveUDP(ctx context.Context, listener *net.UDPConn) error {
 		case semaphore <- struct{}{}:
 			go func() {
 				defer func() { <-semaphore }()
-				response := s.answer(ctx, "udp", query, client.Addr())
+				response, note := s.answer(ctx, "udp", query, client.Addr())
 				if len(response) != 0 {
 					_, _ = listener.WriteToUDPAddrPort(response, client)
+					s.observe("udp", client, query, response, note)
 				}
 			}()
 		default:
@@ -147,9 +151,9 @@ func (s *Server) serveTCP(ctx context.Context, listener net.Listener) error {
 }
 
 func (s *Server) handleTCPConnection(ctx context.Context, connection net.Conn) {
-	client := netip.Addr{}
+	client := netip.AddrPort{}
 	if remote, err := netip.ParseAddrPort(connection.RemoteAddr().String()); err == nil {
-		client = remote.Addr()
+		client = remote
 	}
 	reader := bufio.NewReader(connection)
 	for {
@@ -165,7 +169,7 @@ func (s *Server) handleTCPConnection(ctx context.Context, connection net.Conn) {
 		if _, err := io.ReadFull(reader, query); err != nil {
 			return
 		}
-		response := s.answer(ctx, "tcp", query, client)
+		response, note := s.answer(ctx, "tcp", query, client.Addr())
 		if len(response) == 0 || len(response) > maximumDNSMessage {
 			return
 		}
@@ -175,46 +179,62 @@ func (s *Server) handleTCPConnection(ctx context.Context, connection net.Conn) {
 		if _, err := connection.Write(response); err != nil {
 			return
 		}
+		s.observe("tcp", client, query, response, note)
 	}
 }
 
 // answer returns the response for one query: NXDOMAIN for a name blocked for
 // the client's device, the first valid upstream answer, or SERVFAIL.
-func (s *Server) answer(ctx context.Context, network string, query []byte, client netip.Addr) []byte {
+func (s *Server) answer(ctx context.Context, network string, query []byte, client netip.Addr) ([]byte, answerNote) {
 	runtime, _ := s.Provider.Runtime()
 	if !runtime.AllowedClient(client) {
 		// Silently ignore: answering would make this an open resolver.
 		if s.Logger != nil && s.blockLog.allow("refused|"+client.String(), time.Now()) {
 			s.Logger.Warn("DNS query from outside the lab ignored", "client", client.String())
 		}
-		return nil
+		return nil, answerNote{}
 	}
-	response, err := s.exchange(ctx, network, query, client)
+	response, note, err := s.exchange(ctx, network, query, client)
 	if err != nil {
 		s.logFailure(network, query, err)
-		return servfail(query)
+		return servfail(query), answerNote{}
 	}
-	return response
+	return response, note
 }
 
-func (s *Server) exchange(ctx context.Context, network string, query []byte, client netip.Addr) ([]byte, error) {
+func (s *Server) exchange(ctx context.Context, network string, query []byte, client netip.Addr) ([]byte, answerNote, error) {
 	if err := validateQuery(query); err != nil {
-		return nil, err
+		return nil, answerNote{}, err
 	}
 	runtime, err := s.Provider.Runtime()
 	if err != nil {
-		return nil, err
+		return nil, answerNote{}, err
 	}
 	if name, nameErr := QuestionName(query); nameErr == nil {
 		if deviceID, domain, blocked := runtime.Blocked(client.Unmap(), name); blocked {
 			s.logBlocked(deviceID, domain, name)
-			return nxdomain(query), nil
+			return nxdomain(query), answerNote{blocked: true, domain: domain}, nil
 		}
 	}
 	if len(runtime.Upstreams) == 0 {
-		return nil, errors.New("no DNS upstreams are configured")
+		return nil, answerNote{}, errors.New("no DNS upstreams are configured")
 	}
-	return s.forward(ctx, network, query, runtime.Upstreams)
+	response, err := s.forward(ctx, network, query, runtime.Upstreams)
+	return response, answerNote{}, err
+}
+
+// observe hands an answered query to the Observer. It runs after the answer
+// was written, so recording never delays a device's DNS.
+func (s *Server) observe(network string, client netip.AddrPort, query, response []byte, note answerNote) {
+	if s.Observer == nil {
+		return
+	}
+	lookup, err := NewLookup(time.Now(), network, client, query, response)
+	if err != nil {
+		return
+	}
+	lookup.Blocked, lookup.BlockedDomain = note.blocked, note.domain
+	s.Observer.ObserveLookup(lookup)
 }
 
 type upstreamResult struct {

@@ -360,7 +360,11 @@ RETURNING event_sha256`, pending.RecordID, record.EventSHA256, record.ReceivedAt
 			}
 			attributionJSON = string(encoded)
 		}
-		columns := normalizedEventColumns(pending, envelope, ProjectEvent(envelope), attributionJSON)
+		projection := ProjectEvent(envelope)
+		if err := linkSplitConnection(ctx, tx, &envelope, &projection); err != nil {
+			return recordDataError(pending.RecordID, err)
+		}
+		columns := normalizedEventColumns(pending, envelope, projection, attributionJSON)
 		if _, err := tx.ExecContext(ctx, columns.insertStatement(), columns.args()...); err != nil {
 			return recordDataError(pending.RecordID, fmt.Errorf("insert normalized event: %w", err))
 		}

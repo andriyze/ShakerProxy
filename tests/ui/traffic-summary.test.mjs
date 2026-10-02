@@ -112,6 +112,36 @@ test("the readable traffic list keeps one row per connection and lookup", async 
     assert.equal(isAnalyzerDuplicate(event), false, event.kind)
 })
 
+test("a lookup the DNS forwarder reported is shown once, not again from the capture", async () => {
+  const { isAnalyzerDuplicate, forwardedLookups, eventSummary, eventTypeLabel, eventTone } = await import(
+    "../../apps/web-ui/src/lib/eventSummary.ts"
+  )
+  const forwarder = {
+    kind: "shakerproxy.dns",
+    source: "HOST",
+    source_ip: "192.168.10.201",
+    occurred_at: "2026-10-01T12:00:00.100Z",
+    dns_query: "connectivitycheck.grapheneos.network",
+    dns_record_type: "A",
+    dns_response_code: "NOERROR",
+    dns_answer_count: 2,
+  }
+  const zeekCopy = { ...forwarder, kind: "zeek.dns", source: "ZEEK", occurred_at: "2026-10-01T12:00:00.900Z" }
+  const laterLookup = { ...zeekCopy, occurred_at: "2026-10-01T12:05:00Z" }
+  const otherResolver = { ...zeekCopy, dns_query: "dns.google" }
+  const otherDevice = { ...zeekCopy, source_ip: "192.168.10.50" }
+  const forwarded = forwardedLookups([forwarder, zeekCopy, laterLookup, otherResolver, otherDevice])
+  assert.equal(isAnalyzerDuplicate(forwarder, forwarded), false)
+  assert.equal(isAnalyzerDuplicate(zeekCopy, forwarded), true)
+  for (const event of [laterLookup, otherResolver, otherDevice]) assert.equal(isAnalyzerDuplicate(event, forwarded), false)
+  // Without a capture there is nothing to hide, and without the index Zeek
+  // lookups are always shown.
+  assert.equal(isAnalyzerDuplicate(zeekCopy), false)
+  assert.equal(eventSummary(forwarder), "DNS lookup connectivitycheck.grapheneos.network (A) → 2 answers")
+  assert.equal(eventTypeLabel(forwarder), "DNS")
+  assert.equal(eventTone(forwarder), "dns")
+})
+
 test("rows say what an event is in plain words, not which analyzer wrote it", async () => {
   const { eventTypeLabel } = await import("../../apps/web-ui/src/lib/eventSummary.ts")
   assert.equal(eventTypeLabel({ kind: "zeek.dns", dns_query: "x.com" }), "DNS")
@@ -129,4 +159,30 @@ test("devices say when they were last seen", async () => {
   assert.equal(timeAgo("2026-10-01T09:50:00Z", now), "2 h ago")
   assert.equal(timeAgo("2026-09-28T12:00:00Z", now), "3 days ago")
   assert.equal(timeAgo("not a date", now), "unknown")
+})
+
+test("a device's traffic includes records merged into it", () => {
+  const former = [`device-${"cd".repeat(16)}`, `device-${"ef".repeat(16)}`]
+  assert.equal(deviceQuery(DEVICE), `device.id:${DEVICE}`)
+  assert.equal(deviceQuery(DEVICE, "", former), `(device.id:${DEVICE} OR device.id:${former[0]} OR device.id:${former[1]})`)
+  assert.equal(deviceQuery(DEVICE, "last_1h", [...former, "not-a-device", DEVICE]), `time:last_1h AND ((device.id:${DEVICE} OR device.id:${former[0]} OR device.id:${former[1]}))`)
+})
+
+test("a connection split across capture segments shows as one row", async () => {
+  const { foldSplitConnections } = await import("../../apps/web-ui/src/lib/eventSummary.ts")
+  const flow = "flow-zeek-CDStDS3JdzMOd0IFVb"
+  // Newest first, as the Traffic page lists them.
+  const events = [
+    { record_id: "reset", kind: "zeek.conn", flow_id: flow, occurred_at: "2026-10-02T00:29:46Z", network_bytes: 52, tls_server_name: "www.amazon.com" },
+    { record_id: "dns", kind: "zeek.dns", occurred_at: "2026-10-02T00:29:00Z" },
+    { record_id: "middle", kind: "zeek.conn", flow_id: flow, occurred_at: "2026-10-02T00:28:29Z", network_bytes: 166316, tls_server_name: "www.amazon.com" },
+    { record_id: "first", kind: "zeek.conn", flow_id: flow, occurred_at: "2026-10-02T00:28:20Z", network_bytes: 151194, tls_server_name: "www.amazon.com" },
+    { record_id: "other", kind: "zeek.conn", flow_id: "flow-zeek-Cother", occurred_at: "2026-10-02T00:28:00Z", network_bytes: 10 },
+  ]
+  const folded = foldSplitConnections(events)
+  assert.deepEqual(folded.map((event) => event.record_id), ["dns", "first", "other"])
+  assert.equal(folded[1].network_bytes, 52 + 166316 + 151194)
+  assert.equal(events[3].network_bytes, 151194, "the loaded events are not modified")
+  // Without its first record loaded, a continuation still shows.
+  assert.deepEqual(foldSplitConnections(events.slice(0, 2)).map((event) => event.record_id), ["reset", "dns"])
 })

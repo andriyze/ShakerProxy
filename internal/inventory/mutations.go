@@ -679,6 +679,7 @@ func mergeDeviceEvidence(target *Device, source Device) ([]string, error) {
 		addWarning(target, "Merged device had different notes; target metadata was retained")
 	}
 	mergeCATrust(target, source)
+	mergeFormerIDs(target, source)
 	tags, err := normalizeMetadata(DeviceMetadata{Tags: append(append([]string(nil), target.Tags...), source.Tags...)})
 	if err != nil {
 		return nil, err

@@ -23,6 +23,9 @@ type persistedState struct {
 	// Staging (and discarding) a candidate replaces StagedNetworkPlan, which
 	// must never make the gateway forget the plan the host is still running.
 	ConfirmedNetworkPlan *networkplan.StagedPlan `json:"confirmed_network_plan,omitempty"`
+	// LabRecordingOff is set only when an administrator turns automatic lab
+	// recording off; recording is on by default.
+	LabRecordingOff bool `json:"lab_recording_off,omitempty"`
 }
 
 // activeNetworkPlan is the plan the host is running: the staged plan once it
@@ -92,6 +95,15 @@ func (s *StateStore) Set(mode string, bypass bool) error {
 	next := s.state
 	next.OperatingMode = mode
 	next.EmergencyBypass = bypass
+	return s.persistLocked(next)
+}
+
+// SetLabRecording persists whether gatewayd records lab traffic automatically.
+func (s *StateStore) SetLabRecording(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.state
+	next.LabRecordingOff = !enabled
 	return s.persistLocked(next)
 }
 

@@ -103,6 +103,7 @@ shakerproxy report "Living room TV" --html tv.html   # shareable security report
 shakerproxy compare <test-id-a> <test-id-b>          # what changed between two runs
 shakerproxy block "Living room TV" internet          # see how it behaves offline
 shakerproxy search 'tls.state:FAILED' --window 24h   # search recorded traffic
+shakerproxy capture auto                             # lab traffic is recorded automatically
 shakerproxy capture export <capture-id> --all ./pcaps
 shakerproxy doctor                                   # diagnose the appliance
 sudo shakerproxy logs gatewayd -f                    # follow a service log

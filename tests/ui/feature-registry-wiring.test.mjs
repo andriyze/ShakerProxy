@@ -37,7 +37,7 @@ test("the device drawer renders device extensions and a View traffic action", ()
   assert.match(drawer, /<extension\.Component deviceID=\{device\.id\}/)
   assert.match(drawer, /View traffic/)
   const inventory = webUIFile("workspaces/devices/DeviceInventory.tsx")
-  assert.match(inventory, /navigate\("traffic", \{ traffic_q: deviceQuery\(deviceID\), traffic_source: "" \}\)/)
+  assert.match(inventory, /navigate\("traffic", \{ traffic_q: deviceQuery\(deviceID, "", formerIDs\), traffic_source: "" \}\)/)
 })
 
 test("the shell uses the features index (type-only imports aside)", () => {

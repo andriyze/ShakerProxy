@@ -4,6 +4,41 @@ ShakerProxy captures traffic that traverses the confirmed lab ingress. Capture i
 not decryption: encrypted payloads remain ciphertext unless a separate,
 explicit interception mode succeeds.
 
+## Automatic lab recording
+
+Lab traffic is recorded without anyone starting a capture. While a confirmed lab
+plan routes, `shakerproxy-gatewayd` keeps one capture named **Lab traffic**
+running on the lab interface. It records whole packets with the same scope as a
+manual capture (single-arm labs record only what devices exchange through
+ShakerProxy), so Traffic, Devices and reports always have data.
+
+- **When it runs.** It starts within seconds of a lab plan being confirmed and
+  after every gatewayd restart, upgrade and reboot. Each recording lasts at most
+  24 hours, then the next one starts. A new lab plan stops the old recording and
+  starts one for the new scope. It stops when the lab is turned off
+  (`shakerproxy network off`), rolled back, or put in emergency bypass.
+- **Manual captures replace it.** One capture runs at a time, so a manual capture
+  (or a test session started with `--capture`) stops the automatic recording,
+  and gatewayd starts it again once the manual capture ends.
+- **Disk.** Each recording is a ring of 64 files of at most 8 MiB (512 MiB). Only
+  the two newest finished recordings are kept; older ones are deleted through the
+  normal verified capture deletion, which leaves analyzed events in place.
+  Recordings under an evidence hold are kept until the hold is released.
+  Automatic recording therefore never keeps more than 1.5 GiB of PCAP. It does
+  not start while CPU, memory or capture disk pressure is critical, and the
+  capture worker's emergency free-space reserve still applies.
+- **A reboot mid-recording.** The cut-off recording is sealed with its retained
+  files and marked "interrupted", so it can be exported or deleted like any
+  other capture.
+- **Turning it off.** Use the switch on the Traffic or Devices page,
+  `sudo shakerproxy capture auto off`, or
+  `PUT /api/v1/captures/lab-recording` with `{"enabled": false}`. Stopping the
+  automatic recording from the Captures page or `shakerproxy capture stop` also
+  turns it off. The setting persists across restarts.
+  `shakerproxy capture auto` and `shakerproxy status` show the current state; the
+  pages and `GET /api/v1/system/status` (`lab_recording`) also say why nothing
+  is being recorded, for example that no lab plan is confirmed.
+
 ## Rotation and finalization boundaries
 
 The host capture worker writes rotated PCAPNG files under
@@ -65,6 +100,16 @@ facets from the same database snapshot. Counts are exact through 10,000 matching
 events. Larger populations are explicitly labeled as a newest-10,000 sample;
 they are never described as exact or silently extrapolated. Each field exposes
 at most 12 values plus an `other` count, and older cursor pages omit facets.
+
+A Domains facet over the same events lists up to 15 internet domains the
+events name: DNS questions, TLS server names (SNI) and HTTP hosts, grouped by
+registrable domain under the ICANN public suffixes (`www.googleapis.com` counts
+toward `googleapis.com`). Each count is distinct connections and lookups, keyed
+by addresses and ports, so a connection that Zeek, Suricata and mitmproxy all
+report, or that spans capture segments, counts once. Local names (`.local`,
+`.arpa`) and IP literals are left out. Filtered to a device, it is that
+device's domain list. Clicking a domain adds it to the filter as a bare word,
+and the Traffic page refreshes the facets every 30 seconds while it is live.
 
 The control API holds a query-only token that must differ from the ingest
 write token. It has no database URL or analyzer credential. `ingestd` rejects

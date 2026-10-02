@@ -191,7 +191,7 @@ func (a *analysis) totals() Totals {
 	counts := a.input.Activity.Counts
 	totals := Totals{
 		Events:         counts.Events,
-		DNSQueries:     max(counts.ZeekDNS, counts.SuricataDNS) + counts.EncryptedDNSDetections,
+		DNSQueries:     max(counts.ZeekDNS, counts.SuricataDNS, counts.ForwarderDNS) + counts.EncryptedDNSDetections,
 		TLSConnections: max(counts.ZeekTLS, counts.SuricataTLS, counts.InterceptorTLS),
 		HTTPRequests:   max(counts.InterceptorHTTPRequests-counts.InterceptorCleartextRequests, 0) + cleartextRequests(counts),
 		Alerts:         counts.Alerts,

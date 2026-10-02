@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,9 +13,9 @@ import (
 	"shakerproxy.dev/shakerproxy/internal/querylang"
 )
 
-const emptyEventFacetsJSON = `{"exact":true,"matched_count":0,"count_relation":"eq","basis":"all_matches","fields":[{"field":"source","values":[],"other_count":0},{"field":"kind","values":[],"other_count":0},{"field":"protocol","values":[],"other_count":0},{"field":"service","values":[],"other_count":0}]}`
+const emptyEventFacetsJSON = `{"exact":true,"matched_count":0,"count_relation":"eq","basis":"all_matches","fields":[{"field":"source","values":[],"other_count":0},{"field":"kind","values":[],"other_count":0},{"field":"protocol","values":[],"other_count":0},{"field":"service","values":[],"other_count":0}],"domains":{"values":[],"other_count":0}}`
 
-const oneZeekEventFacetsJSON = `{"exact":true,"matched_count":1,"count_relation":"eq","basis":"all_matches","fields":[{"field":"source","values":[{"value":"ZEEK","count":1}],"other_count":0},{"field":"kind","values":[{"value":"zeek.conn","count":1}],"other_count":0},{"field":"protocol","values":[{"value":"tcp","count":1}],"other_count":0},{"field":"service","values":[{"value":"ssl","count":1}],"other_count":0}]}`
+const oneZeekEventFacetsJSON = `{"exact":true,"matched_count":1,"count_relation":"eq","basis":"all_matches","fields":[{"field":"source","values":[{"value":"ZEEK","count":1}],"other_count":0},{"field":"kind","values":[{"value":"zeek.conn","count":1}],"other_count":0},{"field":"protocol","values":[{"value":"tcp","count":1}],"other_count":0},{"field":"service","values":[{"value":"ssl","count":1}],"other_count":0}],"domains":{"values":[{"domain":"grapheneos.network","count":1,"hosts":["connectivitycheck.grapheneos.network"]}],"other_count":0}}`
 
 func TestQueryClientUsesFixedPathCredentialAndBoundedQuery(t *testing.T) {
 	token := strings.Repeat("q", 32)
@@ -254,7 +255,7 @@ func TestEventFacetValidationRejectsMisrepresentedCounts(t *testing.T) {
 		{Field: "kind", Values: []EventFacetValue{{Value: "zeek.conn", Count: 2}}},
 		{Field: "protocol", Values: []EventFacetValue{{Value: "tcp", Count: 2}}},
 		{Field: "service", Values: []EventFacetValue{{Value: "ssl", Count: 1}}, OtherCount: 1},
-	}}
+	}, Domains: EventDomainFacet{Values: []EventDomainValue{}}}
 	if err := validateEventFacets(valid, 2); err != nil {
 		t.Fatalf("valid exact facets were rejected: %v", err)
 	}
@@ -278,5 +279,66 @@ func TestRecentEventPageRejectsDeviceNamesFromIngestService(t *testing.T) {
 	page := RecentEventPage{Schema: 1, GeneratedAt: now, LiveCursor: encodeLiveEventCursor(now, strings.Repeat("0", 64)), Events: []RecentEvent{{RecordID: strings.Repeat("a", 64), Source: SourceZeek, Kind: "zeek.conn", OccurredAt: now, ReceivedAt: now, SourceVersion: "8.2.1", ParserVersion: "shakerproxy-zeek-v1", Confidence: 80, DeviceID: "device-0123456789abcdef0123456789abcdef", DeviceFriendlyName: "Untrusted Label"}}}
 	if err := validateRecentEventPage(page, RecentEventQuery{Limit: 1}); err == nil {
 		t.Fatal("ingest service was allowed to author an administrator device name")
+	}
+}
+
+func TestEventDomainsGroupHostsByRegistrableDomain(t *testing.T) {
+	// Host counts arrive largest first, as readEventDomains returns them.
+	domains := groupEventDomains([]EventFacetValue{
+		{Value: "connectivitycheck.grapheneos.network", Count: 9},
+		{Value: "www.googleapis.com", Count: 6},
+		{Value: "time.grapheneos.network", Count: 2},
+		{Value: "android.googleapis.com", Count: 1},
+		{Value: "192.168.10.1", Count: 4},
+		{Value: "bad host", Count: 3},
+	}, 25)
+	if err := validateEventDomains(domains); err != nil {
+		t.Fatalf("grouped domains are invalid: %v", err)
+	}
+	if len(domains.Values) != 2 {
+		t.Fatalf("domains = %+v, want grapheneos.network and googleapis.com", domains.Values)
+	}
+	first, second := domains.Values[0], domains.Values[1]
+	if first.Domain != "grapheneos.network" || first.Count != 11 || !slices.Equal(first.Hosts, []string{"connectivitycheck.grapheneos.network", "time.grapheneos.network"}) {
+		t.Fatalf("first domain = %+v", first)
+	}
+	if second.Domain != "googleapis.com" || second.Count != 7 || len(second.Hosts) != 2 {
+		t.Fatalf("second domain = %+v", second)
+	}
+	// IP literals and malformed names are not domains; they stay in "other".
+	if domains.OtherCount != 25-18 {
+		t.Fatalf("other = %d, want 7", domains.OtherCount)
+	}
+}
+
+func TestEventDomainsKeepTheLargestAndBoundHosts(t *testing.T) {
+	hosts := []EventFacetValue{}
+	for index := 0; index < MaxEventDomainValues+5; index++ {
+		hosts = append(hosts, EventFacetValue{Value: fmt.Sprintf("host%d.example%02d.com", index, index), Count: int64(100 - index)})
+	}
+	for index := 0; index < MaxEventDomainHosts+3; index++ {
+		hosts = append(hosts, EventFacetValue{Value: fmt.Sprintf("h%d.example00.com", index), Count: 1})
+	}
+	domains := groupEventDomains(hosts, 10_000)
+	if err := validateEventDomains(domains); err != nil {
+		t.Fatalf("bounded domains are invalid: %v", err)
+	}
+	if len(domains.Values) != MaxEventDomainValues || domains.Values[0].Domain != "example00.com" || len(domains.Values[0].Hosts) != MaxEventDomainHosts {
+		t.Fatalf("domains were not bounded: %+v", domains.Values[0])
+	}
+}
+
+func TestEventDomainValidationRejectsForgedDomains(t *testing.T) {
+	for name, domains := range map[string]EventDomainFacet{
+		"missing values":      {},
+		"host outside domain": {Values: []EventDomainValue{{Domain: "example.com", Count: 1, Hosts: []string{"evil.net"}}}},
+		"not registrable":     {Values: []EventDomainValue{{Domain: "www.example.com", Count: 1, Hosts: []string{"www.example.com"}}}},
+		"out of order":        {Values: []EventDomainValue{{Domain: "a.com", Count: 1, Hosts: []string{"a.com"}}, {Domain: "b.com", Count: 2, Hosts: []string{"b.com"}}}},
+		"no hosts":            {Values: []EventDomainValue{{Domain: "a.com", Count: 1, Hosts: []string{}}}},
+		"negative other":      {Values: []EventDomainValue{}, OtherCount: -1},
+	} {
+		if err := validateEventDomains(domains); err == nil {
+			t.Errorf("%s: forged domain facet was accepted", name)
+		}
 	}
 }

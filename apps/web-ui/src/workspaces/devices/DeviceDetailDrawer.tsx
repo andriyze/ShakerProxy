@@ -1,4 +1,5 @@
 import React, { FormEvent, useEffect, useRef, useState } from "react"
+import { uniqueAddresses } from "../../lib/deviceAddresses"
 import { withPassword } from "../../shell/passwordPrompt"
 import { idempotencyKey } from "../../lib/format"
 import { ErrorBox, FeatureBoundary } from "../../shell/common"
@@ -207,15 +208,15 @@ export function DeviceDetailDrawer({
               </section>
               <section className="device-drawer-evidence">
                 <h3>Address history</h3>
-                {device.addresses.map((address) => (
-                  <article key={`${address.address}-${address.valid_from}-${address.interface ?? "unknown"}`}>
+                {uniqueAddresses(device.addresses).map((address) => (
+                  <article key={`${address.address}-${address.interface ?? "unknown"}-${address.vlan_id ?? "none"}`}>
                     <strong>
                       {address.address} · {address.active ? "active" : "historical"}
                     </strong>
                     <small>
                       {address.interface ?? "scope unknown"}
-                      {address.vlan_id ? ` · VLAN ${address.vlan_id}` : ""} ·{" "}
-                      {new Date(address.valid_from).toLocaleString()} → {new Date(address.valid_until).toLocaleString()}
+                      {address.vlan_id ? ` · VLAN ${address.vlan_id}` : ""} · {new Date(address.first_seen).toLocaleString()}{" "}
+                      → {new Date(address.last_seen).toLocaleString()}
                     </small>
                   </article>
                 ))}

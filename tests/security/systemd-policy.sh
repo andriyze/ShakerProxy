@@ -189,9 +189,12 @@ for exact in \
   'CapabilityBoundingSet=CAP_NET_BIND_SERVICE' \
   'AmbientCapabilities=CAP_NET_BIND_SERVICE' \
   'ReadOnlyPaths=/var/lib/shakerproxy/traffic' \
+  'ReadWritePaths=-/var/lib/shakerproxy/dns-events/pending' \
   'RestrictAddressFamilies=AF_INET AF_INET6'; do
   grep -Fqx -- "$exact" "$DNS_UNIT" || { printf 'required DNS systemd policy is missing: %s\n' "$exact" >&2; exit 1; }
 done
+# The forwarder may write its lookup spool and nothing else.
+test "$(grep -c '^ReadWritePaths=' "$DNS_UNIT")" -eq 1 || { printf '%s\n' 'DNS forwarder must write only its lookup event spool' >&2; exit 1; }
 
 [[ -f "$CA_ONBOARDING_UNIT" ]] || { printf 'missing CA onboarding unit: %s\n' "$CA_ONBOARDING_UNIT" >&2; exit 1; }
 for exact in \

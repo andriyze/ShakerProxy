@@ -129,12 +129,16 @@ func init() {
 				"capture stats <capture-id>",
 				"capture export <capture-id> [--all DIR]",
 				"capture export <capture-id> <file-name> <destination>",
+				"capture auto [on|off]",
 			},
-			details: "Captures record the whole lab network; --device only labels the capture with the device.\n" +
+			details: "ShakerProxy records lab traffic automatically while a confirmed lab routes (a 24-hour full-packet ring,\n" +
+				"restarted on its own; the last two finished recordings are kept). capture auto shows it, capture auto off stops it.\n" +
+				"A manual capture replaces the automatic recording until it ends.\n" +
+				"Captures record the whole lab network; --device only labels the capture with the device.\n" +
 				"Whole packets are recorded by default, so domains are visible; --headers-only keeps the first 256 bytes of each packet.\n" +
 				"stop without an ID stops the running capture; --wait waits until its files are sealed.\n" +
 				"export copies the sealed files (verified by SHA-256) into DIR, or the current directory.",
-			examples: []string{`shakerproxy capture start --device "Living room TV"`, "shakerproxy capture stop --wait", "shakerproxy capture list", "shakerproxy capture export capture-0123456789abcdef0123456789abcdef --all ./pcaps"},
+			examples: []string{`shakerproxy capture start --device "Living room TV"`, "shakerproxy capture stop --wait", "shakerproxy capture list", "shakerproxy capture auto", "shakerproxy capture export capture-0123456789abcdef0123456789abcdef --all ./pcaps"},
 			run:      (*cli).captureCommand},
 
 		// Setup & system

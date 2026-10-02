@@ -99,10 +99,13 @@ export function activeTimeWindow(query: string): string {
 
 const DEVICE_ID = /^device-[a-f0-9]{32}$/
 
-// deviceQuery filters traffic to one device.
-export function deviceQuery(deviceID: string, relative = ""): string {
+// deviceQuery filters traffic to one device. Records merged into it, such as
+// a phone that changed its private MAC, keep their own device ID on traffic
+// recorded before the merge, so those IDs are included.
+export function deviceQuery(deviceID: string, relative = "", formerIDs: readonly string[] = []): string {
   if (!DEVICE_ID.test(deviceID)) return ""
-  const predicate = `device.id:${deviceID}`
+  const ids = [deviceID, ...formerIDs.filter((id) => DEVICE_ID.test(id) && id !== deviceID).slice(0, 16)]
+  const predicate = ids.length === 1 ? `device.id:${deviceID}` : `(${ids.map((id) => `device.id:${id}`).join(" OR ")})`
   return relative ? withTimeWindow(predicate, relative) : predicate
 }
 
@@ -111,4 +114,14 @@ export function deviceQuery(deviceID: string, relative = ""): string {
 export function combinedQuery(query: string, source: string): string {
   if (!source) return query
   return query ? `source:${source} AND (${query})` : `source:${source}`
+}
+
+const DOMAIN = /^[a-z0-9_-]+(\.[a-z0-9_-]+)+$/
+
+// withDomain narrows a query to traffic that names a domain. The bare word
+// searches DNS names, HTTPS server names and web hosts, so a registrable
+// domain such as googleapis.com also matches www.googleapis.com.
+export function withDomain(query: string, domain: string): string {
+  if (!DOMAIN.test(domain)) return query
+  return query ? `(${query}) AND ${domain}` : domain
 }

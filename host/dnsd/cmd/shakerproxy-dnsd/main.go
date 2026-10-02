@@ -34,6 +34,8 @@ Environment:
   SHAKERPROXY_DNS_MAX_CONCURRENT       concurrent queries, 16-4096 (default 256)
   SHAKERPROXY_DNS_FALLBACK_UPSTREAMS   comma-separated IP:53 used when the policy names
                                    no upstream (default: the host resolver)
+  SHAKERPROXY_DNS_EVENT_SPOOL          where each answered lookup is left for Traffic
+                                   (default %s; "off" disables)
 
 Example:
   sudo systemctl status shakerproxy-dnsd
@@ -55,16 +57,16 @@ func run(parent context.Context, arguments []string, getenv func(string) string,
 	flags.BoolVar(help, "h", false, "show help")
 	if err := flags.Parse(arguments); err != nil {
 		fmt.Fprintf(stderr, "shakerproxy-dnsd: %v\n\n", err)
-		fmt.Fprintf(stderr, usage, dnsproxy.DefaultBind)
+		fmt.Fprintf(stderr, usage, dnsproxy.DefaultBind, dnsproxy.DefaultEventSpool)
 		return 2
 	}
 	if *help {
-		fmt.Fprintf(stdout, usage, dnsproxy.DefaultBind)
+		fmt.Fprintf(stdout, usage, dnsproxy.DefaultBind, dnsproxy.DefaultEventSpool)
 		return 0
 	}
 	if flags.NArg() != 0 {
 		fmt.Fprintf(stderr, "shakerproxy-dnsd: unexpected argument %q\n\n", flags.Arg(0))
-		fmt.Fprintf(stderr, usage, dnsproxy.DefaultBind)
+		fmt.Fprintf(stderr, usage, dnsproxy.DefaultBind, dnsproxy.DefaultEventSpool)
 		return 2
 	}
 
@@ -86,7 +88,19 @@ func run(parent context.Context, arguments []string, getenv func(string) string,
 	}
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	logger.Info("ShakerProxy DNS forwarder starting", "bind", server.Bind, "timeout", timeout.String(), "max_concurrent", concurrency, "fallback_upstreams", len(fallback))
+	recording := false
+	if spool := envOr(getenv, "SHAKERPROXY_DNS_EVENT_SPOOL", dnsproxy.DefaultEventSpool); spool != "off" {
+		// Answering DNS matters more than recording it: without a usable
+		// spool the forwarder still serves, and says so once.
+		if recorder, err := dnsproxy.NewSpoolRecorder(spool, logger); err != nil {
+			logger.Warn("DNS lookups are not recorded for Traffic", "spool", spool, "error", err)
+		} else {
+			server.Observer = recorder
+			recording = true
+			go recorder.Run(ctx)
+		}
+	}
+	logger.Info("ShakerProxy DNS forwarder starting", "bind", server.Bind, "timeout", timeout.String(), "max_concurrent", concurrency, "fallback_upstreams", len(fallback), "recording_lookups", recording)
 	if err := serveWith(ctx, server); err != nil {
 		logger.Error("ShakerProxy DNS forwarder stopped", "error", err)
 		return 1
