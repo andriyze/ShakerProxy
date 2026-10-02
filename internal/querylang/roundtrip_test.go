@@ -123,7 +123,7 @@ func TestCanonicalRoundTripRandomQueries(t *testing.T) {
 		"device.name:\"nb sp\"", `device.tag:"lab gear"`, `http.path:"/a(b)"`, `http.path:/v1/*`,
 		`dns.query:*.example.com`, `tls.sni:api.example.com`, `http.status>=500`, `time:last_15m`,
 		`time:2026-09-01`, `time>2026-09-02`, `proto:mqtt`, `protocol.exotic:false`,
-		`protocol.visibility:OPAQUE`, `src.ip:10.0.0.0/8`, `dst.ip:::ffff:1.2.3.4`, `netflix`,
+		`protocol.visibility:OPAQUE`, `src.ip:10.0.0.0/8`, `dst.ip:::ffff:1.2.3.4`, `netflix`, `192.168.10.201`, `2001:db8::1`,
 		`tls.pinning:true`, `service:*`, `NOT device.id:*`,
 	}
 	connectors := []string{" ", " AND ", " OR ", " and ", " or "}
@@ -206,6 +206,10 @@ func TestParserGapsAreClosed(t *testing.T) {
 		`time<=2026-09-01`:                  `time<2026-09-02T00:00:00Z`,
 		`netflix`:                           `text:netflix`,
 		`Netflix.com youtube`:               `text:netflix.com AND text:youtube`,
+		`192.168.10.201`:                    `text:192.168.10.201`,
+		`2001:0DB8::1`:                      `text:2001:db8::1`,
+		`192.168.10.7/24`:                   `text:192.168.10.0/24`,
+		`-192.168.10.201`:                   `NOT text:192.168.10.201`,
 		`source:ZEEK time:2026-09-01`:       `source:ZEEK AND (time>=2026-09-01T00:00:00Z AND time<2026-09-02T00:00:00Z)`,
 	}
 	for input, expected := range cases {
@@ -222,5 +226,38 @@ func TestParserGapsAreClosed(t *testing.T) {
 	}
 	if query, err := Parse(`time:2026-09-01`); err != nil || strings.Contains(query.Canonical, "2026-09-01T00:00:00Z AND time<2026-09-01") {
 		t.Fatalf("date-only time lost its day range: %#v %v", query, err)
+	}
+}
+
+// The Traffic filter box is where testers paste a device's address; only a
+// whole address or CIDR searches endpoints, and a fragment stays a name part.
+func TestBareIPAddressSearchesEndpoints(t *testing.T) {
+	for input, want := range map[string]struct {
+		value     string
+		isAddress bool
+	}{
+		"192.168.10.201":   {"192.168.10.201", true},
+		"2001:DB8::1":      {"2001:db8::1", true},
+		"::ffff:10.0.0.1":  {"10.0.0.1", true},
+		"10.77.0.0/24":     {"10.77.0.0/24", true},
+		"text:2001:db8::1": {"2001:db8::1", true},
+		"192.168.10.":      {"192.168.10", false},
+		"192.168.*":        {"192.168.*", false},
+		"netflix":          {"netflix", false},
+	} {
+		query, err := Parse(input)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", input, err)
+		}
+		predicate := query.Root.Predicate
+		if predicate == nil || predicate.Field != TextField || predicate.Value != want.value || predicate.IsAddress != want.isAddress {
+			t.Fatalf("Parse(%q) = %+v, want text %q address=%v", input, predicate, want.value, want.isAddress)
+		}
+	}
+	if _, err := Parse("fe80::1%eth0"); err == nil {
+		t.Fatal("a zone-scoped address was accepted as a search term")
+	}
+	if query, err := Parse("src.ip:2001:db8::1"); err != nil || query.Root.Predicate.Field != "src.ip" {
+		t.Fatalf("src.ip with an IPv6 value no longer parses as a field: %+v err=%v", query, err)
 	}
 }

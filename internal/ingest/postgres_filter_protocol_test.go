@@ -62,3 +62,30 @@ func TestCompileEventFilterFreeTextSearchesNamesSafely(t *testing.T) {
 		t.Fatalf("free-text arguments were not escaped substrings: %#v", args)
 	}
 }
+
+func TestCompileEventFilterBareAddressMatchesEitherEndpoint(t *testing.T) {
+	for input, want := range map[string]struct {
+		fragment string
+		arg      string
+	}{
+		"192.168.10.201":  {"(COALESCE(source_ip = $1::inet, FALSE) OR COALESCE(destination_ip = $1::inet, FALSE))", "192.168.10.201"},
+		"192.168.10.0/24": {"(COALESCE(source_ip <<= $1::cidr, FALSE) OR COALESCE(destination_ip <<= $1::cidr, FALSE))", "192.168.10.0/24"},
+		"NOT 2001:db8::1": {"NOT (COALESCE(source_ip = $1::inet, FALSE) OR COALESCE(destination_ip = $1::inet, FALSE))", "2001:db8::1"},
+	} {
+		filter, err := querylang.Parse(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := []any{}
+		statement, err := compileEventFilter(filter.Root, nil, nil, time.Time{}, false, &args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(statement, want.fragment) || len(args) != 1 || args[0] != want.arg {
+			t.Fatalf("%q compiled to %q with %#v", input, statement, args)
+		}
+		if strings.Contains(statement, "LIKE") {
+			t.Fatalf("%q searched host names: %q", input, statement)
+		}
+	}
+}
