@@ -130,3 +130,22 @@ test("devices say when they were last seen", async () => {
   assert.equal(timeAgo("2026-09-28T12:00:00Z", now), "3 days ago")
   assert.equal(timeAgo("not a date", now), "unknown")
 })
+
+test("a connection split across capture segments shows as one row", async () => {
+  const { foldSplitConnections } = await import("../../apps/web-ui/src/lib/eventSummary.ts")
+  const flow = "flow-zeek-CDStDS3JdzMOd0IFVb"
+  // Newest first, as the Traffic page lists them.
+  const events = [
+    { record_id: "reset", kind: "zeek.conn", flow_id: flow, occurred_at: "2026-10-02T00:29:46Z", network_bytes: 52, tls_server_name: "www.amazon.com" },
+    { record_id: "dns", kind: "zeek.dns", occurred_at: "2026-10-02T00:29:00Z" },
+    { record_id: "middle", kind: "zeek.conn", flow_id: flow, occurred_at: "2026-10-02T00:28:29Z", network_bytes: 166316, tls_server_name: "www.amazon.com" },
+    { record_id: "first", kind: "zeek.conn", flow_id: flow, occurred_at: "2026-10-02T00:28:20Z", network_bytes: 151194, tls_server_name: "www.amazon.com" },
+    { record_id: "other", kind: "zeek.conn", flow_id: "flow-zeek-Cother", occurred_at: "2026-10-02T00:28:00Z", network_bytes: 10 },
+  ]
+  const folded = foldSplitConnections(events)
+  assert.deepEqual(folded.map((event) => event.record_id), ["dns", "first", "other"])
+  assert.equal(folded[1].network_bytes, 52 + 166316 + 151194)
+  assert.equal(events[3].network_bytes, 151194, "the loaded events are not modified")
+  // Without its first record loaded, a continuation still shows.
+  assert.deepEqual(foldSplitConnections(events.slice(0, 2)).map((event) => event.record_id), ["reset", "dns"])
+})

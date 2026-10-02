@@ -169,6 +169,33 @@ export function isAnalyzerDuplicate(event: { kind: string; service?: string; app
   }
 }
 
+// A connection that outlives a 30-second capture segment is analyzed again in
+// each later segment, so it is stored as several Zeek connection records;
+// ingest gives them the first record's flow ID and name. The readable list
+// shows one row per connection: the first record, carrying the bytes of all
+// of them. A continuation whose first record is not loaded stays visible.
+export function foldSplitConnections<T extends { kind: string; flow_id?: string; occurred_at: string; network_bytes?: number }>(events: T[]): T[] {
+  const first = new Map<string, T>()
+  const bytes = new Map<string, number>()
+  for (const event of events) {
+    if (event.kind !== "zeek.conn" || !event.flow_id) continue
+    const current = first.get(event.flow_id)
+    if (!current || Date.parse(event.occurred_at) < Date.parse(current.occurred_at)) first.set(event.flow_id, event)
+    if (event.network_bytes !== undefined) bytes.set(event.flow_id, (bytes.get(event.flow_id) ?? 0) + event.network_bytes)
+  }
+  const folded: T[] = []
+  for (const event of events) {
+    const head = event.kind === "zeek.conn" && event.flow_id ? first.get(event.flow_id) : undefined
+    if (!head) {
+      folded.push(event)
+    } else if (head === event) {
+      const total = bytes.get(event.flow_id!)
+      folded.push(total === undefined || total === event.network_bytes ? event : { ...event, network_bytes: total })
+    }
+  }
+  return folded
+}
+
 // eventTypeLabel names what kind of thing an event is, in plain words.
 export function eventTypeLabel(event: SummarizableEvent): string {
   if (event.alert_signature || event.detection_type || event.detection_summary) return "Alert"
