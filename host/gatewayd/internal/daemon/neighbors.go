@@ -363,7 +363,7 @@ func setLabIPv6Status(status *gatewayprotocol.Status, plan networkplan.Plan) {
 	// The topology and Wi-Fi tell the visibility coverage check which ways
 	// around ShakerProxy a lab leaves open.
 	status.LabTopology = string(plan.Topology)
-	status.LabWiFi = plan.WiFi != nil
+	status.LabWiFi = networkplan.WiFiEnabled(plan)
 	status.LabIPv6Strategy = string(plan.IPv6.Strategy)
 	if labIPv6, ok := networkplan.LabIPv6Routing(plan); ok {
 		status.LabIPv6Prefix = labIPv6.Prefix.String()
