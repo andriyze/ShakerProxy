@@ -177,6 +177,38 @@ paths:
       responses:
         "200": {description: Managed host state}
         "401": {$ref: "#/components/responses/Error"}
+  /coverage:
+    get:
+      operationId: getVisibilityCoverage
+      description: The last visibility coverage check and a fresh inspection of every way devices could bypass ShakerProxy in the current lab (IPv6 from another router, another DHCP server, device-to-device traffic, encrypted DNS, plain DNS to other resolvers, local discovery). Each check result says whether the traffic type was recorded, as which event kinds, how long it took to appear, and what is missing. API tokens need system:read.
+      security: [{bearerAuth: []}]
+      responses:
+        "200":
+          description: Coverage overview
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schema, last_run, routing, gap_count, checked_at]
+                properties:
+                  schema: {const: 1}
+                  last_run: {oneOf: [{type: "null"}, {$ref: "#/components/schemas/CoverageReport"}]}
+                  routing: {type: array, maxItems: 32, items: {$ref: "#/components/schemas/CoverageFinding"}}
+                  gap_count: {type: integer, minimum: 0}
+                  checked_at: {type: string, format: date-time}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+  /coverage/runs:
+    post:
+      operationId: startVisibilityCoverageRun
+      description: Recent confirmation (administrator session only). Starts the visibility coverage check in the background. The virtual test lab sends one of each traffic type (DNS via ShakerProxy and to another resolver, DoT, DoH, DoQ, HTTP, HTTPS, QUIC, TCP and UDP on unusual ports, ICMP, SSH, NTP, mDNS, SSDP) while gatewayd records the test-lab bridge with a normal capture; the real analyzers and DNS forwarder store the events, which the check reads back. Lab recording pauses for a few seconds. Poll GET /coverage for progress; one run at a time.
+      security: [{bearerAuth: []}]
+      requestBody: {required: false, content: {application/json: {schema: {type: object, additionalProperties: false, properties: {password: {type: string, maxLength: 1024}}}}}}
+      responses:
+        "202": {description: Run started, content: {application/json: {schema: {$ref: "#/components/schemas/CoverageReport"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
   /system/diagnostics:
     get:
       operationId: getSystemDiagnostics
@@ -1540,6 +1572,28 @@ paths:
         "422": {$ref: "#/components/responses/Error"}
         "429": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
+  /events/{recordID}/http-exchange:
+    get:
+      operationId: getHTTPExchange
+      description: >-
+        Administrator session only (API tokens are refused: headers and bodies are plaintext evidence).
+        Returns the HTTP/1.x request/response exchanges of the event's connection, like "Follow HTTP stream":
+        for cleartext HTTP read back from the packet recording's closed files around the event time (bounded
+        to 12 files and 320 KiB per direction, bodies previewed up to 64 KiB after chunked and gzip/deflate
+        decoding, binary bodies as a hex dump of the first 256 bytes); for decrypted HTTPS from the request
+        and response events mitmproxy recorded, subject to content retention. State UNAVAILABLE carries a
+        plain reason (encrypted, headers-only recording, files already replaced); RETRY means the part of the
+        recording is still being written. Each read is logged with the administrator name.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: recordID, required: true, schema: {type: string, pattern: "^[a-f0-9]{64}$"}}
+      responses:
+        "200": {description: The connection's exchanges or why they are unavailable, content: {application/json: {schema: {$ref: "#/components/schemas/HTTPExchange"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /protocols:
     get:
       operationId: listProtocols
@@ -1768,6 +1822,48 @@ components:
       description: true keeps only exotic protocols, false only mainstream ones.
       schema: {type: boolean}
   schemas:
+    CoverageFinding:
+      type: object
+      required: [id, title, status, detail]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        status: {type: string, enum: [GAP, OK, UNKNOWN]}
+        detail: {type: string}
+        fix: {type: string}
+    CoverageResult:
+      type: object
+      required: [id, name, category, status, summary, event_kinds, attributed]
+      properties:
+        id: {type: string, description: "dns-gateway, dns-direct, dot, doh, doq, http, https, quic, tcp-unusual-port, udp-unusual-port, icmp, ssh, ntp, mdns, ssdp or ipv6"}
+        name: {type: string}
+        category: {type: string}
+        status: {type: string, enum: [PASS, FAIL, SKIP]}
+        summary: {type: string}
+        event_kinds: {type: array, items: {type: string}}
+        latency_ms: {type: integer, minimum: 0, description: Time from sending the probe to the first stored event.}
+        attributed: {type: boolean}
+        missing: {type: string}
+        app_protocol: {type: string}
+    CoverageReport:
+      type: object
+      required: [schema, run_id, state, started_at, results, routing, pass_count, fail_count, skip_count, gap_count, limitations]
+      properties:
+        schema: {const: 1}
+        run_id: {type: string, pattern: "^coverage-[a-f0-9]{24}$"}
+        state: {type: string, enum: [RUNNING, COMPLETED, FAILED]}
+        phase: {type: string}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time}
+        capture_session_id: {type: string}
+        results: {type: array, maxItems: 64, items: {$ref: "#/components/schemas/CoverageResult"}}
+        routing: {type: array, maxItems: 32, items: {$ref: "#/components/schemas/CoverageFinding"}}
+        pass_count: {type: integer, minimum: 0}
+        fail_count: {type: integer, minimum: 0}
+        skip_count: {type: integer, minimum: 0}
+        gap_count: {type: integer, minimum: 0}
+        error: {type: string}
+        limitations: {type: array, items: {type: string}}
     APITokenScope:
       type: string
       enum: ["system:read", "devices:read", "traffic:read", "captures:read", "captures:write", "cases:read", "cases:write", "metrics:read", "lab:write"]
@@ -2753,6 +2849,7 @@ components:
         dns_answers: {type: array, maxItems: 8, items: {type: string, minLength: 1, maxLength: 255}, description: "What the lookup resolved to, in answer order: IP addresses in canonical form and lower-case DNS names (CNAME targets). At most 8; other record data is not included."}
         blocked: {type: boolean, description: "ShakerProxy refused this lookup (NXDOMAIN on purpose) or connection (shakerproxy.blocked)."}
         blocked_reason: {type: string, enum: [device-domain, doh-name, canary, dot, doq, doh-ip, doh3-ip], description: "Why it was refused: a domain blocked for the device, a DNS-over-HTTPS/TLS resolver name, an encrypted-DNS canary name, DNS over TLS (853/tcp), DNS over QUIC (853/udp), or a known DoH resolver address over TCP or UDP 443."}
+        dns_name: {type: string, minLength: 1, maxLength: 253, description: "For a connection reported by the gateway (kind shakerproxy.conn), the name the client looked up and got this destination address for, from its own recent DNS answers."}
         detection_type: {type: string, enum: [ROGUE_DHCP, ROGUE_RA, GATEWAY_SPOOF_SUSPECTED, CLOCK_DRIFT, CAPTURE_DEGRADED, STORAGE_PRESSURE, CPU_PRESSURE, MEMORY_PRESSURE]}
         detection_severity: {type: string, enum: [WARNING, HIGH, CRITICAL]}
         detection_state: {type: string, enum: [OPEN, RESOLVED]}
@@ -4229,6 +4326,92 @@ components:
         replayed: {type: boolean}
         unchanged: {type: boolean}
         deleted: {type: boolean}
+    HTTPExchangeHeaders:
+      type: object
+      additionalProperties: false
+      required: [items, bytes]
+      properties:
+        items:
+          type: array
+          maxItems: 128
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, value]
+            properties:
+              name: {type: string, maxLength: 256}
+              value: {type: string, maxLength: 4096}
+              sensitive: {type: boolean, description: Credentials and cookies; the UI masks them until revealed.}
+              truncated: {type: boolean}
+        bytes: {type: integer, minimum: 0}
+        truncated: {type: boolean}
+    HTTPExchangeBody:
+      type: object
+      additionalProperties: false
+      required: [content_type, body_bytes, decoded_preview, preview_bytes, preview_encoding, preview, truncated, complete]
+      properties:
+        content_type: {type: string}
+        content_encoding: {type: string}
+        body_bytes: {type: integer, minimum: 0, description: Size after transfer decoding, before decompression.}
+        decoded_preview: {type: boolean}
+        preview_bytes: {type: integer, minimum: 0, maximum: 65536}
+        preview_encoding: {type: string, enum: [utf-8, hex]}
+        preview: {type: string, description: Text, or a hexdump -C style dump of the first 256 bytes. Display as inert text.}
+        truncated: {type: boolean}
+        complete: {type: boolean, description: False when the recording ends before the body does.}
+        note: {type: string}
+    HTTPExchange:
+      type: object
+      additionalProperties: false
+      required: [schema, record_id, source, state, matched, exchanges]
+      properties:
+        schema: {const: 1}
+        record_id: {type: string, pattern: "^[a-f0-9]{64}$"}
+        source: {type: string, enum: [CAPTURE, DECRYPTED]}
+        state: {type: string, enum: [AVAILABLE, UNAVAILABLE, RETRY]}
+        reason: {type: string}
+        matched: {type: integer, minimum: -1, description: Index of the exchange this event describes, or -1.}
+        notes: {type: array, items: {type: string}}
+        exchanges:
+          type: array
+          maxItems: 32
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              request:
+                type: object
+                additionalProperties: false
+                required: [method, target, proto, headers, body]
+                properties:
+                  method: {type: string}
+                  target: {type: string, maxLength: 8192}
+                  proto: {type: string}
+                  headers: {$ref: "#/components/schemas/HTTPExchangeHeaders"}
+                  body: {$ref: "#/components/schemas/HTTPExchangeBody"}
+              response:
+                type: object
+                additionalProperties: false
+                required: [proto, status_code, status, headers, body]
+                properties:
+                  proto: {type: string}
+                  status_code: {type: integer}
+                  status: {type: string}
+                  headers: {$ref: "#/components/schemas/HTTPExchangeHeaders"}
+                  body: {$ref: "#/components/schemas/HTTPExchangeBody"}
+        capture:
+          type: object
+          additionalProperties: false
+          properties:
+            session_id: {type: string, pattern: "^capture-[a-f0-9]{32}$"}
+            segments_read: {type: integer, minimum: 0}
+            segments_missing: {type: integer, minimum: 0}
+            packets: {type: integer, minimum: 0}
+            first_packet_at: {type: string, format: date-time}
+            last_packet_at: {type: string, format: date-time}
+            from_start: {type: boolean}
+            closed: {type: boolean}
+            incomplete: {type: boolean}
     DeviceMutationResult:
       type: object
       additionalProperties: false

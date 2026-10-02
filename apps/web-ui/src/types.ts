@@ -911,6 +911,8 @@ export type RecentEvent = {
   // ShakerProxy refused this lookup or connection, and why.
   blocked?: boolean
   blocked_reason?: "device-domain" | "doh-name" | "canary" | "dot" | "doq" | "doh-ip" | "doh3-ip"
+  // For a connection the gateway reported: the name the client looked up.
+  dns_name?: string
   detection_type?: string
   detection_severity?: string
   detection_state?: string
@@ -1339,6 +1341,58 @@ export type TestLabResult = {
   evidence_ref?: string
 }
 
+// Visibility coverage check (internal/coverage): which traffic types
+// ShakerProxy is proven to record, and every way around it in this lab.
+export type CoverageStatus = "PASS" | "FAIL" | "SKIP"
+export type CoverageFindingStatus = "GAP" | "OK" | "UNKNOWN"
+
+export type CoverageResult = {
+  id: string
+  name: string
+  category: string
+  status: CoverageStatus
+  summary: string
+  event_kinds: string[]
+  latency_ms?: number
+  attributed: boolean
+  missing?: string
+  app_protocol?: string
+}
+
+export type CoverageFinding = {
+  id: string
+  title: string
+  status: CoverageFindingStatus
+  detail: string
+  fix?: string
+}
+
+export type CoverageReport = {
+  schema: number
+  run_id: string
+  state: "RUNNING" | "COMPLETED" | "FAILED"
+  phase?: string
+  started_at: string
+  finished_at?: string
+  capture_session_id?: string
+  results: CoverageResult[]
+  routing: CoverageFinding[]
+  pass_count: number
+  fail_count: number
+  skip_count: number
+  gap_count: number
+  error?: string
+  limitations: string[]
+}
+
+export type CoverageOverview = {
+  schema: number
+  last_run: CoverageReport | null
+  routing: CoverageFinding[]
+  gap_count: number
+  checked_at: string
+}
+
 export type TestLabRun = {
   schema: number
   run_id: string
@@ -1381,6 +1435,48 @@ export type EventDetail = {
   event: RecentEvent
   payload: Record<string, unknown>
   payload_bytes: number
+}
+
+// GET /api/v1/events/{recordID}/http-exchange: an HTTP event's requests and
+// responses, read back from the packet recording (cleartext HTTP) or from the
+// decrypted events (intercepted HTTPS).
+export type HTTPExchangeHeader = { name: string; value: string; sensitive?: boolean; truncated?: boolean }
+export type HTTPExchangeHeaders = { items: HTTPExchangeHeader[]; bytes: number; truncated?: boolean }
+export type HTTPExchangeBody = {
+  content_type: string
+  content_encoding?: string
+  body_bytes: number
+  decoded_preview: boolean
+  preview_bytes: number
+  preview_encoding: "utf-8" | "hex"
+  preview: string
+  truncated: boolean
+  complete: boolean
+  note?: string
+}
+export type HTTPExchangeRequest = { method: string; target: string; proto: string; headers: HTTPExchangeHeaders; body: HTTPExchangeBody }
+export type HTTPExchangeResponse = { proto: string; status_code: number; status: string; headers: HTTPExchangeHeaders; body: HTTPExchangeBody }
+export type HTTPExchangePair = { request?: HTTPExchangeRequest; response?: HTTPExchangeResponse }
+export type HTTPExchange = {
+  schema: 1
+  record_id: string
+  source: "CAPTURE" | "DECRYPTED"
+  state: "AVAILABLE" | "UNAVAILABLE" | "RETRY"
+  reason?: string
+  matched: number
+  exchanges: HTTPExchangePair[]
+  notes?: string[]
+  capture?: {
+    session_id: string
+    segments_read: number
+    segments_missing: number
+    packets: number
+    first_packet_at?: string
+    last_packet_at?: string
+    from_start: boolean
+    closed: boolean
+    incomplete: boolean
+  }
 }
 
 export type TestSession = {

@@ -67,7 +67,8 @@ func (e AttributionEvidence) Validate(event RecentEvent) error {
 }
 
 // AttributeAnalyzerEvent attributes Zeek and Suricata events by either
-// endpoint, and DNS forwarder lookups by the asking client.
+// endpoint, and DNS forwarder lookups and gateway connection openings by the
+// client that made them.
 func AttributeAnalyzerEvent(envelope Envelope, attributor DeviceAttributor) (Envelope, *AttributionEvidence, error) {
 	if attributor == nil || envelope.DeviceID != "" || envelope.Source != SourceZeek && envelope.Source != SourceSuricata && !isHostClientKind(envelope.Source, envelope.Kind) {
 		return envelope, nil, nil
@@ -81,7 +82,8 @@ func AttributeAnalyzerEvent(envelope Envelope, attributor DeviceAttributor) (Env
 	case envelope.Source == SourceSuricata:
 		endpoints = []string{"src_ip", "dest_ip"}
 	case isHostClientKind(envelope.Source, envelope.Kind):
-		// The other end is ShakerProxy itself.
+		// The client opened it: a lookup's other end is ShakerProxy itself,
+		// and a connection's or blocked attempt's is somewhere on the internet.
 		endpoints = []string{"source_ip"}
 	}
 	for endpointIndex, field := range endpoints {

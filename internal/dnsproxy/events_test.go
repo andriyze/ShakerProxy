@@ -210,7 +210,15 @@ func TestSpoolRecorderNeverBlocksAndCountsDrops(t *testing.T) {
 
 func TestSpoolRecorderWritesReadableEventFiles(t *testing.T) {
 	directory := t.TempDir()
+	// A crash leftover; gatewayd shares the directory, so only old ones go.
 	if err := os.WriteFile(filepath.Join(directory, ".tmp-crashed"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Minute)
+	if err := os.Chtimes(filepath.Join(directory, ".tmp-crashed"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, ".tmp-gatewayd-writing"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	recorder, err := NewSpoolRecorder(directory, nil)
@@ -239,8 +247,16 @@ func TestSpoolRecorderWritesReadableEventFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := []string{}
+	writing := false
 	for _, entry := range entries {
+		if entry.Name() == ".tmp-gatewayd-writing" {
+			writing = true
+			continue
+		}
 		names = append(names, entry.Name())
+	}
+	if !writing {
+		t.Fatal("dnsd removed a temporary file another writer may still be writing")
 	}
 	if len(names) != 2 || recorder.dropped.Load() != 1 {
 		t.Fatalf("spool should hold two events and drop the third: %v dropped=%d", names, recorder.dropped.Load())

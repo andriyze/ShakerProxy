@@ -360,6 +360,10 @@ func defaultIPv4Gateways(iface string) map[netip.Addr]bool {
 // setLabIPv6Status publishes the confirmed plan's IPv6 lab scope in
 // GetManagedState so other components can discover it.
 func setLabIPv6Status(status *gatewayprotocol.Status, plan networkplan.Plan) {
+	// The topology and Wi-Fi tell the visibility coverage check which ways
+	// around ShakerProxy a lab leaves open.
+	status.LabTopology = string(plan.Topology)
+	status.LabWiFi = plan.WiFi != nil
 	status.LabIPv6Strategy = string(plan.IPv6.Strategy)
 	if labIPv6, ok := networkplan.LabIPv6Routing(plan); ok {
 		status.LabIPv6Prefix = labIPv6.Prefix.String()

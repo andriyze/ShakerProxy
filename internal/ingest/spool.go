@@ -27,6 +27,7 @@ type Spool struct {
 	selectionTombstoneOrder   []string
 	selectionTombstonesLoaded bool
 	usage                     spoolUsage
+	changed                   chan struct{}
 }
 
 // spoolUsage caches record counts and byte totals so the hot Accept path does
@@ -44,16 +45,81 @@ type spoolUsage struct {
 
 const (
 	MaxDrainBatchRecords  = 1000
+	MaxAcceptBatchRecords = 512
 	spoolUsageRefreshTime = 30 * time.Second
 )
 
 func (s *Spool) Accept(raw []byte) (AcceptResult, error) {
+	results, err := s.AcceptBatch([][]byte{raw})
+	if err != nil {
+		return AcceptResult{}, err
+	}
+	return results[0], nil
+}
+
+// AcceptBatch accepts several events with one round of disk syncs instead of
+// one per event: each record still gets its own pending file, with the same
+// dedupe, quarantine, tombstone and backpressure rules as a single Accept, but
+// the batch's files are synced together, renamed into place, and the pending
+// directory is synced once.
+//
+// Results line up with raws. When an event fails (a tombstone or a full
+// spool), the events before it are still committed and returned with the
+// error, so a sender that retries the whole batch only creates duplicates.
+func (s *Spool) AcceptBatch(raws [][]byte) ([]AcceptResult, error) {
+	if len(raws) < 1 || len(raws) > MaxAcceptBatchRecords {
+		return nil, errors.New("ingestion batch size is invalid")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ensure(); err != nil {
-		return AcceptResult{}, err
+		return nil, err
 	}
 	now := s.now()
+	batch := stagedBatch{digests: make(map[string]string, len(raws))}
+	defer batch.discard()
+	results := make([]AcceptResult, 0, len(raws))
+	var acceptErr error
+	for _, raw := range raws {
+		result, err := s.stageLocked(raw, now, &batch)
+		if err != nil {
+			acceptErr = err
+			break
+		}
+		results = append(results, result)
+	}
+	if err := s.commitLocked(&batch); err != nil {
+		s.usage.loaded = false
+		return nil, errors.Join(acceptErr, err)
+	}
+	return results, acceptErr
+}
+
+// stagedRecord is a pending record written to a temporary file that is not
+// yet synced or visible under its record name.
+type stagedRecord struct {
+	file *os.File
+	name string
+	size int64
+}
+
+type stagedBatch struct {
+	records []stagedRecord
+	digests map[string]string
+	bytes   int64
+}
+
+func (b *stagedBatch) discard() {
+	for _, record := range b.records {
+		if record.file != nil {
+			record.file.Close()
+			os.Remove(record.file.Name())
+		}
+	}
+	b.records = nil
+}
+
+func (s *Spool) stageLocked(raw []byte, now time.Time, batch *stagedBatch) (AcceptResult, error) {
 	envelope, decodeErr := DecodeEnvelope(raw)
 	if decodeErr != nil {
 		return s.quarantine(raw, decodeErr.Error(), now)
@@ -73,13 +139,20 @@ func (s *Spool) Accept(raw []byte) (AcceptResult, error) {
 		return AcceptResult{}, err
 	}
 	eventDigest := sha256.Sum256(canonical)
+	digest := hex.EncodeToString(eventDigest[:])
 	recordID := envelopeRecordID(envelope)
+	if staged, ok := batch.digests[recordID]; ok {
+		if staged == digest {
+			return AcceptResult{Accepted: true, Duplicate: true, RecordID: recordID}, nil
+		}
+		return s.quarantine(raw, "event ID conflicts with different content", now)
+	}
 	path := filepath.Join(s.Root, "pending", recordID+".json")
 	if existing, readErr := readBoundedRecord(path); readErr == nil {
 		if envelopeRecordID(existing.Envelope) != recordID {
 			return AcceptResult{}, errors.New("ingestion spool identity binding is invalid")
 		}
-		if existing.EventSHA256 == hex.EncodeToString(eventDigest[:]) {
+		if existing.EventSHA256 == digest {
 			return AcceptResult{Accepted: true, Duplicate: true, RecordID: recordID}, nil
 		}
 		return s.quarantine(raw, "event ID conflicts with different content", now)
@@ -90,26 +163,103 @@ func (s *Spool) Accept(raw []byte) (AcceptResult, error) {
 	if err != nil {
 		return AcceptResult{}, err
 	}
-	record := Record{Schema: SchemaVersion, ReceivedAt: now, EventSHA256: hex.EncodeToString(eventDigest[:]), Envelope: envelope}
+	record := Record{Schema: SchemaVersion, ReceivedAt: now, EventSHA256: digest, Envelope: envelope}
 	encoded, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return AcceptResult{}, err
 	}
 	encoded = append(encoded, '\n')
-	if usage.pendingRecords >= MaxPendingRecords || usage.pendingBytes+int64(len(encoded)) > s.maxBytes() {
+	if usage.pendingRecords+len(batch.records) >= MaxPendingRecords || usage.pendingBytes+batch.bytes+int64(len(encoded)) > s.maxBytes() {
 		return AcceptResult{}, errors.New("ingestion spool backpressure limit reached")
 	}
 	available, err := s.availableBytes()
-	if err != nil || available <= s.reserveBytes()+uint64(len(encoded)) {
+	if err != nil || available <= s.reserveBytes()+uint64(batch.bytes)+uint64(len(encoded)) {
 		return AcceptResult{}, errors.New("ingestion spool emergency reserve reached")
 	}
-	if err := writeAtomic(filepath.Join(s.Root, "pending"), recordID+".json", encoded); err != nil {
-		s.usage.loaded = false
+	file, err := os.CreateTemp(filepath.Join(s.Root, "pending"), ".event-*")
+	if err != nil {
 		return AcceptResult{}, err
 	}
-	s.usage.pendingRecords++
-	s.usage.pendingBytes += int64(len(encoded))
+	batch.records = append(batch.records, stagedRecord{file: file, name: recordID + ".json", size: int64(len(encoded))})
+	if err := file.Chmod(0o600); err != nil {
+		return AcceptResult{}, err
+	}
+	if _, err := file.Write(encoded); err != nil {
+		return AcceptResult{}, err
+	}
+	batch.digests[recordID] = digest
+	batch.bytes += int64(len(encoded))
 	return AcceptResult{Accepted: true, RecordID: recordID}, nil
+}
+
+// commitLocked makes the staged records durable and visible. The files are
+// synced concurrently so the filesystem can commit them together (one journal
+// commit on ext4 instead of one per event), then renamed into place, and the
+// directory is synced once.
+func (s *Spool) commitLocked(batch *stagedBatch) error {
+	if len(batch.records) == 0 {
+		return nil
+	}
+	syncErrors := make([]error, len(batch.records))
+	var group sync.WaitGroup
+	slots := make(chan struct{}, 16)
+	for index := range batch.records {
+		group.Add(1)
+		slots <- struct{}{}
+		go func(index int) {
+			defer group.Done()
+			defer func() { <-slots }()
+			syncErrors[index] = batch.records[index].file.Sync()
+		}(index)
+	}
+	group.Wait()
+	if err := errors.Join(syncErrors...); err != nil {
+		return err
+	}
+	directory := filepath.Join(s.Root, "pending")
+	for index := range batch.records {
+		record := &batch.records[index]
+		temporary := record.file.Name()
+		closeErr := record.file.Close()
+		record.file = nil
+		if closeErr != nil {
+			os.Remove(temporary)
+			return closeErr
+		}
+		if err := os.Rename(temporary, filepath.Join(directory, record.name)); err != nil {
+			os.Remove(temporary)
+			return err
+		}
+		s.usage.pendingRecords++
+		s.usage.pendingBytes += record.size
+	}
+	batch.records = nil
+	if err := syncDirectory(directory); err != nil {
+		return err
+	}
+	s.notifyLocked()
+	return nil
+}
+
+// Changed is signalled after records are accepted, so a drain loop can store
+// them right away instead of waiting for its next poll.
+func (s *Spool) Changed() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.changed == nil {
+		s.changed = make(chan struct{}, 1)
+	}
+	return s.changed
+}
+
+func (s *Spool) notifyLocked() {
+	if s.changed == nil {
+		return
+	}
+	select {
+	case s.changed <- struct{}{}:
+	default:
+	}
 }
 
 func (s *Spool) PendingBatch(limit int) ([]PendingRecord, error) {

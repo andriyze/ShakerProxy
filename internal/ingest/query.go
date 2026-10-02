@@ -63,6 +63,7 @@ type RecentEvent struct {
 	DNSResponseCode                  string               `json:"dns_response_code,omitempty"`
 	DNSAnswerCount                   *int                 `json:"dns_answer_count,omitempty"`
 	DNSAnswers                       []string             `json:"dns_answers,omitempty"`
+	DNSName                          string               `json:"dns_name,omitempty"` // a gateway-reported connection's looked-up name
 	// Blocked is set for lookups ShakerProxy refused (NXDOMAIN on purpose)
 	// and connections the gateway refused; BlockedReason says why
 	// (trafficpolicy.BlockReason*).

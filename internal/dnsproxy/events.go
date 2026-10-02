@@ -173,13 +173,18 @@ func (r *SpoolRecorder) countPending() int {
 }
 
 // removeStaleTemporaryFiles clears files a crash left half written.
+// gatewayd writes its connection events to the same directory, so only
+// files older than a minute go.
 func (r *SpoolRecorder) removeStaleTemporaryFiles() {
 	entries, err := os.ReadDir(r.Directory)
 	if err != nil {
 		return
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".tmp-") {
+		if !strings.HasPrefix(entry.Name(), ".tmp-") {
+			continue
+		}
+		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > time.Minute {
 			_ = os.Remove(filepath.Join(r.Directory, entry.Name()))
 		}
 	}

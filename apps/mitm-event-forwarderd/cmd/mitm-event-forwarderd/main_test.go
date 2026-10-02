@@ -8,10 +8,12 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"shakerproxy.dev/shakerproxy/internal/conntrack"
 	"shakerproxy.dev/shakerproxy/internal/dnsproxy"
 	"shakerproxy.dev/shakerproxy/internal/hostevents"
 	"shakerproxy.dev/shakerproxy/internal/ingest"
@@ -100,6 +102,13 @@ func TestHostSpoolDeliversOnlyDNSLookupsAndBlockedAttempts(t *testing.T) {
 	if _, err := ingest.DecodeEnvelope(lookupEvent); err != nil {
 		t.Fatalf("dnsd's event is not a valid ingest envelope: %v", err)
 	}
+	connectionEvent, err := conntrack.EncodeEvent("evt_00000000000000000004_00000001_abcdefabcdef", time.Now(), conntrack.Event{Protocol: "tcp", Source: netip.MustParseAddrPort("192.168.10.201:37064"), Destination: netip.MustParseAddrPort("140.82.121.4:443")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ingest.DecodeEnvelope(connectionEvent); err != nil {
+		t.Fatalf("gatewayd's connection event is not a valid ingest envelope: %v", err)
+	}
 	blockedEvent, err := hostevents.BlockedEvent("evt_00000000000000000004_00000002_abcdefabcdef", time.Now(), nflog.Flow{Source: netip.MustParseAddr("192.168.10.201"), Destination: netip.MustParseAddr("8.8.8.8"), Protocol: "tcp", SourcePort: 40123, DestinationPort: 443}, "doh-ip")
 	if err != nil {
 		t.Fatal(err)
@@ -110,6 +119,7 @@ func TestHostSpoolDeliversOnlyDNSLookupsAndBlockedAttempts(t *testing.T) {
 	detection := strings.Replace(strings.Replace(validEvent(), `"source":"MITMPROXY"`, `"source":"HOST"`, 1), `"kind":"http_request"`, `"kind":"shakerproxy.detection.beaconing"`, 1)
 	files := map[string]string{
 		"evt_00000000000000000001_00000001_abcdefabcdef.json": string(lookupEvent),
+		"evt_00000000000000000004_00000001_abcdefabcdef.json": string(connectionEvent),
 		"evt_00000000000000000002_interception.json":          validEvent(),
 		"evt_00000000000000000003_detection.json":             detection,
 		"evt_00000000000000000004_00000002_abcdefabcdef.json": string(blockedEvent),
@@ -137,8 +147,9 @@ func TestHostSpoolDeliversOnlyDNSLookupsAndBlockedAttempts(t *testing.T) {
 	if err := instance.drain(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if len(delivered) != 2 || delivered[0] != "shakerproxy.dns" || delivered[1] != "shakerproxy.blocked" {
-		t.Fatalf("delivered %v, want the DNS lookup and the blocked attempt", delivered)
+	sort.Strings(delivered)
+	if len(delivered) != 3 || delivered[0] != "shakerproxy.blocked" || delivered[1] != "shakerproxy.conn" || delivered[2] != "shakerproxy.dns" {
+		t.Fatalf("delivered %v, want the DNS lookup, the connection and the blocked attempt", delivered)
 	}
 	quarantined, _ := os.ReadDir(filepath.Join(root, "quarantine"))
 	if remaining, _ := os.ReadDir(spool); len(remaining) != 0 || len(quarantined) != 2 {

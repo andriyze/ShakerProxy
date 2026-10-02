@@ -3,7 +3,7 @@
 .live-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px}
 .live-head h2{margin:0 0 6px;font-size:22px}
 .live-head-state{display:flex;align-items:center;gap:10px}
-.live-rate{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:#9bb0b4;padding:4px 8px;border:1px solid #1f3a40;border-radius:6px}
+.live-rate{white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:#9bb0b4;padding:4px 8px;border:1px solid #1f3a40;border-radius:6px}
 .live-filters{position:sticky;top:60px;z-index:5;display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid #1f3a40;border-radius:8px;background:#08171b}
 .live-filter-row,.live-domains{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .live-filter-label{width:64px;flex:none;color:#9bb0b4;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
@@ -61,3 +61,4 @@
 }
 .live-note{margin:0 0 6px;color:#9bb0b4;font-size:13px;max-width:780px}
 .stream-count{margin-left:8px;padding:0 6px;border-radius:999px;background:#1d3a40;color:#cfe0e3;font-size:11px;font-weight:600}
+.stream-row.pending .stream-detail{color:#6f878b;font-style:italic}

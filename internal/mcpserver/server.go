@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"shakerproxy.dev/shakerproxy/internal/agentapi"
+	"shakerproxy.dev/shakerproxy/internal/coverage"
 	"shakerproxy.dev/shakerproxy/internal/devicereport"
 	"shakerproxy.dev/shakerproxy/internal/ingest"
 	"shakerproxy.dev/shakerproxy/internal/testsession"
@@ -44,6 +45,7 @@ type Backend interface {
 	HTTPActivity(context.Context, agentapi.HTTPActivityRequest) (ingest.HTTPActivityPage, error)
 	EventMetadata(context.Context, string) (ingest.EventDetail, error)
 	DNSVisibility(context.Context) (agentapi.DNSVisibility, error)
+	VisibilityCoverage(context.Context) (coverage.Overview, error)
 }
 
 type Service struct {
@@ -78,6 +80,7 @@ const (
 	toolTestSessions   = "test_sessions"
 	toolSystemStatus   = "system_status"
 	toolDNSVisibility  = "dns_visibility"
+	toolCoverage       = "visibility_coverage"
 )
 
 // QuerySyntax is the cheat sheet embedded in search_traffic.
@@ -119,6 +122,8 @@ func New(backend Backend) (*mcp.Server, error) {
 		`Check whether ShakerProxy is ready to collect evidence: gateway mode, analyzers, ingestion, and limitations. Example: {}.`), service.systemStatus)
 	mcp.AddTool(server, readOnlyTool(toolDNSVisibility, "DNS visibility",
 		`Check whether every DNS lookup on the lab is visible: plain DNS forced through ShakerProxy, and encrypted DNS (DoH, DoT, DoQ) blocked so devices fall back to plain DNS; lists the blocked resolvers and names. Example: {}.`), service.dnsVisibility)
+	mcp.AddTool(server, readOnlyTool(toolCoverage, "Visibility coverage",
+		`Show which traffic types ShakerProxy is proven to see (DNS, DoH, DoT, DoQ, HTTP, HTTPS, QUIC, TCP, UDP, ICMP, SSH, NTP, mDNS, SSDP, IPv6) from the last visibility coverage check, with how long each took to appear, and every way devices could bypass ShakerProxy in the current lab (IPv6, another DHCP server, device-to-device traffic, encrypted DNS). Example: {}.`), service.visibilityCoverage)
 	return server, nil
 }
 

@@ -24,6 +24,12 @@ func handleHelperMode() bool {
 	case "--target-server":
 		targetServer()
 		return true
+	case "--coverage-probes":
+		if len(os.Args) != 3 {
+			os.Exit(2)
+		}
+		os.Exit(runCoverageProbes(os.Args[2]))
+		return true
 	case "--probe-dns":
 		if len(os.Args) != 3 {
 			os.Exit(2)
@@ -58,12 +64,16 @@ func targetServer() {
 	go serveTLS(certificate, ":8443")
 	go serveTLS(certificate, ":853")
 	go serveDNS()
+	serveCoverageEndpoints(certificate)
 	select {}
 }
 
 func serveHTTP() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	mux.HandleFunc("/coverage/", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {

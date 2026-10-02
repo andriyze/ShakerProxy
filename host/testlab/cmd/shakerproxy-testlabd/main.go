@@ -26,6 +26,10 @@ type daemon struct {
 	busy    bool
 	lastRun *testlab.Run
 	logger  *slog.Logger
+	// coverageRun is the visibility coverage run that owns the prepared lab.
+	coverageRun     string
+	coverageForward string
+	coverageTimer   *time.Timer
 }
 
 func main() {
@@ -64,6 +68,9 @@ func main() {
 	mux.HandleFunc("GET /v1/status", d.status)
 	mux.HandleFunc("POST /v1/run", d.run)
 	mux.HandleFunc("POST /v1/cleanup", d.cleanup)
+	mux.HandleFunc("POST /v1/coverage/prepare", d.coveragePrepare)
+	mux.HandleFunc("POST /v1/coverage/probe", d.coverageProbe)
+	mux.HandleFunc("POST /v1/coverage/cleanup", d.coverageCleanup)
 	server := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 2 * time.Second,
@@ -128,7 +135,7 @@ func (d *daemon) run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.mu.Lock()
-	if d.busy {
+	if d.busy || d.coverageRun != "" {
 		d.mu.Unlock()
 		writeError(w, http.StatusConflict, "test lab is already running")
 		return
@@ -157,7 +164,16 @@ func (d *daemon) cleanup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "test lab is running")
 		return
 	}
+	coverageRun := d.coverageRun
 	d.mu.Unlock()
+	if coverageRun != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		if !d.finishCoverage(ctx, coverageRun) {
+			writeError(w, http.StatusConflict, "appliance configuration is busy; test-lab cleanup did not run")
+			return
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()

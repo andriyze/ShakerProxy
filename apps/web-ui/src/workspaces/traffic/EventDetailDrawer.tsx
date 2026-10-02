@@ -1,8 +1,23 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { api, describeError } from "../../api"
 import { eventSummary } from "../../lib/eventSummary"
+import {
+  bodyDisplay,
+  curlCommand,
+  exchangeSourceLabel,
+  exchangeTitle,
+  hasHTTPExchange,
+  messageHeaderLines,
+  rawMessage,
+  validHTTPExchange,
+} from "../../lib/httpExchange"
+import { eventDeviceTitle } from "../../lib/deviceTitle"
+import { streamLine } from "../../lib/liveTraffic"
+import { formatBytes } from "../../lib/format"
+import { useDeviceDirectory } from "../../shell/useDeviceDirectory"
+import { EventEssentials, breakable } from "./EventEssentials"
 import { TrafficEventInspector } from "./TrafficTable"
-import type { Device, EventDetail, RecentEvent } from "../../types"
+import type { Device, EventDetail, HTTPExchange, HTTPExchangeBody, HTTPExchangeHeaders, RecentEvent } from "../../types"
 
 // Full detail for one traffic event: the summary, the DNS / TLS / HTTP
 // evidence ShakerProxy stored for it, and the raw normalized payload. Decrypted
@@ -164,6 +179,175 @@ function matches(needle: string, ...values: unknown[]): boolean {
   return values.some((value) => text(value, "").toLowerCase().includes(needle))
 }
 
+// HTTPMessage shows one request or response as text, the way developer tools
+// show it: start line, headers, blank line, body.
+function HTTPMessage({
+  title,
+  startLine,
+  headers,
+  body,
+  reveal,
+  curl,
+}: {
+  title: string
+  startLine: string
+  headers: HTTPExchangeHeaders
+  body: HTTPExchangeBody
+  reveal: boolean
+  curl?: string
+}) {
+  const lines = messageHeaderLines(headers, reveal)
+  const bodyText = bodyDisplay(body)
+  const facts = [
+    body.content_type,
+    body.body_bytes > 0 ? formatBytes(body.body_bytes) : "",
+    body.decoded_preview && body.content_encoding ? `${body.content_encoding} decoded` : "",
+    body.truncated ? `first ${formatBytes(body.preview_bytes)} shown` : "",
+    !body.complete ? "incomplete in the recording" : "",
+  ].filter(Boolean)
+  return (
+    <div className="http-message">
+      <div className="http-message__head">
+        <h4>{title}</h4>
+        <div className="http-message__actions">
+          {curl && <CopyButton value={curl} label="Copy as cURL" />}
+          <CopyButton value={rawMessage(startLine, lines, body)} label="Copy" />
+        </div>
+      </div>
+      <pre className="http-message__text">
+        <span className="http-start">{startLine}</span>
+        {lines.map((line, index) => (
+          <React.Fragment key={`${line.name}-${index}`}>
+            {"\n"}
+            <span className="http-name">{line.name}</span>
+            {": "}
+            <span className={line.hidden ? "http-hidden" : "http-value"}>{line.value}</span>
+          </React.Fragment>
+        ))}
+        {bodyText && (
+          <>
+            {"\n\n"}
+            <span className="http-body">{bodyText}</span>
+          </>
+        )}
+      </pre>
+      {(facts.length > 0 || body.note) && (
+        <p className="http-message__facts">
+          {[...facts, body.note ?? ""].filter(Boolean).join(" · ")}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function ExchangeBody({ body }: { body: HTTPExchangeBody }) {
+  if (body.body_bytes === 0 && !body.preview && !body.note) return <p className="muted">No body.</p>
+  return (
+    <>
+      <Body snapshot={body} />
+      {body.decoded_preview && <Badge tone="good">decoded {text(body.content_encoding, "")}</Badge>}
+      {!body.complete && <Badge tone="warn">body incomplete in the recording</Badge>}
+      {body.note && <p className="muted">{body.note}</p>}
+    </>
+  )
+}
+
+// HTTPExchangePanel shows an HTTP event's requests and responses like
+// Wireshark's "Follow HTTP stream": read back from the packet recording for
+// cleartext HTTP, or from the decrypted events for intercepted HTTPS. All of
+// it is rendered as inert text.
+function HTTPExchangePanel({
+  recordID,
+  reveal,
+  onReveal,
+  onState,
+}: {
+  recordID: string
+  reveal: boolean
+  onReveal: () => void
+  onState: (state: HTTPExchange["state"] | "") => void
+}) {
+  const [exchange, setExchange] = useState<HTTPExchange | null>(null)
+  const [error, setError] = useState("")
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    setExchange(null)
+    setError("")
+    onState("")
+    api<HTTPExchange>(`/api/v1/events/${encodeURIComponent(recordID)}/http-exchange`, { signal: controller.signal })
+      .then((next) => {
+        if (!validHTTPExchange(next, recordID)) throw new Error("The request/response ShakerProxy returned is invalid.")
+        setExchange(next)
+        onState(next.state)
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) setError(describeError(reason, "The request and response are unavailable"))
+      })
+    return () => controller.abort()
+    // onState is a setter from the drawer
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordID, attempt])
+  return (
+    <Section
+      title="Request / Response"
+      subtitle={exchange ? exchangeSourceLabel(exchange) : "Reading the connection back from the recording…"}
+      hidden={false}
+    >
+      {error && <p className="event-health-error">{error}</p>}
+      {exchange && exchange.state !== "AVAILABLE" && (
+        <div className="event-detail-exchange-unavailable">
+          <p>{exchange.reason}</p>
+          {exchange.state === "RETRY" && (
+            <button type="button" className="secondary" onClick={() => setAttempt((current) => current + 1)}>
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+      {exchange?.notes?.map((note) => (
+        <p className="muted" key={note}>
+          {note}
+        </p>
+      ))}
+      {exchange?.exchanges.some((pair) => [pair.request?.headers, pair.response?.headers].some((headers) => headers?.items.some((item) => item.sensitive))) && (
+        <button type="button" className="quiet ed-reveal" onClick={onReveal}>
+          {reveal ? "Hide sensitive headers" : "Show sensitive headers (cookies, authorization)"}
+        </button>
+      )}
+      {exchange?.exchanges.map((pair, index) => (
+        <details className="event-detail-exchange" key={index} open={index === exchange.matched || exchange.exchanges.length === 1}>
+          <summary>
+            <code>{exchangeTitle(pair)}</code>
+            {index === exchange.matched && exchange.exchanges.length > 1 && <Badge tone="good">this event</Badge>}
+          </summary>
+          {pair.request && (
+            <HTTPMessage
+              title="Request"
+              startLine={`${pair.request.method} ${pair.request.target} ${pair.request.proto}`}
+              headers={pair.request.headers}
+              body={pair.request.body}
+              reveal={reveal}
+              curl={curlCommand(pair.request, exchange.source === "DECRYPTED" ? "https" : "http", reveal)}
+            />
+          )}
+          {pair.response ? (
+            <HTTPMessage
+              title="Response"
+              startLine={`${pair.response.proto} ${pair.response.status_code} ${pair.response.status}`}
+              headers={pair.response.headers}
+              body={pair.response.body}
+              reveal={reveal}
+            />
+          ) : (
+            <p className="muted">No response was recorded for this request.</p>
+          )}
+        </details>
+      ))}
+    </Section>
+  )
+}
+
 export function EventDetailDrawer({
   event,
   labelsAvailable,
@@ -180,10 +364,11 @@ export function EventDetailDrawer({
   const [detail, setDetail] = useState<EventDetail | null>(null)
   const [error, setError] = useState("")
   const [reveal, setReveal] = useState(false)
-  const [category, setCategory] = useState<Category>("all")
-  const [search, setSearch] = useState("")
+  const [exchangeState, setExchangeState] = useState<HTTPExchange["state"] | "">("")
+  const category: Category = "all"
   const [refCopied, setRefCopied] = useState("")
   const body = useRef<HTMLDivElement>(null)
+  const directory = useDeviceDirectory()
   const recordID = event.record_id
 
   useEffect(() => {
@@ -218,7 +403,7 @@ export function EventDetailDrawer({
     return () => document.removeEventListener("keydown", keydown)
   }, [onClose])
 
-  const needle = search.trim().toLowerCase()
+  const needle = ""
   const payload = asMap(detail?.payload)
   const merged = { ...event, ...(detail?.event ?? {}) } as RecentEvent
   const kind = merged.kind.toLowerCase()
@@ -237,14 +422,6 @@ export function EventDetailDrawer({
     serial: payload.upstream_certificate_serial ?? upstream.certificate_serial,
   }
   const raw = useMemo(() => (detail ? JSON.stringify(detail.payload, null, 2) : ""), [detail])
-  const sections: [Category, string][] = [
-    ["all", "All"],
-    ["overview", "Summary"],
-    ["dns", "DNS"],
-    ["tls", "HTTPS"],
-    ["http", "Web request"],
-    ["raw", "Raw"],
-  ]
   const answers = payload.answers
   const ttls = payload.TTLs ?? payload.ttls
   const httpStatus = payload.http_status ? ` → ${text(payload.http_status)}` : ""
@@ -252,6 +429,8 @@ export function EventDetailDrawer({
   const responseHeaders = asMap(payload.response_headers) as HeaderSnapshot
   const requestBody = asMap(payload.request_body) as BodySnapshot
   const responseBody = asMap(payload.response_body) as BodySnapshot
+  const titleLine = streamLine(merged)
+  const clientTitle = eventDeviceTitle(merged, directory)
   const overviewVisible = show(
     "overview",
     merged.record_id,
@@ -263,73 +442,53 @@ export function EventDetailDrawer({
 
   return (
     <aside className="event-detail-drawer" aria-labelledby="event-detail-title">
-      <header className="event-detail-drawer__header">
-        <div>
-          <h2 id="event-detail-title">{eventSummary(merged)}</h2>
-          <p className="muted">
-            {merged.source} · {merged.kind} · {new Date(merged.occurred_at).toLocaleString()}
+      <header className="event-detail-drawer__header ed-header">
+        <div className="ed-title">
+          <span className={`stream-badge ${titleLine.kind}`}>{titleLine.badge}</span>
+          <h2 id="event-detail-title">{breakable(titleLine.name || eventSummary(merged))}</h2>
+          <p className="ed-subtitle">
+            {[clientTitle, new Date(merged.occurred_at).toLocaleString(), titleLine.detail].filter(Boolean).join(" · ")}
           </p>
         </div>
-        <div className="event-detail-drawer__actions">
+        <div className="ed-actions">
           {merged.device_id && (
             <button type="button" className="secondary" onClick={() => onFilterDevice(merged.device_id!)}>
               Only this device
             </button>
           )}
-          <button
-            type="button"
-            className="secondary event-detail-reference"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(`shakerproxy://traffic/events/${recordID}`)
-                setRefCopied("Reference copied")
-              } catch {
-                setRefCopied("Copy failed")
-              }
-              window.setTimeout(() => setRefCopied(""), 1200)
-            }}
-          >
-            {refCopied || "Copy evidence ref"}
-          </button>
-          <button type="button" className="secondary" onClick={() => setReveal((current) => !current)}>
-            {reveal ? "Mask sensitive headers" : "Reveal sensitive headers"}
-          </button>
-          <button type="button" className="secondary" onClick={onClose} aria-label="Close event detail">
-            Close
+          <button type="button" className="secondary ed-close" onClick={onClose} aria-label="Close event detail">
+            ✕
           </button>
         </div>
       </header>
-      <nav className="event-detail-nav" aria-label="Event detail sections">
-        <div className="event-detail-nav__categories">
-          {sections.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={`event-detail-nav__chip${category === id ? " active" : ""}`}
-              aria-pressed={category === id}
-              onClick={() => {
-                setCategory(id)
-                body.current?.scrollTo({ top: 0, behavior: "smooth" })
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="event-detail-nav__search">
-          <span>Find in event</span>
-          <input
-            type="search"
-            value={search}
-            onChange={(changeEvent) => setSearch(changeEvent.target.value)}
-            placeholder="host, header, status, certificate…"
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-      </nav>
       <div className="event-detail-drawer__body" ref={body}>
         {error && <p className="error">{error}</p>}
+        <EventEssentials event={merged} payload={payload} />
+        {RECORD_ID.test(recordID) && hasHTTPExchange(merged) && (
+          <HTTPExchangePanel recordID={recordID} reveal={reveal} onReveal={() => setReveal((current) => !current)} onState={setExchangeState} />
+        )}
+        <details className="ed-technical">
+          <summary>Technical details</summary>
+          <div className="ed-technical__actions">
+            <button
+              type="button"
+              className="quiet"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(`shakerproxy://traffic/events/${recordID}`)
+                  setRefCopied("Reference copied")
+                } catch {
+                  setRefCopied("Copy failed")
+                }
+                window.setTimeout(() => setRefCopied(""), 1200)
+              }}
+            >
+              {refCopied || "Copy evidence reference"}
+            </button>
+            <span className="muted">
+              {merged.source} · {merged.kind}
+            </span>
+          </div>
         {overviewVisible && (
           <TrafficEventInspector event={merged} labelsAvailable={labelsAvailable} onRenamed={onRenamed} />
         )}
@@ -457,25 +616,26 @@ export function EventDetailDrawer({
               <KV label="Request bytes" value={payload.request_bytes} />
               <KV label="Response bytes" value={payload.response_bytes} />
             </dl>
-            {Array.isArray(requestHeaders.items) && (
+            {/* The Request / Response panel shows these once it has loaded. */}
+            {exchangeState !== "AVAILABLE" && Array.isArray(requestHeaders.items) && (
               <>
                 <h4>Request headers</h4>
                 <Headers snapshot={requestHeaders} reveal={reveal} />
               </>
             )}
-            {requestBody.preview !== undefined && (
+            {exchangeState !== "AVAILABLE" && requestBody.preview !== undefined && (
               <>
                 <h4>Request body</h4>
                 <Body snapshot={requestBody} />
               </>
             )}
-            {Array.isArray(responseHeaders.items) && (
+            {exchangeState !== "AVAILABLE" && Array.isArray(responseHeaders.items) && (
               <>
                 <h4>Response headers</h4>
                 <Headers snapshot={responseHeaders} reveal={reveal} />
               </>
             )}
-            {responseBody.preview !== undefined && (
+            {exchangeState !== "AVAILABLE" && responseBody.preview !== undefined && (
               <>
                 <h4>Response body</h4>
                 <Body snapshot={responseBody} />
@@ -493,6 +653,7 @@ export function EventDetailDrawer({
             <CopyButton value={raw} />
           </details>
         )}
+        </details>
       </div>
     </aside>
   )

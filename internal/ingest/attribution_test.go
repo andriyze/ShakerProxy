@@ -67,3 +67,21 @@ func TestAttributeAnalyzerEventLeavesAmbiguousEventsUnattributedAndPropagatesFai
 		t.Fatal("attribution backend failure was ignored")
 	}
 }
+
+// A gateway-reported connection belongs to the client that opened it, never
+// to whatever answers on the internet side.
+func TestGatewayConnectionsAreAttributedToTheClient(t *testing.T) {
+	deviceID := "device-0123456789abcdef0123456789abcdef"
+	connection := Envelope{Schema: SchemaVersion, EventID: "gateway-connection-attribution-0001", Source: SourceHost, Kind: HostConnKind,
+		OccurredAt: time.Date(2026, 10, 2, 3, 34, 36, 0, time.UTC), SourceVersion: "test", ParserVersion: "shakerproxy-conn-v1", Confidence: 100,
+		Payload: []byte(`{"source_ip":"192.168.10.201","source_port":37064,"destination_ip":"140.82.121.4","destination_port":443,"protocol":"tcp"}`)}
+	client := fakeDeviceAttributor{results: map[string]inventory.AddressAttribution{"192.168.10.201": testAddressAttribution(deviceID, "192.168.10.201")}}
+	attributed, evidence, err := AttributeAnalyzerEvent(connection, client)
+	if err != nil || attributed.DeviceID != deviceID || evidence == nil || evidence.Endpoint != AttributionEndpointSource || evidence.Address != "192.168.10.201" {
+		t.Fatalf("connection was not attributed to its client: %#v evidence=%#v err=%v", attributed, evidence, err)
+	}
+	other := fakeDeviceAttributor{results: map[string]inventory.AddressAttribution{"140.82.121.4": testAddressAttribution(deviceID, "140.82.121.4")}}
+	if attributed, evidence, err := AttributeAnalyzerEvent(connection, other); err != nil || attributed.DeviceID != "" || evidence != nil {
+		t.Fatalf("connection was attributed by its destination: %#v err=%v", attributed, err)
+	}
+}

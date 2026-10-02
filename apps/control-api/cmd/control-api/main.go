@@ -142,6 +142,9 @@ func main() {
 	rootHandler.Handle("GET /api/v1/agent/system-overview", agentSystemOverviewHandler)
 	rootHandler.Handle("/api/v1/agent-connections/", agentConnectionHandler)
 	rootHandler.Handle("/api/v1/self-test/", testLabHandler)
+	coverageHandler := controlServer.CoverageHandler()
+	rootHandler.Handle("/api/v1/coverage", coverageHandler)
+	rootHandler.Handle("/api/v1/coverage/", coverageHandler)
 	rootHandler.Handle("/", coreHandler)
 	httpServer := &http.Server{Addr: envOr("SHAKERPROXY_API_BIND", "127.0.0.1:8080"), Handler: rootHandler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 110 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

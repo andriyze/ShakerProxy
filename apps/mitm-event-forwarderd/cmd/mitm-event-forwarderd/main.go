@@ -41,8 +41,8 @@ type configuration struct {
 	Timeout         time.Duration
 	// Source is the only event source this spool may deliver: MITMPROXY
 	// (the interception addon, the default) or HOST (shakerproxy-dnsd's
-	// lookups and the gateway's blocked encrypted-DNS attempts, the
-	// hostSpoolKinds only).
+	// lookups, and shakerproxy-gatewayd's connection openings and blocked
+	// encrypted-DNS attempts: the hostSpoolKinds only).
 	Source string
 }
 
@@ -50,12 +50,13 @@ const (
 	sourceMitmproxy = "MITMPROXY"
 	sourceHost      = "HOST"
 	hostDNSKind     = "shakerproxy.dns"
+	hostConnKind    = "shakerproxy.conn"
 	hostBlockedKind = "shakerproxy.blocked"
 )
 
 // hostSpoolKinds are the only HOST events the host spool may carry; in
 // particular never detections.
-var hostSpoolKinds = map[string]bool{hostDNSKind: true, hostBlockedKind: true}
+var hostSpoolKinds = map[string]bool{hostDNSKind: true, hostConnKind: true, hostBlockedKind: true}
 
 func (c configuration) source() string {
 	if c.Source == "" {
@@ -340,8 +341,9 @@ func decodeEnvelope(data []byte) (eventEnvelope, error) {
 }
 
 // decodeSpooledEnvelope accepts only events of the spool's own source. The
-// DNS spool is writable by shakerproxy-dnsd, so it may carry lookup events
-// and nothing else (in particular no HOST detections).
+// host event spool is writable by shakerproxy-dnsd and shakerproxy-gatewayd,
+// so it may carry lookups and connection openings and nothing else (in
+// particular no HOST detections).
 func decodeSpooledEnvelope(data []byte, source string) (eventEnvelope, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -353,7 +355,7 @@ func decodeSpooledEnvelope(data []byte, source string) (eventEnvelope, error) {
 		return eventEnvelope{}, errors.New("event contains trailing data")
 	}
 	if source == sourceHost && !hostSpoolKinds[envelope.Kind] {
-		return eventEnvelope{}, errors.New("the host event spool accepts only DNS lookups and blocked encrypted-DNS attempts")
+		return eventEnvelope{}, errors.New("the host event spool accepts only lookup, connection and blocked-attempt events")
 	}
 	if envelope.Schema != 1 || !strings.HasPrefix(envelope.EventID, "evt_") || envelope.Source != source || envelope.Kind == "" || envelope.OccurredAt.IsZero() || envelope.SourceVersion == "" || envelope.ParserVersion == "" || envelope.Confidence < 0 || envelope.Confidence > 100 || envelope.Payload == nil {
 		return eventEnvelope{}, errors.New("event envelope fields are invalid")
