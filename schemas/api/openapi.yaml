@@ -992,7 +992,7 @@ paths:
   /devices:
     get:
       operationId: listDevices
-      description: Reconciles bounded read-only Kea DHCPv4 lease evidence into durable, time-bounded device attribution. When a routed network plan is confirmed, each new interval is bound to its lab interface, optional VLAN, and plan hash; legacy intervals retain explicit unknown scope. An IP address is evidence and is never a device identity.
+      description: Reconciles bounded read-only Kea DHCPv4 lease evidence into durable, time-bounded device attribution. When a routed network plan is confirmed, each new interval is bound to its lab interface, optional VLAN, and plan hash; legacy intervals retain explicit unknown scope. An IP address is evidence and is never a device identity, unless an administrator named the device by it (pinned_address).
       security: [{bearerAuth: []}]
       parameters:
         - {in: query, name: view, schema: {type: string, enum: [all, online, recent], default: all}, description: Recent means seen within 24 hours of the inventory snapshot.}
@@ -1011,6 +1011,20 @@ paths:
         "200": {description: Device inventory snapshot, content: {application/json: {schema: {$ref: "#/components/schemas/DeviceInventorySnapshot"}}}}
         "400": {$ref: "#/components/responses/Error"}
         "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+    post:
+      operationId: nameDeviceAddress
+      description: Recent confirmation. Names the device at an IP address, like a router's client alias, and pins the address to it so every MAC address seen there (for example a phone's rotating private Wi-Fi MAC) joins it. Names the device currently or most recently at the address, or the device given by device_id, or creates a device that waits to be seen. Earlier records seen only at the address join the named device.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: header, name: Idempotency-Key, required: false, description: "Optional. When omitted the server generates one; send your own to make retries replay safely.", schema: {type: string, minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$"}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [name, address], properties: {name: {type: string, minLength: 1, maxLength: 64}, address: {type: string, maxLength: 45, description: "A unicast IPv4 or IPv6 address, such as 192.168.10.201"}, device_id: {type: string, pattern: "^device-[a-f0-9]{32}$"}, password: {type: string, maxLength: 1024}}}}}}
+      responses:
+        "200": {description: Named device or exact replay, content: {application/json: {schema: {$ref: "#/components/schemas/DeviceMutationResult"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
   /devices/resolve:
     get:
@@ -1363,6 +1377,21 @@ paths:
         "404": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
+  /devices/{deviceID}/pinned-address:
+    delete:
+      operationId: unpinDeviceAddress
+      description: Recent confirmation. Stops naming the device by its IP address; it keeps its name. A device added by address that was never seen is removed.
+      security: [{bearerAuth: []}]
+      parameters:
+        - {in: path, name: deviceID, required: true, schema: {type: string, pattern: "^device-[a-f0-9]{32}$"}}
+        - {in: header, name: Idempotency-Key, required: false, description: "Optional. When omitted the server generates one; send your own to make retries replay safely.", schema: {type: string, minLength: 16, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$"}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, properties: {password: {type: string, maxLength: 1024}}}}}}
+      responses:
+        "200": {description: Updated device, an empty list when it was removed, or an exact replay, content: {application/json: {schema: {$ref: "#/components/schemas/DeviceMutationResult"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
   /devices/{deviceID}/merge:
     post:
       operationId: mergeDevice
@@ -3272,6 +3301,18 @@ components:
         evidence_as_of: {type: string, format: date-time}
         devices: {type: array, maxItems: 50000, items: {$ref: "#/components/schemas/Device"}}
         address_aliases: {type: array, maxItems: 4096, items: {$ref: "#/components/schemas/AddressAlias"}}
+        platform_hints:
+          type: object
+          description: What each listed device most likely is, keyed by device ID, from the operating-system connectivity checks it made in the last 7 days (for example GrapheneOS phone from connectivitycheck.grapheneos.network). Derived on each request and never stored; best effort, so it is absent when the event store is slow or unavailable, and for API tokens without traffic:read.
+          maxProperties: 50000
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            required: [platform, domain, last_seen]
+            properties:
+              platform: {type: string, maxLength: 64}
+              domain: {type: string, maxLength: 253}
+              last_seen: {type: string, format: date-time}
     AddressAlias:
       type: object
       additionalProperties: false
@@ -3650,6 +3691,8 @@ components:
         attribution_confidence: {type: integer, minimum: 0, maximum: 100}
         attribution_warnings: {type: array, maxItems: 32, items: {type: string}}
         last_reconciled: {type: string, format: date-time}
+        former_ids: {type: array, maxItems: 16, items: {type: string, pattern: "^device-[a-f0-9]{32}$"}, description: IDs of device records merged into this one; traffic recorded before the merge keeps them.}
+        pinned_address: {type: string, maxLength: 45, description: The IP address an administrator named this device by. Every MAC address seen there joins the device.}
     SuggestedName:
       type: object
       additionalProperties: false

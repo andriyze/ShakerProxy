@@ -129,10 +129,13 @@ func consolidateRotatedMACDevices(doc *document, now time.Time) ([]string, error
 	var targets []string
 	for _, root := range roots {
 		members := groups[root]
-		// The most recently seen record survives; it is the one testers are
-		// looking at now.
+		// A device the administrator named by its address survives; otherwise
+		// the most recently seen record, the one testers are looking at now.
 		sort.Slice(members, func(i, j int) bool {
 			a, b := doc.Devices[members[i]], doc.Devices[members[j]]
+			if (a.PinnedAddress != "") != (b.PinnedAddress != "") {
+				return a.PinnedAddress != ""
+			}
 			if !a.LastSeen.Equal(b.LastSeen) {
 				return a.LastSeen.After(b.LastSeen)
 			}

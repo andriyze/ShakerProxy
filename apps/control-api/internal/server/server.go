@@ -95,6 +95,7 @@ type Server struct {
 	leaseReadProblem            sync.Mutex
 	lastLeaseReadProblem        string
 	eventReader                 ingest.RecentEventReader
+	devicePlatforms             devicePlatformCache
 	liveEventReader             ingest.LiveEventReader
 	ingestStatus                ingest.StatusReader
 	eventSnapshots              ingest.EventQuerySnapshotRepository
@@ -260,6 +261,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/devices/{deviceID}", s.requireAuthOrScope(apitoken.ScopeDevicesRead, http.HandlerFunc(s.getDevice)))
 	mux.Handle("PUT /api/v1/devices/{deviceID}/metadata", s.requireAuth(http.HandlerFunc(s.updateDeviceMetadata)))
 	mux.Handle("PUT /api/v1/devices/{deviceID}/alias", s.requireAuth(http.HandlerFunc(s.updateDeviceAlias)))
+	mux.Handle("POST /api/v1/devices", s.requireAuth(http.HandlerFunc(s.nameDeviceAddress)))
+	mux.Handle("DELETE /api/v1/devices/{deviceID}/pinned-address", s.requireAuth(http.HandlerFunc(s.unpinDeviceAddress)))
 	mux.Handle("POST /api/v1/devices/{deviceID}/merge", s.requireAuth(http.HandlerFunc(s.mergeDevice)))
 	mux.Handle("POST /api/v1/devices/{deviceID}/split", s.requireAuth(http.HandlerFunc(s.splitDevice)))
 	mux.Handle("POST /api/v1/devices/{deviceID}/traffic-deletion-preview", s.requireAuth(http.HandlerFunc(s.previewDeviceTrafficDeletion)))
@@ -1580,7 +1583,11 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot.Devices = filterAndSortDevices(snapshot.Devices, query, snapshot.GeneratedAt)
-	writeJSON(w, http.StatusOK, snapshot)
+	response := deviceListResponse{Snapshot: snapshot}
+	if mayReadTraffic(r) {
+		response.PlatformHints = platformHintsFor(snapshot.Devices, s.devicePlatformHints(r.Context()))
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) exportDeviceAliases(w http.ResponseWriter, r *http.Request) {
@@ -1895,6 +1902,89 @@ func (s *Server) updateDeviceMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	s.invalidateDeviceNames()
 	s.logger.Info("device metadata updated", "username", sessionUsername(r.Context()), "device_id", deviceID, "audit_id", result.Audit.ID, "replayed", result.Replayed)
+	writeJSON(w, http.StatusOK, result)
+}
+
+type nameDeviceAddressRequest struct {
+	Password string `json:"password"`
+	Name     string `json:"name"`
+	Address  string `json:"address"`
+	DeviceID string `json:"device_id"`
+}
+
+// nameDeviceAddress names the device at an IP address, the way a router's
+// client alias does: it creates the device if it was not seen yet, and every
+// MAC that appears at the address joins it.
+func (s *Server) nameDeviceAddress(w http.ResponseWriter, r *http.Request) {
+	operationID, ok := requestOperationID(r, deviceinventory.ValidOperationID)
+	if !ok {
+		writeInvalidIdempotencyKey(w)
+		return
+	}
+	var request nameDeviceAddressRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeDecodeError(w, err, "device name")
+		return
+	}
+	if !s.confirmAdministrator(w, r, request.Password, passwordRecent) {
+		return
+	}
+	if s.inventory == nil {
+		writeError(w, http.StatusServiceUnavailable, "inventory_unavailable", "device inventory is not configured")
+		return
+	}
+	result, err := s.inventory.NameAddress(sessionUsername(r.Context()), operationID, deviceinventory.AddressName{Name: request.Name, Address: request.Address, DeviceID: request.DeviceID})
+	if errors.Is(err, deviceinventory.ErrAddressAlreadyNamed) {
+		writeError(w, http.StatusConflict, "address_already_named", strings.TrimPrefix(err.Error(), deviceinventory.ErrAddressAlreadyNamed.Error()+": "))
+		return
+	}
+	if err != nil {
+		s.writeDeviceMutationError(w, err)
+		return
+	}
+	s.invalidateDeviceNames()
+	deviceID := ""
+	if len(result.Devices) > 0 {
+		deviceID = result.Devices[0].ID
+	}
+	s.logger.Info("device named by address", "username", sessionUsername(r.Context()), "device_id", deviceID, "audit_id", result.Audit.ID, "replayed", result.Replayed)
+	writeJSON(w, http.StatusOK, result)
+}
+
+type unpinDeviceAddressRequest struct {
+	Password string `json:"password"`
+}
+
+func (s *Server) unpinDeviceAddress(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.PathValue("deviceID")
+	if !deviceinventory.ValidDeviceID(deviceID) {
+		writeInvalidDeviceID(w)
+		return
+	}
+	operationID, ok := requestOperationID(r, deviceinventory.ValidOperationID)
+	if !ok {
+		writeInvalidIdempotencyKey(w)
+		return
+	}
+	var request unpinDeviceAddressRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeDecodeError(w, err, "device address")
+		return
+	}
+	if !s.confirmAdministrator(w, r, request.Password, passwordRecent) {
+		return
+	}
+	if s.inventory == nil {
+		writeError(w, http.StatusServiceUnavailable, "inventory_unavailable", "device inventory is not configured")
+		return
+	}
+	result, err := s.inventory.UnpinAddress(deviceID, sessionUsername(r.Context()), operationID)
+	if err != nil {
+		s.writeDeviceMutationError(w, err)
+		return
+	}
+	s.invalidateDeviceNames()
+	s.logger.Info("device address unpinned", "username", sessionUsername(r.Context()), "device_id", deviceID, "audit_id", result.Audit.ID, "replayed", result.Replayed)
 	writeJSON(w, http.StatusOK, result)
 }
 

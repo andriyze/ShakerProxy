@@ -44,7 +44,7 @@ var metadataFields = []FieldMetadata{
 	{Name: "protocol.category", ValueType: "enum", Operators: equalityOperators, EnumValues: protocolCategories(), Suggestions: []string{"protocol.category:iot-messaging", "protocol.category:vpn-tunnel", "protocol.category:encrypted-dns"}},
 	{Name: "protocol.visibility", ValueType: "enum", Operators: equalityOperators, EnumValues: []string{"DECRYPTED", "CLEARTEXT", "ENCRYPTED_METADATA", "OPAQUE"}, Suggestions: []string{"protocol.visibility:OPAQUE", "protocol.visibility:CLEARTEXT", "protocol.visibility:DECRYPTED"}},
 	{Name: "protocol.exotic", ValueType: "boolean", Operators: equalityOperators, EnumValues: []string{"true", "false"}, Suggestions: []string{"protocol.exotic:true"}},
-	{Name: TextField, ValueType: "hostname", Operators: equalityOperators, Suggestions: []string{"netflix", "text:*.example.com"}, Wildcard: true},
+	{Name: TextField, ValueType: "hostname", Operators: equalityOperators, Suggestions: []string{"netflix", "192.168.10.20", "text:*.example.com"}, Wildcard: true},
 	{Name: "dns.query", ValueType: "hostname", Operators: equalityOperators, Suggestions: []string{"dns.query:example.com", "dns.query:*.example.com"}, Wildcard: true},
 	{Name: "dns.rcode", ValueType: "enum_text", Operators: equalityOperators, Suggestions: []string{"dns.rcode:NOERROR", "dns.rcode:NXDOMAIN"}, Wildcard: true},
 	{Name: "tls.sni", ValueType: "hostname", Operators: equalityOperators, Suggestions: []string{"tls.sni:api.example.com", "tls.sni:*.example.com"}, Wildcard: true},

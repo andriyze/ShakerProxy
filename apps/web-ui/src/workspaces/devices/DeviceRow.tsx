@@ -1,10 +1,11 @@
-import React, { FormEvent, useState } from "react"
+import React, { FormEvent, useRef, useState } from "react"
 import { uniqueAddresses } from "../../lib/deviceAddresses"
+import { deviceMAC, deviceTitle, locallyAdministered } from "../../lib/deviceTitle"
 import { withPassword } from "../../shell/passwordPrompt"
 import { timeAgo, idempotencyKey } from "../../lib/format"
 import { DeviceTrafficDeletionPreviewControl } from "./DeviceTrafficDeletion"
 import { api, describeError } from "../../api"
-import type { Device } from "../../types"
+import type { Device, DevicePlatformHint } from "../../types"
 
 export function DeviceRow({
   device,
@@ -12,16 +13,25 @@ export function DeviceRow({
   onChanged,
   onInspect,
   onViewTraffic,
+  platformHint,
 }: {
   device: Device
   devices: Device[]
   onChanged: () => Promise<void>
   onInspect: () => void
   onViewTraffic: () => void
+  platformHint?: DevicePlatformHint
 }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
-  const mac = device.identities.find((identity) => identity.kind === "MAC")
+  const controls = useRef<HTMLDetailsElement>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
+  const mac = deviceMAC(device)
+  function openRename() {
+    if (controls.current) controls.current.open = true
+    nameInput.current?.focus()
+    nameInput.current?.select()
+  }
   const addresses = uniqueAddresses(device.addresses)
   const activeAddresses = addresses.filter((address) => address.active)
   const vendorLabel =
@@ -149,10 +159,24 @@ export function DeviceRow({
       <div className="device-primary">
         <span className={device.online ? "online-dot" : "offline-dot"} />
         <div>
-          <strong>{device.friendly_name || device.hostnames?.at(-1)?.hostname || mac?.value || device.id}</strong>
+          <strong>{deviceTitle(device, "", platformHint)}</strong>
+          {mac && (
+            <small className="device-mac">
+              MAC <code>{mac}</code>
+              {locallyAdministered(mac) ? " · private Wi-Fi address, changes when the device reconnects" : ""}
+            </small>
+          )}
+          {platformHint && !device.friendly_name && (
+            <small className="device-platform">Identified by its connectivity check to {platformHint.domain}</small>
+          )}
           <code>{device.id}</code>
           <small className={device.online ? "device-seen online" : "device-seen"}>
-            {device.online ? "Online now" : `Offline · last seen ${timeAgo(device.last_seen)}`}
+            {device.online
+              ? "Online now"
+              : device.identities.length === 0
+                ? "Not seen yet"
+                : `Offline · last seen ${timeAgo(device.last_seen)}`}
+            {device.pinned_address ? ` · named by IP ${device.pinned_address}` : ""}
           </small>
           <span className="device-row-actions">
             <button type="button" className="quiet device-inspect" onClick={onInspect}>
@@ -160,6 +184,9 @@ export function DeviceRow({
             </button>
             <button type="button" className="quiet device-inspect" onClick={onViewTraffic}>
               View traffic
+            </button>
+            <button type="button" className="quiet device-inspect" onClick={openRename}>
+              Rename
             </button>
           </span>
           {device.friendly_name_conflict && <small className="alias-conflict">Duplicate friendly name</small>}
@@ -231,7 +258,7 @@ export function DeviceRow({
         </p>
       ))}
       <DeviceTrafficDeletionPreviewControl device={device} />
-      <details className="device-controls">
+      <details className="device-controls" ref={controls}>
         <summary>Rename, tag or correct this device</summary>
         <div className="device-control-grid">
           <form onSubmit={saveAlias}>
@@ -249,6 +276,7 @@ export function DeviceRow({
             <label>
               Friendly name
               <input
+                ref={nameInput}
                 name="friendly_name"
                 defaultValue={device.friendly_name}
                 list={`device-suggestions-${device.id}`}

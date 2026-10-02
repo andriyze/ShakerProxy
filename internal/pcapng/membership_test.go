@@ -3,7 +3,9 @@ package pcapng
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -171,4 +173,18 @@ func equalStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+// A segment the automatic lab recording has just opened has no packets; the
+// Captures page crashed reading the length of its null address lists.
+func TestEmptyMembershipEncodesListsNotNull(t *testing.T) {
+	encoded, err := json.Marshal(Membership{Schema: MembershipSchema, State: MembershipExact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"link_types":[]`, `"mac_addresses":[]`, `"ip_addresses":[]`} {
+		if !strings.Contains(string(encoded), field) {
+			t.Fatalf("membership JSON %s lacks %s", encoded, field)
+		}
+	}
 }

@@ -1,3 +1,4 @@
+import { isStaleBuildError, reloadForNewVersion } from "../lib/staleBuild"
 import React from "react"
 import { viewsFor, type WorkspaceID } from "../features"
 
@@ -65,7 +66,21 @@ export class FeatureBoundary extends React.Component<BoundaryProps, BoundaryStat
     return { error }
   }
 
+  componentDidCatch(error: Error) {
+    if (isStaleBuildError(error)) reloadForNewVersion()
+  }
+
   render() {
+    if (this.state.error && isStaleBuildError(this.state.error)) {
+      return (
+        <div className="error" role="alert">
+          ShakerProxy was updated. Reload the page to use the new version.
+          <button type="button" className="quiet error-retry" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      )
+    }
     if (this.state.error) {
       return (
         <div className="error" role="alert">

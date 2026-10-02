@@ -186,3 +186,13 @@ test("a connection split across capture segments shows as one row", async () => 
   // Without its first record loaded, a continuation still shows.
   assert.deepEqual(foldSplitConnections(events.slice(0, 2)).map((event) => event.record_id), ["reset", "dns"])
 })
+
+test("devices can be added and named by IP address", () => {
+  const inventory = webUIFile("workspaces/devices/DeviceInventory.tsx")
+  assert.match(inventory, /<AddDeviceByAddress onAdded=/)
+  const named = webUIFile("workspaces/devices/NamedDevices.tsx")
+  assert.match(named, /api<DeviceMutationResult>\("\/api\/v1\/devices", \{\s*method: "POST"/)
+  assert.match(named, /\/api\/v1\/devices\/\$\{device\.id\}\/pinned-address`, \{\s*method: "DELETE"/)
+  assert.match(webUIFile("workspaces/devices/DeviceDetailDrawer.tsx"), /<PinnedAddressControls/)
+  assert.match(webUIFile("workspaces/devices/DeviceRow.tsx"), /named by IP \$\{device\.pinned_address\}/)
+})

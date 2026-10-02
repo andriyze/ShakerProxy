@@ -5,6 +5,8 @@ import { MAX_VISIBLE_LIVE_ROWS, virtualRowWindow } from "../../lib/liveRows"
 import { tlsOutcomeExplanation } from "../../lib/tlsTrust"
 import { eventSummary, eventTone, eventTypeLabel, foldSplitConnections, forwardedLookups, isAnalyzerDuplicate } from "../../lib/eventSummary"
 import { EventDetailDrawer } from "./EventDetailDrawer"
+import { eventDeviceTitle } from "../../lib/deviceTitle"
+import { useDeviceDirectory } from "../../shell/useDeviceDirectory"
 import { api, describeError } from "../../api"
 import type { Device, DeviceMutationResult, RecentEvent } from "../../types"
 
@@ -26,6 +28,7 @@ export function WindowedTrafficTable({
   onRenamed: (device: Device) => void
 }) {
   const viewport = useRef<HTMLDivElement | null>(null)
+  const directory = useDeviceDirectory()
   // One row per connection and lookup by default; the analyzers' duplicate
   // records stay one click away.
   const [showDuplicates, setShowDuplicates] = useState(false)
@@ -126,7 +129,7 @@ export function WindowedTrafficTable({
                 item.source_ip || item.destination_ip
                   ? `${formatNetworkEndpoint(item.source_ip, item.source_port)} → ${formatNetworkEndpoint(item.destination_ip, item.destination_port)}`
                   : "Endpoints unavailable"
-              const device = item.device_friendly_name || item.device_id || "Unknown device"
+              const device = eventDeviceTitle(item, directory) || "Unknown device"
               const summary = eventSummary(item)
               const tone = eventTone(item)
               return (
@@ -149,7 +152,7 @@ export function WindowedTrafficTable({
                   </span>
                   <span role="cell">
                     <strong>{device}</strong>
-                    <small>{item.source_ip || `${item.confidence}% sure`}</small>
+                    <small>{item.device_id ? `${item.confidence}% sure` : item.source_ip || ""}</small>
                   </span>
                   <span role="cell" className="traffic-summary-cell">
                     <strong title={summary}>{summary}</strong>
@@ -194,6 +197,7 @@ export function TrafficEventInspector({
   onRenamed: (device: Device) => void
 }) {
   const evidence = event.attribution_evidence
+  const directory = useDeviceDirectory()
   return (
     <section className="traffic-inspector" aria-labelledby="traffic-inspector-title">
       <header>
@@ -288,7 +292,7 @@ export function TrafficEventInspector({
         <div>
           <dt>Attribution</dt>
           <dd>
-            {event.device_friendly_name || event.device_id || "No unambiguous device"}
+            {eventDeviceTitle(event, directory) || "No unambiguous device"}
             {event.device_id && <code>{event.device_id}</code>}
             {event.device_friendly_name_conflict && <small className="alias-conflict">Duplicate friendly name</small>}
             {event.device_id &&

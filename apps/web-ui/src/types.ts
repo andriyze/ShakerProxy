@@ -730,6 +730,8 @@ export type Device = {
   attribution_warnings?: string[]
   last_reconciled: string
   former_ids?: string[]
+  // The IP address an administrator named this device by.
+  pinned_address?: string
 }
 
 export type PCAPSelectionFileImpact = {
@@ -854,7 +856,12 @@ export type InventorySnapshot = {
   evidence_as_of: string
   devices: Device[]
   address_aliases?: AddressAlias[]
+  // What each device most likely is, keyed by device ID; derived from the
+  // connectivity checks it made and never stored.
+  platform_hints?: Record<string, DevicePlatformHint>
 }
+
+export type DevicePlatformHint = { platform: string; domain: string; last_seen: string }
 
 export type AttributionEvidence = {
   schema: 1

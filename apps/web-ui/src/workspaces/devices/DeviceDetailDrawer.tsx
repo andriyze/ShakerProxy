@@ -1,23 +1,27 @@
 import React, { FormEvent, useEffect, useRef, useState } from "react"
 import { uniqueAddresses } from "../../lib/deviceAddresses"
+import { deviceTitle } from "../../lib/deviceTitle"
 import { withPassword } from "../../shell/passwordPrompt"
 import { idempotencyKey } from "../../lib/format"
 import { ErrorBox, FeatureBoundary } from "../../shell/common"
 import { api, describeError } from "../../api"
 import { sortedDeviceExtensions } from "../../features"
 import { DeviceAuditEntries } from "./DeviceHistory"
-import type { Device, DeviceMutationResult } from "../../types"
+import type { Device, DeviceMutationResult, DevicePlatformHint } from "../../types"
+import { PinnedAddressControls } from "./NamedDevices"
 
 export function DeviceDetailDrawer({
   deviceID,
   onClose,
   onChanged,
   onViewTraffic,
+  platformHint,
 }: {
   deviceID: string
   onClose: () => void
   onChanged: () => Promise<void>
   onViewTraffic: () => void
+  platformHint?: DevicePlatformHint
 }) {
   const extensions = sortedDeviceExtensions()
   const [device, setDevice] = useState<Device | null>(null)
@@ -135,7 +139,7 @@ export function DeviceDetailDrawer({
         <header>
           <div>
             <p className="eyebrow">Device</p>
-            <h2 id="device-drawer-title">{device?.friendly_name || device?.suggested_names?.[0]?.name || deviceID}</h2>
+            <h2 id="device-drawer-title">{device ? deviceTitle(device, "", platformHint) : deviceID}</h2>
             <code>{deviceID}</code>
           </div>
           <button ref={closeButton} type="button" className="quiet" onClick={onClose} aria-label="Close device detail">
@@ -170,6 +174,18 @@ export function DeviceDetailDrawer({
                 View traffic
               </button>
             </div>
+            <PinnedAddressControls
+              device={device}
+              onChanged={(updated) => {
+                if (updated) {
+                  setDevice(updated)
+                  setFriendlyName(updated.friendly_name ?? "")
+                } else {
+                  onClose()
+                }
+                void onChanged()
+              }}
+            />
             {device.attribution_warnings?.map((warning) => (
               <p className="device-warning" key={warning}>
                 {warning}

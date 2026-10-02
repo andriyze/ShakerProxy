@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client"
 // before the shell renders.
 import "./features"
 import { App } from "./shell/App"
+import { reloadForNewVersion } from "./lib/staleBuild"
 import "./styles/base.css"
 import "./styles/planner.css"
 import "./styles/capture.css"
@@ -28,3 +29,9 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 )
+
+// Vite reports a page module or stylesheet that failed to load; after an
+// upgrade that means this tab still runs the previous version.
+window.addEventListener("vite:preloadError", (event) => {
+  if (reloadForNewVersion()) event.preventDefault()
+})

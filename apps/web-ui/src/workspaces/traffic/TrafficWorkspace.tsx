@@ -558,7 +558,7 @@ export function TrafficWorkspace() {
               list="traffic-query-suggestions"
               value={draftQuery}
               onChange={(event) => setDraftQuery(event.target.value)}
-              placeholder="Search: netflix.com, proto:mqtt, device.name:tv"
+              placeholder="Search: netflix.com, 192.168.10.20, proto:mqtt, device.name:tv"
               spellCheck={false}
               aria-describedby="traffic-query-help"
             />
@@ -587,7 +587,8 @@ export function TrafficWorkspace() {
           )}
           {showSyntax && (
             <small id="traffic-query-help">
-              A bare word such as netflix.com searches DNS names, HTTPS server names and web hosts. Fields: source,
+              A bare word such as netflix.com searches DNS names, HTTPS server names and web hosts; a whole IP address such as
+              192.168.10.20 (or a CIDR such as 192.168.10.0/24) finds traffic to or from it. Fields: source,
               kind, device.id, device.name (also name or device), device.tag (also tag), capture.id, src.ip, dst.ip,
               src.port, dst.port, protocol, service, app.protocol (also proto or app), protocol.category,
               protocol.visibility, protocol.exotic, bytes, confidence, time. Use time:last_15m (s, m, h, or d; up to

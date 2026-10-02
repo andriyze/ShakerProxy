@@ -1,0 +1,105 @@
+import type { Device, DevicePlatformHint } from "../types"
+
+// A device is shown as "<name> · <IPv4>" everywhere, so testers can tell
+// devices apart by what they are and find them by address. Private Wi-Fi MACs
+// change on every connection, so a MAC is never the name.
+
+export type DeviceNameSource = "friendly" | "broadcast" | "platform" | "vendor" | "private" | ""
+
+const PRIVATE_ADDRESS_NAME = "Device with a private Wi-Fi address"
+
+function newest<T>(items: readonly T[], at: (item: T) => string): T | undefined {
+  let best: T | undefined
+  for (const item of items) {
+    if (!best || Date.parse(at(item)) > Date.parse(at(best))) best = item
+  }
+  return best
+}
+
+function isIPv4(value: string | undefined): value is string {
+  return !!value && /^\d{1,3}(\.\d{1,3}){3}$/.test(value)
+}
+
+// deviceIPv4 is the address to show: the one pinned to the device, else its
+// current IPv4, else the fallback (the address an event was attributed by),
+// else the last IPv4 it had.
+export function deviceIPv4(device: Device, fallback = ""): string {
+  if (isIPv4(device.pinned_address)) return device.pinned_address
+  const ipv4 = (device.addresses ?? []).filter((address) => isIPv4(address.address))
+  const current = newest(
+    ipv4.filter((address) => address.active),
+    (address) => address.observed_at,
+  )
+  if (current) return current.address
+  if (isIPv4(fallback)) return fallback
+  return newest(ipv4, (address) => address.observed_at)?.address ?? ""
+}
+
+// locallyAdministered reports a private ("randomized") MAC address.
+export function locallyAdministered(mac: string): boolean {
+  const first = Number.parseInt(mac.slice(0, 2), 16)
+  return Number.isFinite(first) && (first & 0x02) !== 0
+}
+
+export function deviceMAC(device: Device): string {
+  return newest(
+    (device.identities ?? []).filter((identity) => identity.kind === "MAC"),
+    (identity) => identity.last_seen,
+  )?.value ?? ""
+}
+
+// deviceName picks the best name, in order: the name the administrator set,
+// the name the device broadcasts about itself (its DHCP hostname), what its
+// connectivity checks say it is, its MAC vendor, or that it uses a private
+// Wi-Fi address.
+export function deviceName(device: Device, hint?: DevicePlatformHint): { name: string; source: DeviceNameSource } {
+  const friendly = device.friendly_name?.trim()
+  if (friendly) return { name: friendly, source: "friendly" }
+  const broadcast = newest(device.hostnames ?? [], (hostname) => hostname.last_seen)?.hostname?.trim()
+  if (broadcast) return { name: broadcast, source: "broadcast" }
+  if (hint?.platform) return { name: hint.platform, source: "platform" }
+  if (device.vendor?.name) return { name: device.vendor.name, source: "vendor" }
+  const macs = (device.identities ?? []).filter((identity) => identity.kind === "MAC")
+  if (macs.length > 0 && macs.every((identity) => locallyAdministered(identity.value))) {
+    return { name: PRIVATE_ADDRESS_NAME, source: "private" }
+  }
+  return { name: "", source: "" }
+}
+
+// deviceTitle is "<name> · <IPv4>", or whichever of the two is known, or the
+// MAC or ID as a last resort.
+export function deviceTitle(device: Device, ip = "", hint?: DevicePlatformHint): string {
+  const { name } = deviceName(device, hint)
+  const address = deviceIPv4(device, ip)
+  if (name && address) return `${name} · ${address}`
+  return name || address || deviceMAC(device) || device.id
+}
+
+// eventDeviceTitle titles an event's device: from the inventory when it is
+// known (including records merged into it), else the event's own name and
+// address.
+export function eventDeviceTitle(
+  event: { device_id?: string; device_friendly_name?: string; attribution_evidence?: { address: string } },
+  directory?: DeviceDirectory,
+): string {
+  const ip = event.attribution_evidence?.address ?? ""
+  const known = event.device_id ? directory?.get(event.device_id) : undefined
+  if (known) return deviceTitle(known.device, ip, known.hint)
+  const name = event.device_friendly_name?.trim() ?? ""
+  if (name && isIPv4(ip)) return `${name} · ${ip}`
+  return name || event.device_id || ""
+}
+
+export type DeviceDirectory = Map<string, { device: Device; hint?: DevicePlatformHint }>
+
+// deviceDirectory indexes devices by their ID and the IDs of records merged
+// into them, so traffic recorded before a merge finds the device.
+export function deviceDirectory(devices: readonly Device[], hints: Record<string, DevicePlatformHint> = {}): DeviceDirectory {
+  const directory: DeviceDirectory = new Map()
+  for (const device of devices) {
+    const entry = { device, hint: hints[device.id] }
+    for (const id of device.former_ids ?? []) directory.set(id, entry)
+  }
+  for (const device of devices) directory.set(device.id, { device, hint: hints[device.id] })
+  return directory
+}
