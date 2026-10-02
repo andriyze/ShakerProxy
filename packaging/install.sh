@@ -701,7 +701,22 @@ export DEBIAN_FRONTEND=noninteractive
 # --no-install-recommends: wireshark-common recommends the Wireshark desktop
 # app and Qt. The host package's own recommendations are listed instead.
 apt-get install -y -q --no-install-recommends -o Dpkg::Use-Pty=0 "$SOURCE_DIR/shakerproxy-host.deb" hostapd iw radvd
-while IFS= read -r image; do docker pull "$image"; done < <(jq -r '.images[]' "$MANIFEST")
+# Registries occasionally fail to resolve a digest for a moment ("failed to
+# resolve reference"); a pinned digest is safe to retry.
+pull_image() {
+  local image="$1" attempt
+  for attempt in 1 2 3 4 5; do
+    if docker pull "$image"; then
+      return 0
+    fi
+    if [ "$attempt" -lt 5 ]; then
+      log "image download failed (attempt $attempt of 5); retrying in $((attempt * 5)) seconds"
+      sleep $((attempt * 5))
+    fi
+  done
+  return 1
+}
+while IFS= read -r image; do pull_image "$image" || die "could not download $image after 5 attempts; check this host's internet access and run the installer again"; done < <(jq -r '.images[]' "$MANIFEST")
 
 if [[ -d "$RELEASE_DIRECTORY" ]]; then
   if ((REPAIR_REINSTALL)); then
