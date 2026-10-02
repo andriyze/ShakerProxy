@@ -19,9 +19,13 @@ import (
 )
 
 const (
-	MaxRecentEventLimit             = 100
-	MaxEventFacetInput              = 10_000
-	MaxEventFacetValues             = 12
+	MaxRecentEventLimit = 100
+	MaxEventFacetInput  = 10_000
+	MaxEventFacetValues = 12
+	// The Domains facet groups host names by registrable domain.
+	MaxEventDomainValues            = 15
+	MaxEventDomainHosts             = 5
+	maxEventDomainHostRows          = 500
 	internalNameResolutionParameter = "_device_name_ids"
 	internalTagResolutionParameter  = "_device_tag_ids"
 	internalQueryAnchorParameter    = "_query_anchor"
@@ -144,6 +148,28 @@ type EventFacets struct {
 	CountRelation string       `json:"count_relation"`
 	Basis         string       `json:"basis"`
 	Fields        []EventFacet `json:"fields"`
+	// Domains is computed over the same events as Fields.
+	Domains EventDomainFacet `json:"domains"`
+}
+
+// EventDomainFacet lists the internet domains the matching events name: DNS
+// questions, TLS server names (SNI) and HTTP hosts, grouped by registrable
+// domain ("connectivitycheck.grapheneos.network" counts toward
+// "grapheneos.network"). Local names (.local, .arpa) and IP literals are left
+// out.
+type EventDomainFacet struct {
+	Values []EventDomainValue `json:"values"`
+	// OtherCount counts connections and lookups of domains not listed.
+	OtherCount int64 `json:"other_count"`
+}
+
+// EventDomainValue counts the distinct connections and DNS lookups that named
+// a domain. A connection seen by several analyzers (Zeek conn and ssl logs,
+// Suricata, mitmproxy) or split across capture segments counts once.
+type EventDomainValue struct {
+	Domain string   `json:"domain"`
+	Count  int64    `json:"count"`
+	Hosts  []string `json:"hosts"`
 }
 
 type RecentEventReader interface {

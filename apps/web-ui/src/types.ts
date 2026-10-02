@@ -921,6 +921,14 @@ export type EventFacets = {
     values: { value: string; count: number }[]
     other_count: number
   }[]
+  // Domains named by the same events (DNS lookups, HTTPS server names, web
+  // hosts), grouped by registrable domain; each connection or lookup counts once.
+  domains?: EventDomainFacet
+}
+
+export type EventDomainFacet = {
+  values: { domain: string; count: number; hosts: string[] }[]
+  other_count: number
 }
 
 export type RecentEventPage = {

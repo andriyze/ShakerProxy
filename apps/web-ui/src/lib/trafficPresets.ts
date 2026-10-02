@@ -112,3 +112,13 @@ export function combinedQuery(query: string, source: string): string {
   if (!source) return query
   return query ? `source:${source} AND (${query})` : `source:${source}`
 }
+
+const DOMAIN = /^[a-z0-9_-]+(\.[a-z0-9_-]+)+$/
+
+// withDomain narrows a query to traffic that names a domain. The bare word
+// searches DNS names, HTTPS server names and web hosts, so a registrable
+// domain such as googleapis.com also matches www.googleapis.com.
+export function withDomain(query: string, domain: string): string {
+  if (!DOMAIN.test(domain)) return query
+  return query ? `(${query}) AND ${domain}` : domain
+}

@@ -4,7 +4,14 @@ import { completeTypedQuery, formatTypedQueryValue, typedQueryValueContext } fro
 import { ErrorBox, FeatureViews } from "../../shell/common"
 import { usePolling } from "../../shell/hooks"
 import { useAppState } from "../../shell/AppContext"
-import { TRAFFIC_PRESETS, TIME_WINDOWS, activeTimeWindow, deviceQuery, withTimeWindow } from "../../lib/trafficPresets"
+import {
+  TRAFFIC_PRESETS,
+  TIME_WINDOWS,
+  activeTimeWindow,
+  deviceQuery,
+  withDomain,
+  withTimeWindow,
+} from "../../lib/trafficPresets"
 import { TrafficOverview } from "./TrafficOverview"
 import { HTTPActivity } from "./HTTPActivity"
 import { TrafficExport } from "./TrafficExport"
@@ -33,6 +40,9 @@ const SOURCES: [string, string][] = [
 ]
 
 const OLDER_PAGE_LIMIT = 100
+// Facets (including Domains) arrive with the first page; refresh them while
+// the view is live so a device's domains keep up with its traffic.
+const FACET_REFRESH_MS = 30_000
 
 export function TrafficWorkspace() {
   const { status: appStatus } = useAppState()
@@ -236,6 +246,29 @@ export function TrafficWorkspace() {
       document.removeEventListener("visibilitychange", visibilityChanged)
     }
   }, [source, query])
+  useEffect(() => {
+    if (manualPaused) return
+    const controller = new AbortController()
+    const timer = window.setInterval(async () => {
+      if (document.hidden) return
+      const parameters = new URLSearchParams({ limit: "1" })
+      if (source) parameters.set("source", source)
+      if (query) parameters.set("q", query)
+      try {
+        const latest = await api<RecentEventPage>(`/api/v1/events?${parameters}`, { signal: controller.signal })
+        if (!latest.facets || controller.signal.aborted) return
+        setTraffic((current) =>
+          current.page ? { ...current, page: { ...current.page, facets: latest.facets } } : current,
+        )
+      } catch {
+        // The next refresh tries again; the event stream reports outages.
+      }
+    }, FACET_REFRESH_MS)
+    return () => {
+      controller.abort()
+      window.clearInterval(timer)
+    }
+  }, [source, query, manualPaused])
   usePolling(async () => {
     try {
       setStatus(await api<IngestStats>("/api/v1/ingest/status"))
@@ -353,6 +386,10 @@ export function TrafficWorkspace() {
       page: current.page ? { ...current.page, events: current.page.events.map(rename) } : null,
       pending: current.pending.map(rename),
     }))
+  }
+  const applyDomain = (domain: string) => {
+    setSelectedRecordID("")
+    setAppliedQuery(withDomain(query, domain))
   }
   const applyFacet = (field: string, value: string) => {
     const predicate = value ? `${field}:${value}` : `${field}!=*`
@@ -586,6 +623,31 @@ export function TrafficWorkspace() {
                 {page.facets.exact ? "exact counts" : "newest 10,000 sampled"}
               </span>
             </header>
+            <fieldset className="event-domains">
+              <legend>Domains</legend>
+              {page.facets.domains?.values.length ? (
+                <div>
+                  {page.facets.domains.values.map((value) => (
+                    <button
+                      type="button"
+                      key={value.domain}
+                      onClick={() => applyDomain(value.domain)}
+                      title={`Show traffic to ${value.domain}: ${value.hosts.join(", ")}`}
+                    >
+                      <span>{value.domain}</span>
+                      <strong>{value.count.toLocaleString()}</strong>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <small>No domain names yet. DNS lookups, HTTPS server names and web hosts appear here.</small>
+              )}
+              {(page.facets.domains?.other_count ?? 0) > 0 && (
+                <small>
+                  {page.facets.domains?.other_count.toLocaleString()} connections and lookups to other domains
+                </small>
+              )}
+            </fieldset>
             <div>
               {page.facets.fields.map((facet) => (
                 <fieldset key={facet.field}>
