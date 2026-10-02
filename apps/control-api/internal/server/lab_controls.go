@@ -288,7 +288,7 @@ func (s *Server) deviceControlsView(ctx context.Context, document trafficpolicy.
 		view.Notes = append(view.Notes, "QUIC (UDP 443) is blocked for this device so apps fall back to HTTPS over TCP, which ShakerProxy can decrypt.")
 	}
 	if len(control.BlockedDomains) != 0 {
-		if policy.EncryptedDNS.Mode != trafficpolicy.EncryptedDNSEnforceLocal {
+		if !policy.EncryptedDNS.ForcePlainDNS() {
 			view.Notes = append(view.Notes, "Domain blocking needs ShakerProxy DNS enforcement; it was enabled for this device.")
 		}
 		view.Notes = append(view.Notes, "DNS over TLS/QUIC is blocked for this device. Apps using DNS over HTTPS, cached answers or hard-coded IP addresses can still reach blocked names.")

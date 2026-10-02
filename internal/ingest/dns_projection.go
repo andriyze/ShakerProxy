@@ -207,3 +207,19 @@ func validEventDNSAnswers(answers []string) bool {
 	}
 	return true
 }
+
+// validBlockReasons are the reasons ShakerProxy records for a refused lookup
+// or connection (trafficpolicy.BlockReason*).
+var validBlockReasons = map[string]bool{
+	"device-domain": true, "doh-name": true, "canary": true,
+	"dot": true, "doq": true, "doh-ip": true, "doh3-ip": true,
+}
+
+// knownBlockReason keeps a stored reason only when it is one ShakerProxy
+// writes, so an unexpected payload value never reaches clients.
+func knownBlockReason(blocked bool, reason string) string {
+	if !blocked || !validBlockReasons[reason] {
+		return ""
+	}
+	return reason
+}

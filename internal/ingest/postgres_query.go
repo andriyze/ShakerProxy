@@ -289,8 +289,18 @@ COALESCE(attribution_evidence::text, ''),
 COALESCE(app_protocol, ''), COALESCE(protocol_category, ''), COALESCE(protocol_visibility, ''),
 COALESCE(protocol_evidence, ''), COALESCE(protocol_exotic, false),
 COALESCE(http_method, ''), COALESCE(http_host, ''), COALESCE(http_path, ''), COALESCE(http_status, 0),
-COALESCE(alert_signature, ''), COALESCE(alert_severity, 0), COALESCE(alert_category, '')
+COALESCE(alert_signature, ''), COALESCE(alert_severity, 0), COALESCE(alert_category, ''),
+` + blockedProjection + `
 FROM normalized_events`
+
+// blockedProjection reads whether ShakerProxy refused the lookup or
+// connection, and why, from the HOST payload (dnsd lookups and the gateway's
+// blocked attempts); it needs no stored column.
+const blockedProjection = `COALESCE(source = 'HOST' AND (kind = '` + HostBlockedKind + `' OR (kind = '` + HostDNSKind + `' AND payload->>'blocked' = 'true')), false),
+CASE WHEN source <> 'HOST' THEN ''
+     WHEN kind = '` + HostBlockedKind + `' THEN COALESCE(payload->>'reason', '')
+     WHEN kind = '` + HostDNSKind + `' AND payload->>'blocked' = 'true' THEN COALESCE(NULLIF(payload->>'blocked_reason', ''), 'device-domain')
+     ELSE '' END`
 
 type eventQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
@@ -312,7 +322,7 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 		if err := rows.Scan(&event.RecordID, &event.Source, &event.Kind, &event.OccurredAt, &event.ReceivedAt, &event.SourceVersion, &event.ParserVersion, &event.CaptureSessionID, &event.FlowID, &event.DeviceID, &event.Confidence, &event.SourceIP, &event.DestinationIP, &event.SourcePort, &event.DestinationPort, &event.Protocol, &event.Service, &event.NetworkBytes, &event.DNSQuery, &event.DNSRecordType, &event.DNSResponseCode, &dnsAnswerCount, &dnsAnswersJSON, &event.DetectionType, &event.DetectionSeverity, &event.DetectionState, &event.DetectionSummary, &event.DetectionScope, &event.TLSServerName, &event.TLSInterceptionState, &event.TLSFailureReason, &event.TLSPinningSuspected, &tlsClientRecentSuccess, &event.TLSBypassActivated, &event.TLSPlatform, &attributionJSON,
 			&event.AppProtocol, &event.ProtocolCategory, &event.ProtocolVisibility, &event.ProtocolEvidence, &event.ProtocolExotic,
 			&event.HTTPMethod, &event.HTTPHost, &event.HTTPPath, &event.HTTPStatus,
-			&event.AlertSignature, &event.AlertSeverity, &event.AlertCategory); err != nil {
+			&event.AlertSignature, &event.AlertSeverity, &event.AlertCategory, &event.Blocked, &event.BlockedReason); err != nil {
 			return nil, fmt.Errorf("decode %s normalized event: %w", queryKind, err)
 		}
 		if dnsAnswerCount.Valid {
@@ -337,6 +347,7 @@ func readEvents(ctx context.Context, queryer eventQueryer, statement string, arg
 			}
 			event.AttributionEvidence = &evidence
 		}
+		event.BlockedReason = knownBlockReason(event.Blocked, event.BlockedReason)
 		event.Summary = EventSummary(event)
 		events = append(events, event)
 	}

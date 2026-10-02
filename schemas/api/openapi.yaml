@@ -286,6 +286,27 @@ paths:
         "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
+  /dns-visibility:
+    get:
+      operationId: getDNSVisibility
+      description: The two DNS visibility switches of the lab, both on by default. force_plain_dns answers every lab client's plain DNS (port 53, to any resolver) in ShakerProxy; block_encrypted_dns refuses DNS over TLS/QUIC (port 853) and the listed DNS-over-HTTPS resolvers by address, and answers their names and the encrypted-DNS canaries with NXDOMAIN, so devices fall back to plain DNS. Blocked attempts appear in Traffic as shakerproxy.blocked events.
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Current switches, blocked resolvers and names, content: {application/json: {schema: {$ref: "#/components/schemas/DNSVisibility"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+    put:
+      operationId: setDNSVisibility
+      description: Turns either switch on or off (an administrator session or an API token with lab:write). It applies a new traffic-policy revision through the privileged gateway; other policy settings are kept.
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, minProperties: 1, properties: {force_plain_dns: {type: boolean}, block_encrypted_dns: {type: boolean}}}}}}
+      responses:
+        "200": {description: Switches after the change, content: {application/json: {schema: {$ref: "#/components/schemas/DNSVisibility"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /traffic-policy:
     get:
       operationId: getTrafficPolicy
@@ -2352,6 +2373,33 @@ components:
         encrypted_dns: {$ref: "#/components/schemas/EncryptedDNSPolicy"}
         tls_interception: {$ref: "#/components/schemas/TLSInterceptionPolicy"}
         device_controls: {type: array, maxItems: 512, items: {$ref: "#/components/schemas/TrafficDeviceControl"}, description: "Per-device lab controls, normally managed with /devices/{device}/controls. A PUT without this field keeps the saved controls; an empty list clears them."}
+    DNSVisibility:
+      type: object
+      additionalProperties: false
+      required: [schema, policy_revision, force_plain_dns, block_encrypted_dns, mode, upstream_servers, blocked_resolvers, blocked_addresses, blocked_names, canaries, notes]
+      properties:
+        schema: {const: 1}
+        policy_revision: {type: integer, minimum: 1}
+        force_plain_dns: {type: boolean}
+        block_encrypted_dns: {type: boolean}
+        mode: {type: string, enum: [OBSERVE, BLOCK_KNOWN, ENFORCE_LOCAL], description: Effective traffic-policy mode the switches produce.}
+        upstream_servers: {type: array, items: {type: string}, description: Empty means this host's own DNS servers.}
+        blocked_resolvers:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, provider, hostnames, ipv4, ipv6]
+            properties:
+              id: {type: string}
+              provider: {type: string}
+              hostnames: {type: array, items: {type: string}}
+              ipv4: {type: array, items: {type: string}}
+              ipv6: {type: array, items: {type: string}}
+        blocked_addresses: {type: integer, minimum: 0}
+        blocked_names: {type: array, maxItems: 512, items: {type: string}, description: Answered with NXDOMAIN while block_encrypted_dns is on; each also covers its subdomains.}
+        canaries: {type: array, items: {type: string}}
+        notes: {type: array, items: {type: string}}
     TrafficPolicyDocument:
       type: object
       additionalProperties: false
@@ -2703,6 +2751,8 @@ components:
         dns_response_code: {type: string, minLength: 1, maxLength: 32}
         dns_answer_count: {type: integer, minimum: 0, maximum: 10000}
         dns_answers: {type: array, maxItems: 8, items: {type: string, minLength: 1, maxLength: 255}, description: "What the lookup resolved to, in answer order: IP addresses in canonical form and lower-case DNS names (CNAME targets). At most 8; other record data is not included."}
+        blocked: {type: boolean, description: "ShakerProxy refused this lookup (NXDOMAIN on purpose) or connection (shakerproxy.blocked)."}
+        blocked_reason: {type: string, enum: [device-domain, doh-name, canary, dot, doq, doh-ip, doh3-ip], description: "Why it was refused: a domain blocked for the device, a DNS-over-HTTPS/TLS resolver name, an encrypted-DNS canary name, DNS over TLS (853/tcp), DNS over QUIC (853/udp), or a known DoH resolver address over TCP or UDP 443."}
         detection_type: {type: string, enum: [ROGUE_DHCP, ROGUE_RA, GATEWAY_SPOOF_SUSPECTED, CLOCK_DRIFT, CAPTURE_DEGRADED, STORAGE_PRESSURE, CPU_PRESSURE, MEMORY_PRESSURE]}
         detection_severity: {type: string, enum: [WARNING, HIGH, CRITICAL]}
         detection_state: {type: string, enum: [OPEN, RESOLVED]}

@@ -58,14 +58,18 @@ func ProjectNetworkFields(envelope Envelope) NetworkProjection {
 		projection.Protocol = projectionText(fields["protocol"])
 		projection.Service = projectionText(fields["service"])
 	case SourceHost:
-		// Only ShakerProxy's DNS forwarder lookups describe a device's
-		// traffic; other HOST events (detections) keep no network fields.
-		if envelope.Kind == HostDNSKind {
+		// Only ShakerProxy's DNS forwarder lookups and the gateway's blocked
+		// attempts describe a device's traffic; other HOST events
+		// (detections) keep no network fields.
+		if isHostClientKind(envelope.Source, envelope.Kind) {
 			projection.SourceIP = projectionIP(fields["source_ip"])
 			projection.SourcePort = projectionPort(fields["source_port"])
 			projection.DestinationPort = projectionPort(fields["destination_port"])
 			projection.Protocol = projectionText(fields["protocol"])
 			projection.Service = projectionText(fields["service"])
+		}
+		if envelope.Kind == HostBlockedKind {
+			projection.DestinationIP = projectionIP(fields["destination_ip"])
 		}
 	}
 	return projection
@@ -75,8 +79,18 @@ func ProjectNetworkFields(envelope Envelope) NetworkProjection {
 // (shakerproxy-dnsd), recorded whether or not a capture runs.
 const HostDNSKind = "shakerproxy.dns"
 
+// HostBlockedKind is a connection the gateway refused, such as DNS over
+// TLS or a known DNS-over-HTTPS resolver while encrypted DNS is blocked.
+const HostBlockedKind = "shakerproxy.blocked"
+
 func isHostDNS(envelope Envelope) bool {
 	return envelope.Source == SourceHost && envelope.Kind == HostDNSKind
+}
+
+// isHostClientKind reports HOST events about one lab client's traffic,
+// attributed to the device by the client's address.
+func isHostClientKind(source Source, kind string) bool {
+	return source == SourceHost && (kind == HostDNSKind || kind == HostBlockedKind)
 }
 
 func projectionIP(raw json.RawMessage) string {

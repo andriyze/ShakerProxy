@@ -87,7 +87,7 @@ type labGateway struct {
 }
 
 func newLabGateway() *labGateway {
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	return &labGateway{
 		document:   trafficpolicy.Document{Schema: 1, Policy: policy, Digest: strings.Repeat("a", 64), AppliedAt: time.Now().UTC()},
 		onboarding: gatewayprotocol.LabOnboarding{Schema: 1, Routed: true, LabInterface: "lab0", GatewayIPv4: "10.77.0.1", Port: 8086},
@@ -416,7 +416,7 @@ func TestInterceptionCAErrorsUseStandardShape(t *testing.T) {
 func TestLegacyTrafficPolicyPutKeepsDeviceControls(t *testing.T) {
 	fixture := newLabFixture(t, true)
 	decodeControls(t, fixture.do(t, http.MethodPut, "/api/v1/devices/"+fixture.tvID+"/controls", `{"internet":"BLOCK"}`))
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 3
 	policy.Name = "Edited in the old policy editor"
 	body, _ := json.Marshal(map[string]any{"expected_revision": 2, "policy": policy, "password": activationTestPassword})
@@ -432,7 +432,7 @@ func TestLegacyTrafficPolicyPutKeepsDeviceControls(t *testing.T) {
 
 func TestPolicyEditorDeviceSelectionCarriesDeviceIdentity(t *testing.T) {
 	fixture := newLabFixture(t, true)
-	policy := trafficpolicy.DefaultPolicy()
+	policy := trafficpolicy.LegacyDefaultPolicy()
 	policy.Revision = 2
 	policy.TLS.Enabled = true
 	policy.TLS.SelectedDeviceIDs = []string{fixture.tvID}

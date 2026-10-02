@@ -56,7 +56,7 @@ func (e AttributionEvidence) Validate(event RecentEvent) error {
 	} else if !attributionInterfacePattern.MatchString(e.Interface) || e.VLANID != nil && (*e.VLANID < 1 || *e.VLANID > 4094) || !attributionSHA256Pattern.MatchString(e.ScopePlanSHA256) {
 		return errors.New("event attribution scope is invalid")
 	}
-	attributable := event.Source == SourceZeek || event.Source == SourceSuricata || event.Source == SourceHost && event.Kind == HostDNSKind && e.Endpoint == AttributionEndpointSource
+	attributable := event.Source == SourceZeek || event.Source == SourceSuricata || isHostClientKind(event.Source, event.Kind) && e.Endpoint == AttributionEndpointSource
 	if event.DeviceID == "" || e.DeviceID != event.DeviceID || !deviceIDPattern.MatchString(e.DeviceID) || !attributable || event.Confidence > e.Confidence || event.OccurredAt.Before(e.ValidFrom) || !event.OccurredAt.Before(e.ValidUntil) {
 		return errors.New("event attribution evidence does not cover the event")
 	}
@@ -69,7 +69,7 @@ func (e AttributionEvidence) Validate(event RecentEvent) error {
 // AttributeAnalyzerEvent attributes Zeek and Suricata events by either
 // endpoint, and DNS forwarder lookups by the asking client.
 func AttributeAnalyzerEvent(envelope Envelope, attributor DeviceAttributor) (Envelope, *AttributionEvidence, error) {
-	if attributor == nil || envelope.DeviceID != "" || envelope.Source != SourceZeek && envelope.Source != SourceSuricata && !isHostDNS(envelope) {
+	if attributor == nil || envelope.DeviceID != "" || envelope.Source != SourceZeek && envelope.Source != SourceSuricata && !isHostClientKind(envelope.Source, envelope.Kind) {
 		return envelope, nil, nil
 	}
 	var fields map[string]json.RawMessage
@@ -80,7 +80,7 @@ func AttributeAnalyzerEvent(envelope Envelope, attributor DeviceAttributor) (Env
 	switch {
 	case envelope.Source == SourceSuricata:
 		endpoints = []string{"src_ip", "dest_ip"}
-	case isHostDNS(envelope):
+	case isHostClientKind(envelope.Source, envelope.Kind):
 		// The other end is ShakerProxy itself.
 		endpoints = []string{"source_ip"}
 	}

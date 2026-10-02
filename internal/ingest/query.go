@@ -63,30 +63,35 @@ type RecentEvent struct {
 	DNSResponseCode                  string               `json:"dns_response_code,omitempty"`
 	DNSAnswerCount                   *int                 `json:"dns_answer_count,omitempty"`
 	DNSAnswers                       []string             `json:"dns_answers,omitempty"`
-	DetectionType                    string               `json:"detection_type,omitempty"`
-	DetectionSeverity                string               `json:"detection_severity,omitempty"`
-	DetectionState                   string               `json:"detection_state,omitempty"`
-	DetectionSummary                 string               `json:"detection_summary,omitempty"`
-	DetectionScope                   string               `json:"detection_scope,omitempty"`
-	TLSServerName                    string               `json:"tls_server_name,omitempty"`
-	TLSInterceptionState             string               `json:"tls_interception_state,omitempty"`
-	TLSFailureReason                 string               `json:"tls_failure_reason,omitempty"`
-	TLSPinningSuspected              bool                 `json:"tls_pinning_suspected,omitempty"`
-	TLSClientRecentSuccess           *bool                `json:"tls_client_recent_success,omitempty"`
-	TLSBypassActivated               bool                 `json:"tls_bypass_activated,omitempty"`
-	TLSPlatform                      string               `json:"tls_platform,omitempty"`
-	AppProtocol                      string               `json:"app_protocol,omitempty"`
-	ProtocolCategory                 string               `json:"protocol_category,omitempty"`
-	ProtocolVisibility               string               `json:"protocol_visibility,omitempty"`
-	ProtocolEvidence                 string               `json:"protocol_evidence,omitempty"`
-	ProtocolExotic                   bool                 `json:"protocol_exotic,omitempty"`
-	HTTPMethod                       string               `json:"http_method,omitempty"`
-	HTTPHost                         string               `json:"http_host,omitempty"`
-	HTTPPath                         string               `json:"http_path,omitempty"`
-	HTTPStatus                       int                  `json:"http_status,omitempty"`
-	AlertSignature                   string               `json:"alert_signature,omitempty"`
-	AlertSeverity                    int                  `json:"alert_severity,omitempty"`
-	AlertCategory                    string               `json:"alert_category,omitempty"`
+	// Blocked is set for lookups ShakerProxy refused (NXDOMAIN on purpose)
+	// and connections the gateway refused; BlockedReason says why
+	// (trafficpolicy.BlockReason*).
+	Blocked                bool   `json:"blocked,omitempty"`
+	BlockedReason          string `json:"blocked_reason,omitempty"`
+	DetectionType          string `json:"detection_type,omitempty"`
+	DetectionSeverity      string `json:"detection_severity,omitempty"`
+	DetectionState         string `json:"detection_state,omitempty"`
+	DetectionSummary       string `json:"detection_summary,omitempty"`
+	DetectionScope         string `json:"detection_scope,omitempty"`
+	TLSServerName          string `json:"tls_server_name,omitempty"`
+	TLSInterceptionState   string `json:"tls_interception_state,omitempty"`
+	TLSFailureReason       string `json:"tls_failure_reason,omitempty"`
+	TLSPinningSuspected    bool   `json:"tls_pinning_suspected,omitempty"`
+	TLSClientRecentSuccess *bool  `json:"tls_client_recent_success,omitempty"`
+	TLSBypassActivated     bool   `json:"tls_bypass_activated,omitempty"`
+	TLSPlatform            string `json:"tls_platform,omitempty"`
+	AppProtocol            string `json:"app_protocol,omitempty"`
+	ProtocolCategory       string `json:"protocol_category,omitempty"`
+	ProtocolVisibility     string `json:"protocol_visibility,omitempty"`
+	ProtocolEvidence       string `json:"protocol_evidence,omitempty"`
+	ProtocolExotic         bool   `json:"protocol_exotic,omitempty"`
+	HTTPMethod             string `json:"http_method,omitempty"`
+	HTTPHost               string `json:"http_host,omitempty"`
+	HTTPPath               string `json:"http_path,omitempty"`
+	HTTPStatus             int    `json:"http_status,omitempty"`
+	AlertSignature         string `json:"alert_signature,omitempty"`
+	AlertSeverity          int    `json:"alert_severity,omitempty"`
+	AlertCategory          string `json:"alert_category,omitempty"`
 	// Summary is one plain-language line built by EventSummary.
 	Summary string `json:"summary,omitempty"`
 }

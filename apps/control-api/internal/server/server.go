@@ -211,6 +211,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/traffic-policy/catalog", s.requireAuth(http.HandlerFunc(s.getTrafficResolverCatalog)))
 	mux.Handle("POST /api/v1/traffic-policy/preview", s.requireAuth(http.HandlerFunc(s.previewTrafficPolicy)))
 	mux.Handle("PUT /api/v1/traffic-policy", s.requireAuth(http.HandlerFunc(s.applyTrafficPolicy)))
+	mux.Handle("GET /api/v1/dns-visibility", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.getDNSVisibility)))
+	mux.Handle("PUT /api/v1/dns-visibility", s.requireLabWrite(http.HandlerFunc(s.putDNSVisibility)))
 	mux.Handle("POST /api/v1/traffic-policy/rollback", s.requireAuth(http.HandlerFunc(s.rollbackTrafficPolicy)))
 	mux.Handle("GET /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesRead, http.HandlerFunc(s.listCaptures)))
 	mux.Handle("POST /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.startCapture)))
