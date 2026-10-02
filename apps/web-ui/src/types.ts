@@ -908,11 +908,6 @@ export type RecentEvent = {
   dns_answer_count?: number
   // What the lookup resolved to (IP addresses and CNAME targets), at most 8.
   dns_answers?: string[]
-  // Who operates the destination (curated table), and bytes each way.
-  destination_organization?: string
-  destination_category?: string
-  bytes_sent?: number
-  bytes_received?: number
   // ShakerProxy refused this lookup or connection, and why.
   blocked?: boolean
   blocked_reason?: "device-domain" | "doh-name" | "canary" | "dot" | "doq" | "doh-ip" | "doh3-ip"
