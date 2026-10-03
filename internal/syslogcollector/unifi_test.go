@@ -158,3 +158,33 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+// UniFi's BSD-syslog timestamps are the site's local time with no zone; the
+// receive time places them, and a December line read in January keeps its
+// year.
+func TestRFC3164TimestampsAreAlignedToTheReceiveTime(t *testing.T) {
+	cases := []struct{ line, now, want string }{
+		// Eastern Daylight Time (UTC-4), received five seconds later.
+		{"<30>Oct  2 19:48:30 UDMPRO dnsmasq: x", "2026-10-02T23:48:35Z", "2026-10-02T23:48:30Z"},
+		// Already UTC.
+		{"<30>Oct  2 23:48:30 UDMPRO dnsmasq: x", "2026-10-02T23:48:31Z", "2026-10-02T23:48:30Z"},
+		// India (UTC+5:30).
+		{"<30>Oct  3 05:18:30 UDMPRO dnsmasq: x", "2026-10-02T23:48:40Z", "2026-10-02T23:48:30Z"},
+		// New Year in UTC-5: still last year's evening on the sender.
+		{"<30>Dec 31 19:30:00 UDMPRO dnsmasq: x", "2027-01-01T00:30:02Z", "2027-01-01T00:30:00Z"},
+		// A clock off by days is left alone.
+		{"<30>Sep 20 10:00:00 UDMPRO dnsmasq: x", "2026-10-02T23:48:35Z", "2026-09-20T10:00:00Z"},
+	}
+	for _, test := range cases {
+		now, _ := time.Parse(time.RFC3339, test.now)
+		want, _ := time.Parse(time.RFC3339, test.want)
+		if got := ParseSyslog([]byte(test.line), now).Timestamp; !got.Equal(want) {
+			t.Errorf("%q at %s = %s, want %s", test.line, test.now, got, want)
+		}
+	}
+	// RFC 5424 carries its zone and is not adjusted.
+	at, _ := time.Parse(time.RFC3339, "2026-10-02T23:48:35Z")
+	if got := ParseSyslog([]byte("<30>1 2026-10-02T19:48:30-04:00 UDMPRO dnsmasq - - - x"), at.Add(5*time.Hour)).Timestamp; !got.Equal(at.Add(-5 * time.Second)) {
+		t.Errorf("RFC 5424 = %s", got)
+	}
+}

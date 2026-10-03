@@ -9,13 +9,17 @@ import { usePolling } from "../../shell/hooks"
 // never route through it.
 
 type SyslogStatus = {
-  received: number
-  parsed: number
-  unparsed: number
-  delivered: number
-  dropped_rate_limited: number
-  rejected_not_allowed: number
+  received?: number
+  parsed?: number
+  unparsed?: number
+  delivered?: number
+  dropped_rate_limited?: number
+  rejected_not_allowed?: number
+  listening?: boolean
+  error?: string
 }
+
+const count = (value?: number) => (value ?? 0).toLocaleString()
 
 type SyslogCollectorView = {
   available: boolean
@@ -90,7 +94,9 @@ export function SyslogCollector() {
     <section className="integration-card" aria-label="Network-gear log collector">
       <header>
         <h2>Router logs (UniFi)</h2>
-        <span className={view.enabled ? "integration-on" : "integration-off"}>{view.enabled ? "On" : "Off"}</span>
+        <span className={view.enabled && status?.listening !== false ? "integration-on" : "integration-off"}>
+          {!view.enabled ? "Off" : status?.listening === false ? "Not listening" : "On"}
+        </span>
       </header>
       <p>
         Receive the lab router's own logs and turn its DHCP leases, Wi-Fi associations, firewall and IDS lines into
@@ -110,13 +116,19 @@ export function SyslogCollector() {
               <dt>Accepting logs from</dt>
               <dd>{view.allowed_sources.length ? view.allowed_sources.join(", ") : "no sources"}</dd>
             </div>
+            {status?.listening === false && (
+              <div>
+                <dt>Problem</dt>
+                <dd role="alert">{status.error || "The collector is starting."} It retries every few seconds.</dd>
+              </div>
+            )}
             {status && (
               <div>
                 <dt>Messages</dt>
                 <dd>
-                  {status.received.toLocaleString()} received · {status.parsed.toLocaleString()} became events ·{" "}
-                  {status.delivered.toLocaleString()} delivered · {status.unparsed.toLocaleString()} unparsed ·{" "}
-                  {status.dropped_rate_limited.toLocaleString()} rate-limited · {status.rejected_not_allowed.toLocaleString()} from a stranger
+                  {count(status.received)} received · {count(status.parsed)} became events · {count(status.delivered)} delivered ·{" "}
+                  {count(status.unparsed)} unparsed · {count(status.dropped_rate_limited)} rate-limited · {count(status.rejected_not_allowed)} from a
+                  stranger
                 </dd>
               </div>
             )}

@@ -24,6 +24,8 @@ type syslogCollector struct {
 		Delivered uint64 `json:"delivered"`
 		Dropped   uint64 `json:"dropped_rate_limited"`
 		Rejected  uint64 `json:"rejected_not_allowed"`
+		Listening bool   `json:"listening"`
+		Error     string `json:"error"`
 	} `json:"status"`
 }
 
@@ -138,6 +140,13 @@ func (c *cli) renderSyslog(view syslogCollector) {
 		c.printf("  Allowed sources: %s\n", c.style(styleYellow, "none set — add the router's IP with --sources"))
 	} else {
 		c.printf("  Allowed sources: %s\n", sanitize(strings.Join(view.AllowedSources, ", ")))
+	}
+	if view.Enabled && view.Status != nil && !view.Status.Listening {
+		reason := "starting"
+		if view.Status.Error != "" {
+			reason = view.Status.Error
+		}
+		c.printf("  %s\n", c.style(styleYellow, "Not listening: "+sanitize(reason)))
 	}
 	if view.Status != nil {
 		c.printf("  Received %d · parsed %d · unparsed %d · delivered %d · dropped %d · rejected %d\n",
