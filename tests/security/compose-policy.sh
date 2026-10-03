@@ -65,6 +65,25 @@ if awk '$0 == "  dns-event-forwarder:" {service=1;next} service && /^  [a-zA-Z0-
   printf '%s\n' "DNS event forwarder received packet, interception, database, cloud, Docker, or published-port access" >&2
   exit 1
 fi
+# The network-gear log collector runs on the host, where ingestd is not
+# reachable; this forwarder delivers its spool and is as isolated as the DNS one.
+for required in \
+  'user: "65532:65532"' \
+  'read_only: true' \
+  'cap_drop: [ALL]' \
+  'security_opt: [no-new-privileges:true]' \
+  'SHAKERPROXY_EVENT_SOURCE: NETWORK_GEAR' \
+  '/var/lib/shakerproxy/syslog-events:/var/lib/shakerproxy/syslog-events' \
+  '/etc/shakerproxy/secrets/ingest-token:/run/secrets/ingest_token:ro'; do
+  awk -v required="$required" '$0 == "  syslog-event-forwarder:" {service=1;next} service && /^  [a-zA-Z0-9_-]+:/{service=0} service && index($0,required){found=1} END{exit found ? 0 : 1}' deploy/compose.yaml || { printf 'Syslog event forwarder is missing: %s\n' "$required" >&2; exit 1; }
+done
+if awk '$0 == "  syslog-event-forwarder:" {service=1;next} service && /^  [a-zA-Z0-9_-]+:/{service=0} service && /pcap|mitmproxy|database_url|shakerproxy-cloud|group_add|docker[.]sock|^[[:space:]]+ports:/{found=1} END{exit found ? 0 : 1}' deploy/compose.yaml; then
+  printf '%s\n' "Syslog event forwarder received packet, interception, database, cloud, Docker, or published-port access" >&2
+  exit 1
+fi
+# The dashboard writes the collector's config and reads its status here; without
+# the mount the read-only control-api cannot turn the collector on (beta.31-34).
+awk '$0 == "  control-api:" {service=1;next} service && /^  [a-zA-Z0-9_-]+:/{service=0} service && index($0,"/var/lib/shakerproxy/syslog-collector:/var/lib/shakerproxy/syslog-collector"){found=1} END{exit found ? 0 : 1}' deploy/compose.yaml || { printf '%s\n' "control-api does not mount the syslog collector directory" >&2; exit 1; }
 rg -Fq 'FROM mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f' apps/mitmproxy/Dockerfile || { printf '%s\n' "mitmproxy runtime base is not immutable" >&2; exit 1; }
 rg -Fq 'USER 65532:65532' apps/mitmproxy/Dockerfile || { printf '%s\n' "mitmproxy image must run as the fixed non-root identity" >&2; exit 1; }
 
@@ -147,7 +166,7 @@ for required in \
   '/var/lib/shakerproxy/suricata:/var/lib/shakerproxy/analyzer'; do
   rg -Fq "$required" deploy/compose.yaml || { printf 'production analyzer mount is missing: %s\n' "$required" >&2; exit 1; }
 done
-test "$(rg -Fc '/etc/shakerproxy/secrets/ingest-token:/run/secrets/ingest_token:ro' deploy/compose.yaml)" -eq 3 || { printf '%s\n' "ingestd and the MITM and DNS event forwarders require the read-only ingest token" >&2; exit 1; }
+test "$(rg -Fc '/etc/shakerproxy/secrets/ingest-token:/run/secrets/ingest_token:ro' deploy/compose.yaml)" -eq 4 || { printf '%s\n' "exactly ingestd and the MITM, DNS and syslog event forwarders get the read-only ingest token" >&2; exit 1; }
 test "$(rg -Fc '/etc/shakerproxy/secrets/analyzer-ingest-token:/run/secrets/ingest_token:ro' deploy/compose.yaml)" -eq 2 || { printf '%s\n' "both analyzer brokers require the isolated read-only token copy" >&2; exit 1; }
 test "$(rg -Fc 'SHAKERPROXY_ANALYZER_MAINTENANCE_BIND: 0.0.0.0:8082' deploy/compose.yaml)" -eq 2 || { printf '%s\n' "both analyzer brokers require the fixed internal maintenance listener" >&2; exit 1; }
 test "$(rg -Fc 'expose: ["8082"]' deploy/compose.yaml)" -eq 2 || { printf '%s\n' "both analyzer maintenance listeners must be internal-only" >&2; exit 1; }

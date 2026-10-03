@@ -41,6 +41,9 @@ services:
       - /var/lib/shakerproxy/content-policy:/var/lib/shakerproxy/content-policy
       - /var/lib/shakerproxy/forwarders:/var/lib/shakerproxy/forwarders
       - /var/lib/shakerproxy/inventory:/var/lib/shakerproxy/inventory
+      # The network-gear log collector (a host service) reads the config the
+      # dashboard writes here and reports its status here.
+      - /var/lib/shakerproxy/syslog-collector:/var/lib/shakerproxy/syslog-collector
       - /var/lib/kea:/var/lib/shakerproxy/kea:ro
       - /var/lib/ieee-data:/var/lib/shakerproxy/ieee:ro
       - /etc/shakerproxy/secrets/setup-token.sha256:/run/secrets/setup_token_sha256:ro
@@ -317,6 +320,39 @@ services:
       SHAKERPROXY_INGEST_TOKEN_FILE: /run/secrets/ingest_token
     volumes:
       - /var/lib/shakerproxy/dns-events:/var/lib/shakerproxy/dns-events
+      - /etc/shakerproxy/secrets/ingest-token:/run/secrets/ingest_token:ro
+    healthcheck:
+      test: [CMD, /usr/local/bin/mitm-event-forwarderd, healthcheck]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+    networks: [control]
+    restart: unless-stopped
+
+  # Delivers the network-gear log collector's events (router DHCP leases,
+  # Wi-Fi joins, firewall drops) from its spool to ingestd. The collector runs
+  # on the host, where ingestd is not reachable, and never holds the token.
+  syslog-event-forwarder:
+    image: ${SHAKERPROXY_INGESTD_IMAGE:?set immutable ingest/forwarder image digest}
+    profiles: [core]
+    depends_on:
+      ingestd: {condition: service_started}
+    entrypoint: [/usr/local/bin/mitm-event-forwarderd]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m"]
+    environment:
+      SHAKERPROXY_EVENT_SOURCE: NETWORK_GEAR
+      SHAKERPROXY_EVENT_SPOOL: /var/lib/shakerproxy/syslog-events/pending
+      SHAKERPROXY_INGEST_URL: http://ingestd:8081/v1/events
+      SHAKERPROXY_INGEST_TOKEN_FILE: /run/secrets/ingest_token
+    volumes:
+      - /var/lib/shakerproxy/syslog-events:/var/lib/shakerproxy/syslog-events
       - /etc/shakerproxy/secrets/ingest-token:/run/secrets/ingest_token:ro
     healthcheck:
       test: [CMD, /usr/local/bin/mitm-event-forwarderd, healthcheck]

@@ -33,11 +33,13 @@ accepts logs only from the configured allowed sources.
 
 Environment:
   SHAKERPROXY_SYSLOG_CONFIG_FILE     config the dashboard writes
-                                     (default /var/lib/shakerproxy/forwarders/syslog-collector.json)
+                                     (default /var/lib/shakerproxy/syslog-collector/config.json)
   SHAKERPROXY_SYSLOG_STATUS_FILE     status for the dashboard
-                                     (default /var/lib/shakerproxy/forwarders/syslog-collector-status.json)
-  SHAKERPROXY_INGEST_ORIGIN          ingestd base URL (default http://127.0.0.1:9600)
-  SHAKERPROXY_INGEST_TOKEN_FILE      ingest token file (default /run/secrets/ingest_token)
+                                     (default /var/lib/shakerproxy/syslog-collector/status.json)
+  SHAKERPROXY_SYSLOG_EVENT_SPOOL     where events wait for the syslog-event-forwarder
+                                     container (default /var/lib/shakerproxy/syslog-events/pending)
+  SHAKERPROXY_INGEST_ORIGIN          development only: post straight to this ingestd base URL
+                                     instead of spooling (needs SHAKERPROXY_INGEST_TOKEN_FILE)
 `
 
 func main() {
@@ -55,14 +57,21 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
-	origin := envOr("SHAKERPROXY_INGEST_ORIGIN", "http://127.0.0.1:9600")
-	tokenPath := envOr("SHAKERPROXY_INGEST_TOKEN_FILE", "/run/secrets/ingest_token")
+	// On an appliance ingestd is reachable only inside the Compose network,
+	// so events go to a spool that the syslog-event-forwarder container
+	// delivers with the ingest token; this service never holds the token.
 	newSink := func() (syslogcollector.Sink, error) {
-		token, err := os.ReadFile(tokenPath)
-		if err != nil {
-			return nil, fmt.Errorf("read ingest token: %w", err)
+		return syslogcollector.NewSpoolSink(envOr("SHAKERPROXY_SYSLOG_EVENT_SPOOL", syslogcollector.DefaultSpool))
+	}
+	if origin := os.Getenv("SHAKERPROXY_INGEST_ORIGIN"); origin != "" {
+		tokenPath := os.Getenv("SHAKERPROXY_INGEST_TOKEN_FILE")
+		newSink = func() (syslogcollector.Sink, error) {
+			token, err := os.ReadFile(tokenPath)
+			if err != nil {
+				return nil, fmt.Errorf("read ingest token: %w", err)
+			}
+			return syslogcollector.NewHTTPSink(origin, []byte(strings.TrimSpace(string(token))))
 		}
-		return syslogcollector.NewHTTPSink(origin, []byte(strings.TrimSpace(string(token))))
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"shakerproxy.dev/shakerproxy/internal/cloudconnector"
+	"shakerproxy.dev/shakerproxy/internal/ingest"
 )
 
 const (
@@ -42,16 +43,22 @@ type configuration struct {
 	// Source is the only event source this spool may deliver: MITMPROXY
 	// (the interception addon, the default) or HOST (shakerproxy-dnsd's
 	// lookups, and shakerproxy-gatewayd's connection openings and blocked
-	// encrypted-DNS attempts: the hostSpoolKinds only).
+	// encrypted-DNS attempts: the hostSpoolKinds only), or NETWORK_GEAR
+	// (shakerproxy-syslog-collectord's router and access-point log events:
+	// the network-gear kinds only).
 	Source string
 }
 
 const (
 	sourceMitmproxy = "MITMPROXY"
 	sourceHost      = "HOST"
-	hostDNSKind     = "shakerproxy.dns"
-	hostConnKind    = "shakerproxy.conn"
-	hostBlockedKind = "shakerproxy.blocked"
+	// sourceNetworkGear events come from the syslog collector. Their IDs are
+	// content digests ("netgear-<sha256>"), so a repeated log line is the
+	// same event and ingestd keeps it once.
+	sourceNetworkGear = "NETWORK_GEAR"
+	hostDNSKind       = "shakerproxy.dns"
+	hostConnKind      = "shakerproxy.conn"
+	hostBlockedKind   = "shakerproxy.blocked"
 )
 
 // hostSpoolKinds are the only HOST events the host spool may carry; in
@@ -140,7 +147,7 @@ func newForwarder(config configuration, logger *slog.Logger) (*forwarder, error)
 	if config.ConnectorSocket != "" && !filepath.IsAbs(config.ConnectorSocket) {
 		return nil, errors.New("cloud connector socket must be absolute")
 	}
-	if source := config.source(); source != sourceMitmproxy && source != sourceHost {
+	if source := config.source(); source != sourceMitmproxy && source != sourceHost && source != sourceNetworkGear {
 		return nil, fmt.Errorf("event source %q is not supported", source)
 	}
 	data, err := os.ReadFile(config.TokenFile)
@@ -361,7 +368,14 @@ func decodeSpooledEnvelope(data []byte, source string) (eventEnvelope, error) {
 	if source == sourceHost && !hostSpoolKinds[envelope.Kind] {
 		return eventEnvelope{}, errors.New("the host event spool accepts only lookup, connection, blocked-attempt and Wi-Fi events")
 	}
-	if envelope.Schema != 1 || !strings.HasPrefix(envelope.EventID, "evt_") || envelope.Source != source || envelope.Kind == "" || envelope.OccurredAt.IsZero() || envelope.SourceVersion == "" || envelope.ParserVersion == "" || envelope.Confidence < 0 || envelope.Confidence > 100 || envelope.Payload == nil {
+	if source == sourceNetworkGear && !ingest.ValidNetworkGearKind(envelope.Kind) {
+		return eventEnvelope{}, errors.New("the network-gear event spool accepts only router and access-point log events")
+	}
+	idPrefix := "evt_"
+	if source == sourceNetworkGear {
+		idPrefix = "netgear-"
+	}
+	if envelope.Schema != 1 || !strings.HasPrefix(envelope.EventID, idPrefix) || envelope.Source != source || envelope.Kind == "" || envelope.OccurredAt.IsZero() || envelope.SourceVersion == "" || envelope.ParserVersion == "" || envelope.Confidence < 0 || envelope.Confidence > 100 || envelope.Payload == nil {
 		return eventEnvelope{}, errors.New("event envelope fields are invalid")
 	}
 	return envelope, nil

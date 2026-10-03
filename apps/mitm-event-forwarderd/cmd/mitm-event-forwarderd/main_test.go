@@ -18,6 +18,7 @@ import (
 	"shakerproxy.dev/shakerproxy/internal/hostevents"
 	"shakerproxy.dev/shakerproxy/internal/ingest"
 	"shakerproxy.dev/shakerproxy/internal/nflog"
+	"shakerproxy.dev/shakerproxy/internal/syslogcollector"
 )
 
 func validEvent() string {
@@ -157,6 +158,74 @@ func TestHostSpoolDeliversOnlyDNSLookupsAndBlockedAttempts(t *testing.T) {
 	}
 	if _, err := newForwarder(configuration{SpoolRoot: spool, IngestURL: "http://ingestd:8081/v1/events", TokenFile: tokenPath, Source: "ZEEK"}, nil); err == nil {
 		t.Fatal("an unsupported spool source was accepted")
+	}
+}
+
+// The syslog collector cannot reach ingestd from the host, so it spools its
+// events and a forwarder container with Source NETWORK_GEAR delivers them.
+// This drives the real collector sink into a spool and drains it.
+func TestNetworkGearSpoolDeliversTheCollectorsEventsOnly(t *testing.T) {
+	root := t.TempDir()
+	tokenPath := filepath.Join(root, "token")
+	if err := os.WriteFile(tokenPath, []byte(strings.Repeat("t", 32)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spool := filepath.Join(root, "pending")
+	if err := os.Mkdir(spool, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sink, err := syslogcollector.NewSpoolSink(spool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := syslogcollector.Normalize(syslogcollector.Record{Kind: ingest.NetworkGearDHCPKind, Payload: map[string]any{"client_mac": "62:bc:f1:bc:1d:8d", "client_ip": "192.168.10.130", "hostname": "iPhone"}}, "192.168.10.1", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.Deliver(t.Context(), lease); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing else may ride this spool: not a HOST event, and not a
+	// network-gear envelope of a kind the collector never emits.
+	hostEvent := strings.Replace(validEvent(), `"source":"MITMPROXY"`, `"source":"HOST"`, 1)
+	foreignKind := strings.Replace(strings.Replace(validEvent(), `"source":"MITMPROXY"`, `"source":"NETWORK_GEAR"`, 1), `"event_id":"evt_`, `"event_id":"netgear-`, 1)
+	for name, content := range map[string]string{
+		"evt_00000000000000000001_host.json":    hostEvent,
+		"evt_00000000000000000002_foreign.json": foreignKind,
+	} {
+		if err := os.WriteFile(filepath.Join(spool, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	delivered := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var envelope struct {
+			Source  string `json:"source"`
+			Kind    string `json:"kind"`
+			EventID string `json:"event_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&envelope)
+		delivered = append(delivered, envelope.Source+" "+envelope.Kind+" "+envelope.EventID)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	instance := &forwarder{
+		configuration: configuration{SpoolRoot: spool, IngestURL: server.URL, TokenFile: tokenPath, Timeout: time.Second, Source: sourceNetworkGear},
+		client:        server.Client(),
+		token:         []byte(strings.Repeat("t", 32)),
+	}
+	if err := instance.drain(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivered) != 1 || delivered[0] != "NETWORK_GEAR netgear.dhcp_lease "+lease.EventID {
+		t.Fatalf("delivered %v; want only the collector's DHCP lease", delivered)
+	}
+	quarantined, _ := os.ReadDir(filepath.Join(root, "quarantine"))
+	if remaining, _ := os.ReadDir(spool); len(remaining) != 0 || len(quarantined) != 2 {
+		t.Fatalf("spool left %d files, quarantined %d; want 0 and 2", len(remaining), len(quarantined))
+	}
+	if _, err := newForwarder(configuration{SpoolRoot: spool, IngestURL: "http://ingestd:8081/v1/events", TokenFile: tokenPath, Source: sourceNetworkGear}, nil); err != nil {
+		t.Fatalf("the NETWORK_GEAR spool source was refused: %v", err)
 	}
 }
 
