@@ -86,6 +86,10 @@ if [ "$1" = "configure" ]; then
   systemctl enable shakerproxy-interception-pki.service >/dev/null
   systemctl enable shakerproxy-ca-onboarding.service >/dev/null
   systemctl enable shakerproxy-encrypted-dns-event-forwarder.service >/dev/null
+  # The collector runs continuously but stays inert until the integration is
+  # enabled (with an allowlist), so the dashboard can turn it on without
+  # managing systemd.
+  systemctl enable shakerproxy-syslog-collectord.service >/dev/null
   if [ -d /run/systemd/system ]; then
     systemctl restart shakerproxy-gatewayd.service
     systemctl restart shakerproxy-dnsd.service
@@ -95,6 +99,7 @@ if [ "$1" = "configure" ]; then
     systemctl restart shakerproxy-interception-pki.service
     systemctl restart shakerproxy-ca-onboarding.service >/dev/null 2>&1 || true
     systemctl restart shakerproxy-encrypted-dns-event-forwarder.service >/dev/null 2>&1 || true
+    systemctl restart shakerproxy-syslog-collectord.service >/dev/null 2>&1 || true
   fi
 fi
 

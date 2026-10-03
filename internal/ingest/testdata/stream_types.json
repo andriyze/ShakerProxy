@@ -25,5 +25,10 @@
   {"name": "TLS connection with a server name", "type": "tls", "event": {"source": "ZEEK", "kind": "zeek.conn", "protocol": "tcp", "destination_port": 443, "tls_server_name": "github.com"}},
   {"name": "Zeek TLS log", "type": "tls", "event": {"source": "ZEEK", "kind": "zeek.ssl", "destination_port": 443}},
   {"name": "unnamed SSH connection", "type": "other", "event": {"source": "ZEEK", "kind": "zeek.conn", "protocol": "tcp", "destination_port": 22}},
-  {"name": "ICMP", "type": "other", "event": {"source": "ZEEK", "kind": "zeek.conn", "protocol": "icmp"}}
+  {"name": "ICMP", "type": "other", "event": {"source": "ZEEK", "kind": "zeek.conn", "protocol": "icmp"}},
+  {"name": "UniFi DHCP lease", "type": "discovery", "event": {"source": "NETWORK_GEAR", "kind": "netgear.dhcp_lease", "source_ip": "192.168.10.130", "payload": {"mac": "62:bc:f1:bc:1d:8d", "host_name": "iPhone", "assigned_addr": "192.168.10.130"}}},
+  {"name": "UniFi Wi-Fi client association", "type": "wifi", "event": {"source": "NETWORK_GEAR", "kind": "netgear.wifi_client", "payload": {"mac": "62:bc:f1:bc:1d:8d", "event": "assoc", "ssid": "Lab"}}},
+  {"name": "UniFi firewall drop", "type": "other", "event": {"source": "NETWORK_GEAR", "kind": "netgear.firewall", "source_ip": "192.168.10.130", "destination_ip": "203.0.113.9", "protocol": "tcp", "destination_port": 23, "payload": {"action": "DROP", "chain": "WAN_LOCAL"}}},
+  {"name": "UniFi IDS alert", "type": "alert", "event": {"source": "NETWORK_GEAR", "kind": "netgear.ids", "source_ip": "192.168.10.130", "payload": {"signature": "ET SCAN", "action": "blocked"}}},
+  {"name": "UniFi WAN up", "type": "other", "event": {"source": "NETWORK_GEAR", "kind": "netgear.system", "payload": {"event": "wan_up", "interface": "eth0"}}}
 ]

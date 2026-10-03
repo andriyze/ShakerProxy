@@ -945,7 +945,7 @@ export type AttributionEvidence = {
 
 export type RecentEvent = {
   record_id: string
-  source: "HOST" | "ZEEK" | "SURICATA" | "MITMPROXY"
+  source: "HOST" | "ZEEK" | "SURICATA" | "MITMPROXY" | "NETWORK_GEAR"
   kind: string
   occurred_at: string
   received_at: string

@@ -93,12 +93,16 @@ func (p LabPresence) Validate() error {
 }
 
 // labVisibleCondition is true for an event that shows the source's traffic
-// reached ShakerProxy.
-const labVisibleCondition = `(kind IN ('shakerproxy.conn', 'shakerproxy.dns', 'shakerproxy.blocked')
+// reached ShakerProxy. Only first-hand evidence counts: a NETWORK_GEAR event
+// is the router reporting what it saw, which carries a real destination but is
+// the opposite of proof that the traffic reached ShakerProxy, so it is
+// excluded here while still counting toward presence.
+const labVisibleCondition = `(source <> 'NETWORK_GEAR'
+  AND (kind IN ('shakerproxy.conn', 'shakerproxy.dns', 'shakerproxy.blocked')
   OR (destination_ip IS NOT NULL AND family(destination_ip) = 4
       AND NOT destination_ip << '224.0.0.0/4'::cidr
       AND destination_ip <> '255.255.255.255'::inet
-      AND destination_ip <> broadcast($2::cidr)))`
+      AND destination_ip <> broadcast($2::cidr))))`
 
 const labPresenceStatement = `SELECT host(source_ip), min(occurred_at), max(occurred_at), count(*),
   count(*) FILTER (WHERE protocol_category = 'local-discovery'),
