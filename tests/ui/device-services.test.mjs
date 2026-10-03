@@ -42,6 +42,7 @@ test("a platform hint and a friendly name beat the discovery type", () => {
 test("serviceSummary lists the service labels", () => {
   assert.equal(serviceSummary(CASTER), "Google Cast, Spotify Connect")
   assert.equal(serviceSummary(undefined), "")
+  assert.equal(serviceSummary({ device_id: PHONE, type: "Apple device", last_seen: "2026-10-03T00:00:00Z" }), "")
 })
 
 test("the directory threads service hints so Live-view titles use them", () => {
