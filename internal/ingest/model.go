@@ -134,7 +134,7 @@ func (e Envelope) Validate() error {
 		return errors.New("event schema or ID is invalid")
 	}
 	switch e.Source {
-	case SourceHost, SourceZeek, SourceSuricata, SourceMitmproxy:
+	case SourceHost, SourceZeek, SourceSuricata, SourceMitmproxy, SourceNetworkGear:
 	default:
 		return errors.New("event source is unsupported")
 	}

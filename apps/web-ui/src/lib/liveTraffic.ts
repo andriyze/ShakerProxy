@@ -234,7 +234,19 @@ export function isWiFiEvent(event: Pick<RecentEvent, "source" | "kind">): boolea
   return event.source === "HOST" && event.kind.startsWith("wifi.")
 }
 
+// isNetworkGearEvent reports an event derived from a network device's own
+// logs (the router's syslog), collected by the UniFi/network-gear collector.
+export function isNetworkGearEvent(event: Pick<RecentEvent, "source">): boolean {
+  return event.source === "NETWORK_GEAR"
+}
+
 export function streamKind(event: RecentEvent): StreamKind {
+  if (isNetworkGearEvent(event)) {
+    if (event.kind === "netgear.wifi_client") return "wifi"
+    if (event.kind === "netgear.ids") return "alert"
+    if (event.kind === "netgear.dhcp_lease") return "discovery"
+    return "other"
+  }
   if (isWiFiEvent(event)) return "wifi"
   if (event.kind === INSTANT_CONNECTION) return instantConnectionKind(event)
   if (event.alert_signature || event.kind === "suricata.alert") return "alert"
