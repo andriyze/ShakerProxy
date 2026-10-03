@@ -104,9 +104,9 @@ device seen in the last 10 minutes (`GET /api/v1/lab-routing`, also
 
 | State | When |
 | --- | --- |
-| `THROUGH_SHAKERPROXY` | Some of its traffic reached ShakerProxy in the last 30 minutes, and it has not rejoined through the router's DHCP since. |
-| `BYPASSING` | Seen for 2 minutes or more with none of its traffic reaching ShakerProxy: it asked the router's DHCP for an address (in a lab where ShakerProxy serves no DHCP), sent at least three messages, or kept sending for 2 minutes. The reason names the router: "It got its address from your router's DHCP, so it uses the router (192.168.10.1) as its gateway, not ShakerProxy." |
-| `UNKNOWN` | It just appeared; it may not have sent traffic yet. |
+| `THROUGH_SHAKERPROXY` | Some of its traffic reached ShakerProxy in the last 30 minutes, and it has not rejoined through another DHCP server since (a rejoin counts once 2 minutes have passed since it with nothing through ShakerProxy, even if the device went quiet). Renewing ShakerProxy's own lease is not a rejoin. |
+| `BYPASSING` | Seen for 2 minutes or more with none of its traffic reaching ShakerProxy: it got its address from another DHCP server (the router's, in a lab where ShakerProxy serves none, or another server on a routed lab), sent at least three messages other than DHCP and discovery broadcasts, or kept sending for 2 minutes. The reason names the gateway it uses: "It got its address from your router's DHCP, so it uses the router (192.168.10.1) as its gateway, not ShakerProxy." |
+| `UNKNOWN` | It just appeared, or it holds a lease from ShakerProxy's DHCP (so ShakerProxy is its gateway) and has sent nothing yet, like an idle printer that only announces itself. |
 
 ShakerProxy and the router (the lab interface's default gateway) are not
 judged. A device that bypasses ShakerProxy also becomes a device in the

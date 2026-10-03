@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 
@@ -114,11 +115,24 @@ func (s *Server) buildLabRouting(ctx context.Context, now time.Time) (labRouting
 	if err != nil {
 		return unavailableLabRouting(now, "Recorded traffic cannot be read right now."), err.Error()
 	}
-	shakerProxy, _ := netip.ParseAddr(status.LabIPv4Gateway)
-	router, _ := netip.ParseAddr(status.LabIPv4Router)
+	// ShakerProxy and the router are not devices under test; without a
+	// usable address for them the report would judge them too.
+	shakerProxy, err := netip.ParseAddr(status.LabIPv4Gateway)
+	if err != nil || !prefix.Contains(shakerProxy) {
+		return unavailableLabRouting(now, "ShakerProxy's own lab address is not known right now."), "the gateway reported an unusable lab address " + strconv.Quote(status.LabIPv4Gateway)
+	}
+	router, err := netip.ParseAddr(status.LabIPv4Router)
+	problem := ""
+	if status.LabIPv4Router != "" && err != nil {
+		problem = "the gateway reported an unusable router address " + strconv.Quote(status.LabIPv4Router)
+	}
+	servesDHCP := networkplan.UsesManagedDHCP4(networkplan.Plan{Topology: networkplan.Topology(status.LabTopology)})
 	judge := labrouting.Context{
 		Now: now, ShakerProxy: shakerProxy, Router: router, Threshold: labrouting.DefaultThreshold,
-		ShakerProxyServesDHCP: networkplan.UsesManagedDHCP4(networkplan.Plan{Topology: networkplan.Topology(status.LabTopology)}),
+		ShakerProxyServesDHCP: servesDHCP,
+	}
+	if servesDHCP {
+		judge.ShakerProxyLeases = s.activeShakerProxyLeases(prefix, now)
 	}
 	results := labrouting.Classify(presence.Hosts, judge)
 	report := labRoutingReport{
@@ -126,7 +140,6 @@ func (s *Server) buildLabRouting(ctx context.Context, now time.Time) (labRouting
 		SubnetMask: net.IP(net.CIDRMask(prefix.Bits(), 32)).String(), ShakerProxyAddress: status.LabIPv4Gateway, RouterAddress: status.LabIPv4Router,
 		ThresholdSeconds: int(labrouting.DefaultThreshold / time.Second), Devices: make([]labRoutingDevice, 0, len(results)),
 	}
-	problem := ""
 	snapshot, inventoryOK := s.addLabPresenceDevices(presence.Hosts, results, status)
 	if !inventoryOK {
 		problem = "lab devices could not be added to the inventory"
@@ -150,6 +163,34 @@ func (s *Server) buildLabRouting(ctx context.Context, now time.Time) (labRouting
 		}
 	}
 	return report, problem
+}
+
+// activeShakerProxyLeases reads ShakerProxy's own DHCP leases in the lab
+// prefix: a device holding one has ShakerProxy as its gateway, even when its
+// DHCP exchange is older than the presence window. An unreadable lease file
+// leaves the classifier to the DHCP it observed (the inventory sync logs the
+// problem).
+func (s *Server) activeShakerProxyLeases(prefix netip.Prefix, now time.Time) map[netip.Addr]string {
+	if s.keaLeasePath == "" {
+		return nil
+	}
+	leases, err := readKeaDHCP4Leases(s.keaLeasePath)
+	if err != nil {
+		return nil
+	}
+	// Kea's lease file is append-only: a later record for an address (a
+	// release, an expiry, another client) replaces the earlier one.
+	active := map[netip.Addr]string{}
+	for _, lease := range leases {
+		switch {
+		case !prefix.Contains(lease.Address):
+		case lease.Active(now):
+			active[lease.Address] = lease.HardwareAddr
+		default:
+			delete(active, lease.Address)
+		}
+	}
+	return active
 }
 
 // addLabPresenceDevices adds the devices that have no other evidence (those
