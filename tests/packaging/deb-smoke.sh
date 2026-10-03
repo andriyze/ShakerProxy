@@ -56,6 +56,9 @@ docker run --rm --platform linux/amd64 -v "$PACKAGE_PATH:/package.deb:ro" "$UBUN
   cmp -s /tmp/management-ca.crt /runtime/data/shakerproxy/public/management-ca.crt
   test -x /pkg/usr/libexec/shakerproxy/shakerproxy-provision-runtime
   test -x /pkg/usr/libexec/shakerproxy/shakerproxy-encrypted-dns-event-forwarder
+  test -x /pkg/usr/libexec/shakerproxy/shakerproxy-syslog-collectord
+  /pkg/usr/libexec/shakerproxy/shakerproxy-syslog-collectord --help >/dev/null
+  grep -Fqx "ExecStart=/usr/libexec/shakerproxy/shakerproxy-syslog-collectord" /pkg/lib/systemd/system/shakerproxy-syslog-collectord.service
   test -x /pkg/usr/libexec/shakerproxy/shakerproxy-traffic-policy
   test -x /pkg/usr/bin/shakerproxy-cloud-policy-config
   test -x /pkg/usr/libexec/shakerproxy/shakerproxy-installer

@@ -267,6 +267,7 @@ ensure_dir "$DATA_DIR/control-api/testlab" root 65532 0750
 ensure_dir "$DATA_DIR/inventory" 65532 65532 0750
 ensure_dir "$DATA_DIR/spool" 65532 65532 0750
 ensure_dir "$DATA_DIR/forwarders" 65532 65532 0750
+ensure_dir "$DATA_DIR/syslog-collector" 65532 65532 2770
 ensure_dir "$DATA_DIR/rulesets" root root 0700
 
 INGEST_TOKEN="$SECRET_DIR/ingest-token"

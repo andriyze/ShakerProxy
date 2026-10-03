@@ -14,7 +14,8 @@ ExecStart=/usr/libexec/shakerproxy/shakerproxy-syslog-collectord
 Restart=on-failure
 RestartSec=3s
 EnvironmentFile=-/etc/shakerproxy/syslog-collector.env
-Environment=SHAKERPROXY_SYSLOG_STATUS_FILE=/var/lib/shakerproxy/forwarders/syslog-collector-status.json
+Environment=SHAKERPROXY_SYSLOG_STATUS_FILE=/var/lib/shakerproxy/syslog-collector/status.json
+Environment=SHAKERPROXY_SYSLOG_CONFIG_FILE=/var/lib/shakerproxy/syslog-collector/config.json
 Environment=SHAKERPROXY_INGEST_TOKEN_FILE=/run/secrets/ingest_token
 # Binding 514 needs the capability; the default bind is 1514, which does not.
 # Uncomment to listen on the privileged syslog port:
@@ -38,7 +39,7 @@ MemoryDenyWriteExecute=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 SystemCallArchitectures=native
-ReadWritePaths=/var/lib/shakerproxy/forwarders
+ReadWritePaths=/var/lib/shakerproxy/syslog-collector
 ReadOnlyPaths=/run/secrets
 
 [Install]

@@ -68,8 +68,8 @@ func run(logger *slog.Logger) error {
 	defer stop()
 
 	supervisor := &syslogcollector.Supervisor{
-		ConfigPath: envOr("SHAKERPROXY_SYSLOG_CONFIG_FILE", "/var/lib/shakerproxy/forwarders/syslog-collector.json"),
-		StatusPath: envOr("SHAKERPROXY_SYSLOG_STATUS_FILE", "/var/lib/shakerproxy/forwarders/syslog-collector-status.json"),
+		ConfigPath: envOr("SHAKERPROXY_SYSLOG_CONFIG_FILE", "/var/lib/shakerproxy/syslog-collector/config.json"),
+		StatusPath: envOr("SHAKERPROXY_SYSLOG_STATUS_FILE", "/var/lib/shakerproxy/syslog-collector/status.json"),
 		Interval:   5 * time.Second,
 		NewSink:    newSink,
 		Logger:     logger,

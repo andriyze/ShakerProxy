@@ -49,28 +49,23 @@ collector therefore:
 
 ## Enable it on ShakerProxy
 
-Create `/etc/shakerproxy/syslog-collector.env`:
+The collector service runs continuously and stays inert until you enable the
+integration. Turn it on from the dashboard (**System → Network-gear logs**),
+the API, or the CLI — each needs the administrator password and at least one
+allowed source:
 
 ```sh
-SHAKERPROXY_SYSLOG_ENABLED=1
-SHAKERPROXY_SYSLOG_BIND=:1514
-SHAKERPROXY_SYSLOG_TCP=1
-# Accept logs only from the lab router:
-SHAKERPROXY_SYSLOG_ALLOWED=192.168.10.1
-# Add SHAKERPROXY_SYSLOG_UDP=1 only if your gateway cannot send syslog over TCP.
+shakerproxy syslog enable --sources 192.168.10.1   # the lab router's IP
+shakerproxy syslog status
+shakerproxy syslog disable
 ```
 
-Then start it:
-
-```sh
-sudo systemctl enable --now shakerproxy-syslog-collectord
-shakerproxy syslog status   # once the control-plane surface lands
-```
+The API equivalent is `PUT /api/v1/integrations/syslog-collector`; MCP exposes
+read-only status as `syslog_collector`.
 
 The default port is **1514** so the service needs no privileged-port
-capability. To listen on the standard syslog port **514**, set
-`SHAKERPROXY_SYSLOG_BIND=:514` and uncomment the `CAP_NET_BIND_SERVICE` lines
-in the unit.
+capability. To listen on the standard syslog port **514**, add `--bind :514`
+and uncomment the `CAP_NET_BIND_SERVICE` lines in the unit.
 
 ## Point UniFi at ShakerProxy
 
