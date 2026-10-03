@@ -184,7 +184,7 @@ paths:
   /integrations/notifications:
     get:
       operationId: getNotificationsConfig
-      description: "Notification channels and rules, and the unread count. API tokens need system:read. Channel secrets are never returned; a configured secret shows as the marker set."
+      description: "Notification channels and rules, and the unread count. API tokens need system:read. Channel secrets and webhook URLs are never returned; a configured secret shows as the marker set, and a URL as its scheme and host followed by /[redacted]."
       security: [{bearerAuth: []}]
       responses:
         "200": {description: Notifications configuration}
@@ -192,7 +192,7 @@ paths:
         "503": {$ref: "#/components/responses/Error"}
     put:
       operationId: putNotificationsConfig
-      description: "Freshly reauthenticated optimistic update of the channels and rules. Off by default; nothing is delivered until a rule is enabled. A webhook channel URL must be https. Sending a channel secret as the marker set keeps the stored secret."
+      description: "Freshly reauthenticated optimistic update of the channels and rules. Off by default; nothing is delivered until a rule is enabled. A webhook channel URL must be https. Sending a channel secret as the marker set keeps the stored secret, and sending a channel's masked URL back keeps the stored URL."
       security: [{bearerAuth: []}]
       requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
       responses:

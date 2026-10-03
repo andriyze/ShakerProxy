@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -67,10 +68,24 @@ func LoadLog(path string) (NotificationLog, error) {
 	return log, nil
 }
 
+// logLocks serializes the read-modify-write of each log file. writeAtomic
+// makes one write atomic, but the evaluator appending while a user marks
+// everything read would otherwise lose whichever rename came first: a new
+// alert or the read state.
+var logLocks sync.Map // path -> *sync.Mutex
+
+func lockLog(path string) func() {
+	value, _ := logLocks.LoadOrStore(filepath.Clean(path), &sync.Mutex{})
+	mutex := value.(*sync.Mutex)
+	mutex.Lock()
+	return mutex.Unlock
+}
+
 // Append adds notifications (newest first) and keeps at most MaxStored,
 // writing the list atomically. The in-app channel stores every delivered
 // notification regardless of which channels it also went to.
 func AppendLog(path string, add []Notification, now time.Time) error {
+	defer lockLog(path)()
 	log, err := LoadLog(path)
 	if err != nil {
 		return err
@@ -92,6 +107,7 @@ func AppendLog(path string, add []Notification, now time.Time) error {
 // MarkRead marks the given ids read, or all when ids is empty, and reports how
 // many changed.
 func MarkRead(path string, ids []string) (int, error) {
+	defer lockLog(path)()
 	log, err := LoadLog(path)
 	if err != nil {
 		return 0, err
@@ -139,6 +155,50 @@ func (l NotificationLog) Recent(limit int) []Notification {
 		notifications = notifications[:limit]
 	}
 	return notifications
+}
+
+// EvalState is what the evaluator remembers between passes and restarts:
+// when each rule+subject last fired, and which devices were already known.
+// Without it a restart re-sends every still-active condition and could
+// announce every present device as new.
+type EvalState struct {
+	Schema    int                  `json:"schema"`
+	Seeded    bool                 `json:"seeded"`
+	LastFired map[string]time.Time `json:"last_fired"`
+	Known     []string             `json:"known_devices"`
+}
+
+// MaxKnownDevices bounds the remembered device list.
+const MaxKnownDevices = 4096
+
+// LoadEvalState reads the evaluator state, returning an empty state when the
+// file is absent.
+func LoadEvalState(path string) (EvalState, error) {
+	state := EvalState{Schema: ConfigSchema, LastFired: map[string]time.Time{}}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return state, nil
+	}
+	if err != nil {
+		return state, err
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return EvalState{Schema: ConfigSchema, LastFired: map[string]time.Time{}}, err
+	}
+	if state.LastFired == nil {
+		state.LastFired = map[string]time.Time{}
+	}
+	return state, nil
+}
+
+// SaveEvalState writes the evaluator state atomically.
+func SaveEvalState(path string, state EvalState) error {
+	state.Schema = ConfigSchema
+	sort.Strings(state.Known)
+	if len(state.Known) > MaxKnownDevices {
+		state.Known = state.Known[:MaxKnownDevices]
+	}
+	return writeAtomic(path, ".notify-state-*", state, 0o640)
 }
 
 func writeAtomic(path, pattern string, value any, mode os.FileMode) error {

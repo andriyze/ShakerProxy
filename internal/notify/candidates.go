@@ -107,7 +107,9 @@ func FlaggedDomainCandidate(deviceID, name, domain, category string) Candidate {
 }
 
 // SecurityAlertCandidate fires on a Suricata alert or native detection other
-// than cleartext. summary is a bounded, secret-free description.
+// than cleartext. summary is a bounded, secret-free description; it is part
+// of the de-duplication key, so two different Suricata signatures from one
+// device are two notifications, while the same one repeating is one.
 func SecurityAlertCandidate(deviceID, name, kind, summary string, severity Severity) Candidate {
 	label := deviceLabel(name, "")
 	if severity == "" {
@@ -127,7 +129,7 @@ func SecurityAlertCandidate(deviceID, name, kind, summary string, severity Sever
 		Subject:  Subject{DeviceID: deviceID, DeviceName: name, Kind: kind},
 		Title:    title,
 		Body:     body,
-		Key:      string(TriggerSecurityAlert) + "\x00" + deviceID + "\x00" + kind,
+		Key:      string(TriggerSecurityAlert) + "\x00" + deviceID + "\x00" + kind + "\x00" + summary,
 	}
 }
 

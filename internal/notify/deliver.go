@@ -95,10 +95,10 @@ func (d HTTPDeliverer) Deliver(ctx context.Context, channel Channel, n Notificat
 func (d HTTPDeliverer) postJSON(ctx context.Context, rawURL, secret string, encoded []byte) error {
 	target, err := url.Parse(rawURL)
 	if err != nil {
-		return err
+		return permanent(errors.New("webhook URL is invalid"))
 	}
 	if target.Scheme != "https" {
-		return errors.New("webhook URL must be https")
+		return permanent(errors.New("webhook URL must be https"))
 	}
 	client := d.Client
 	if client == nil {
@@ -124,14 +124,64 @@ func (d HTTPDeliverer) postJSON(ctx context.Context, rawURL, secret string, enco
 	}
 	response, err := client.Do(request)
 	if err != nil {
+		// A *url.Error spells out the full URL, which for Slack is the
+		// credential itself; errors are logged and shown, so drop it.
+		var urlError *url.Error
+		if errors.As(err, &urlError) {
+			err = urlError.Err
+		}
 		return err
 	}
 	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("the endpoint returned HTTP %d", response.StatusCode)
+		err := fmt.Errorf("the endpoint returned HTTP %d", response.StatusCode)
+		if response.StatusCode >= 400 && response.StatusCode < 500 && response.StatusCode != http.StatusRequestTimeout && response.StatusCode != http.StatusTooManyRequests {
+			// The request itself is wrong (a revoked Slack hook is 404 or
+			// 410); sending it again cannot help.
+			return permanent(err)
+		}
+		return err
 	}
 	return nil
+}
+
+// permanentError marks a delivery failure that a retry cannot fix.
+type permanentError struct{ error }
+
+func (e permanentError) Unwrap() error { return e.error }
+
+func permanent(err error) error { return permanentError{err} }
+
+// DeliveryAttempts and DeliveryBackoff bound DeliverWithRetry: a transient
+// failure (a timeout, a reset connection, HTTP 5xx or 429) is sent again
+// after DeliveryBackoff, then twice that.
+var (
+	DeliveryAttempts = 3
+	DeliveryBackoff  = 2 * time.Second
+)
+
+// DeliverWithRetry delivers n, retrying transient failures a bounded number
+// of times. It returns the last error.
+func DeliverWithRetry(ctx context.Context, deliverer Deliverer, channel Channel, n Notification) error {
+	backoff := DeliveryBackoff
+	var err error
+	for attempt := 1; attempt <= DeliveryAttempts; attempt++ {
+		if err = deliverer.Deliver(ctx, channel, n); err == nil {
+			return nil
+		}
+		var fatal permanentError
+		if errors.As(err, &fatal) || attempt == DeliveryAttempts {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	return err
 }
 
 // safeDialContext resolves the host once and dials only a public unicast
@@ -150,7 +200,9 @@ func safeDialContext(host string) func(context.Context, string, string) (net.Con
 		var lastErr error = errors.New("no usable address for the webhook host")
 		for _, candidate := range resolved {
 			if !isPublicUnicast(candidate.IP) {
-				lastErr = fmt.Errorf("refusing to deliver to non-public address %s", candidate.IP)
+				// The address is not named: the caller sees why, not where
+				// on the internal network the name points.
+				lastErr = permanent(errors.New("refusing to deliver: the webhook host resolves to a private, loopback or link-local address"))
 				continue
 			}
 			connection, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(candidate.IP.String(), port))

@@ -36,12 +36,16 @@ func (s *Server) notifyView(config notify.Config) notifyConfigView {
 	if log, err := notify.LoadLog(s.notifyLogPath); err == nil {
 		unread = log.Unread()
 	}
-	// The secret of each channel is never returned; redact it to a marker.
+	// Neither a channel's secret nor its URL is returned: a Slack
+	// incoming-webhook URL can post on its own, so it is a credential too
+	// (readable here by any system:read token). Both become markers that
+	// a write sends back to keep the stored value.
 	channels := make([]notify.Channel, len(config.Channels))
 	for index, channel := range config.Channels {
 		if channel.Secret != "" {
 			channel.Secret = "set"
 		}
+		channel.URL = notify.MaskedURL(channel.URL)
 		channels[index] = channel
 	}
 	return notifyConfigView{
@@ -126,19 +130,24 @@ func (s *Server) putNotifyConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // mergeChannelSecrets keeps an existing channel's secret when the caller sends
-// the "set" marker (so the secret is never exposed and never cleared by a
-// round-trip through the UI), and takes a new secret only when one is given.
+// the "set" marker, and its URL when the caller sends the masked URL back (so
+// neither is exposed or cleared by a round-trip through the UI); a new value
+// is taken only when one is given.
 func mergeChannelSecrets(incoming []notify.Channel, current notify.Config) []notify.Channel {
-	previous := map[string]string{}
+	previous := map[string]notify.Channel{}
 	for _, channel := range current.Channels {
-		previous[channel.ID] = channel.Secret
+		previous[channel.ID] = channel
 	}
 	out := make([]notify.Channel, 0, len(incoming))
 	for _, channel := range incoming {
 		channel.Name = strings.TrimSpace(channel.Name)
 		channel.URL = strings.TrimSpace(channel.URL)
+		stored, known := previous[channel.ID]
 		if channel.Secret == "set" {
-			channel.Secret = previous[channel.ID]
+			channel.Secret = stored.Secret
+		}
+		if known && stored.URL != "" && channel.URL == notify.MaskedURL(stored.URL) {
+			channel.URL = stored.URL
 		}
 		out = append(out, channel)
 	}

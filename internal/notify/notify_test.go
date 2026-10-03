@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -233,5 +234,124 @@ func TestLogAppendBoundsAndMarksRead(t *testing.T) {
 	log, _ = LoadLog(path)
 	if log.Unread() != 0 {
 		t.Fatalf("still unread after mark-all: %d", log.Unread())
+	}
+}
+
+func TestLogWritesDoNotLoseEachOther(t *testing.T) {
+	// The evaluator appends while a user marks everything read. Each
+	// read-modify-write must see the other's result.
+	path := t.TempDir() + "/log.json"
+	const writers = 40
+	done := make(chan error, 2*writers)
+	for index := 0; index < writers; index++ {
+		go func(index int) {
+			done <- AppendLog(path, []Notification{{ID: "ntf-" + string(rune('a'+index%26)) + string(rune('a'+index/26)), CreatedAt: time.Now()}}, time.Now())
+		}(index)
+		go func() {
+			_, err := MarkRead(path, nil)
+			done <- err
+		}()
+	}
+	for index := 0; index < 2*writers; index++ {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	log, err := LoadLog(path)
+	if err != nil || len(log.Notifications) != writers {
+		t.Fatalf("stored %d of %d notifications (%v)", len(log.Notifications), writers, err)
+	}
+}
+
+func TestSecurityAlertsWithDifferentSignaturesAreDistinct(t *testing.T) {
+	one := SecurityAlertCandidate(dev, "TV", "suricata.alert", "ET POLICY Cleartext password", SeverityWarning)
+	two := SecurityAlertCandidate(dev, "TV", "suricata.alert", "ET MALWARE Beacon", SeverityWarning)
+	again := SecurityAlertCandidate(dev, "TV", "suricata.alert", "ET POLICY Cleartext password", SeverityWarning)
+	if one.Key == two.Key || one.Key != again.Key {
+		t.Fatalf("keys: %q %q %q", one.Key, two.Key, again.Key)
+	}
+	config := DefaultConfig()
+	config.Rules = []Rule{{ID: "r1", Trigger: TriggerSecurityAlert, Channels: []string{InAppChannelID}, Enabled: true}}
+	fired, _ := Evaluate([]Candidate{one, two, again}, config, nil, time.Now())
+	if len(fired) != 2 {
+		t.Fatalf("fired %d notifications, want one per signature", len(fired))
+	}
+}
+
+type scriptedDeliverer struct {
+	errors []error
+	calls  int
+}
+
+func (d *scriptedDeliverer) Deliver(context.Context, Channel, Notification) error {
+	d.calls++
+	if d.calls <= len(d.errors) {
+		return d.errors[d.calls-1]
+	}
+	return nil
+}
+
+func TestDeliverWithRetryRetriesOnlyTransientFailures(t *testing.T) {
+	previous := DeliveryBackoff
+	DeliveryBackoff = time.Millisecond
+	defer func() { DeliveryBackoff = previous }()
+
+	transient := &scriptedDeliverer{errors: []error{io.ErrUnexpectedEOF, io.ErrUnexpectedEOF}}
+	if err := DeliverWithRetry(context.Background(), transient, webhookChannel(""), Notification{}); err != nil || transient.calls != 3 {
+		t.Fatalf("transient: err=%v calls=%d", err, transient.calls)
+	}
+	fatal := &scriptedDeliverer{errors: []error{permanent(io.EOF), nil}}
+	if err := DeliverWithRetry(context.Background(), fatal, webhookChannel(""), Notification{}); err == nil || fatal.calls != 1 {
+		t.Fatalf("permanent: err=%v calls=%d", err, fatal.calls)
+	}
+	down := &scriptedDeliverer{errors: []error{io.EOF, io.EOF, io.EOF, io.EOF}}
+	if err := DeliverWithRetry(context.Background(), down, webhookChannel(""), Notification{}); err == nil || down.calls != DeliveryAttempts {
+		t.Fatalf("down: err=%v calls=%d", err, down.calls)
+	}
+}
+
+func TestDeliveryErrorsNameNeitherTheURLNorTheInternalAddress(t *testing.T) {
+	gone := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusGone) }))
+	defer gone.Close()
+	err := HTTPDeliverer{Client: gone.Client()}.Deliver(context.Background(), Channel{Kind: ChannelSlack, URL: gone.URL + "/services/T0/B0/SECRETPATH"}, Notification{})
+	var fatal permanentError
+	if err == nil || !errors.As(err, &fatal) {
+		t.Fatalf("a 410 is permanent: %v", err)
+	}
+	closed := httptest.NewTLSServer(http.NotFoundHandler())
+	client := closed.Client()
+	closed.Close()
+	err = HTTPDeliverer{Client: client}.Deliver(context.Background(), Channel{Kind: ChannelSlack, URL: closed.URL + "/services/T0/B0/SECRETPATH"}, Notification{})
+	if err == nil || strings.Contains(err.Error(), "SECRETPATH") {
+		t.Fatalf("delivery error names the URL: %v", err)
+	}
+	_, err = safeDialContext("localhost")(context.Background(), "tcp", "localhost:443")
+	if err == nil || strings.Contains(err.Error(), "127.0.0.1") || strings.Contains(err.Error(), "::1") {
+		t.Fatalf("refusal names the address: %v", err)
+	}
+}
+
+func TestMaskedURLKeepsOnlyTheService(t *testing.T) {
+	if got := MaskedURL("https://hooks.slack.com/services/T0/B0/XXXX"); got != "https://hooks.slack.com/[redacted]" {
+		t.Fatalf("masked = %q", got)
+	}
+	if MaskedURL("") != "" {
+		t.Fatal("an empty URL stays empty")
+	}
+}
+
+func TestEvalStateRoundTrips(t *testing.T) {
+	path := t.TempDir() + "/state.json"
+	empty, err := LoadEvalState(path)
+	if err != nil || empty.Seeded || empty.LastFired == nil {
+		t.Fatalf("absent state = %#v %v", empty, err)
+	}
+	at := time.Unix(1_800_000_000, 0).UTC()
+	if err := SaveEvalState(path, EvalState{Seeded: true, LastFired: map[string]time.Time{"r1\x00k": at}, Known: []string{dev}}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadEvalState(path)
+	if err != nil || !loaded.Seeded || !loaded.LastFired["r1\x00k"].Equal(at) || len(loaded.Known) != 1 || loaded.Known[0] != dev {
+		t.Fatalf("loaded = %#v %v", loaded, err)
 	}
 }
