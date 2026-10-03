@@ -133,7 +133,7 @@ func TestCommandProcessNegotiatesStdioCallsHTTPActivityAndHonorsRevocation(t *te
 	defer session.Close()
 
 	listed, err := session.ListTools(ctx, nil)
-	if err != nil || len(listed.Tools) != 25 {
+	if err != nil || len(listed.Tools) != 26 {
 		t.Fatalf("real MCP process tool discovery failed: tools=%d err=%v", len(listed.Tools), err)
 	}
 	for _, tool := range listed.Tools {
