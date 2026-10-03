@@ -9,3 +9,19 @@
 .lab-recording-switch{padding:3px 10px;font-size:12px}
 .lab-recording-error{flex-basis:100%;color:#ffb4a8}
 .traffic-duplicates-toggle{margin-left:12px;padding:3px 9px;font-size:12px}
+.lab-routing{display:grid;gap:10px;margin:10px 0;padding:12px 14px;border-left:4px solid #ff8a5c;background:#2b1a12;color:#fde3d6;border-radius:6px}
+.lab-routing.compact{display:block;margin:0 0 14px;font-size:14px}
+.lab-routing a{color:#ffd2bd}
+.lab-routing-device{display:grid;gap:4px}
+.lab-routing-headline{margin:0;font-size:15px}
+.lab-routing-reason{margin:0;color:#f3c6b2;font-size:13px}
+.lab-routing-fix summary{cursor:pointer;color:#ffd2bd;font-weight:600;font-size:13px}
+.lab-routing-fix-body{margin-top:8px;padding:10px 12px;background:#1d120c;border-radius:6px;font-size:13px;line-height:1.5}
+.lab-routing-fix-body h4{margin:10px 0 4px;font-size:13px;color:#fff}
+.lab-routing-fix-body h4:first-child{margin-top:0}
+.lab-routing-fix-body ol{margin:2px 0 6px 18px;padding:0}
+.lab-routing-fix-body p{margin:2px 0}
+.lab-routing-platform{margin:6px 0 0;font-weight:600;color:#f3c6b2}
+.lab-routing-more{margin:0;font-size:13px}
+.device-routing-badge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:#4a2414;color:#ffd2bd;font-size:11px;font-weight:600;vertical-align:middle}
+

@@ -4,6 +4,7 @@ import { completeTypedQuery, formatTypedQueryValue, typedQueryValueContext } fro
 import { ErrorBox, FeatureViews } from "../../shell/common"
 import { usePolling } from "../../shell/hooks"
 import { LabRecordingBanner } from "../../shell/LabRecordingBanner"
+import { LabRoutingBanner } from "../../shell/LabRoutingBanner"
 import { TRAFFIC_PRESETS } from "../../lib/trafficPresets"
 import {
   DEFAULT_LIVE_FILTERS,
@@ -635,6 +636,7 @@ export function TrafficWorkspace() {
             )}
           </div>
         </header>
+        <LabRoutingBanner />
         <LiveFilterBar filters={filters} directory={directory} onChange={(next) => applyFilters(next)} />
         {page?.facets?.domains?.values.length ? (
           <div className="live-domains" aria-label="Top domains in this view">
