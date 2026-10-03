@@ -139,7 +139,8 @@ export function deviceDirectory(
 export function serviceSummary(hint: DeviceServiceHint | undefined, max = 4): string {
   if (!hint) return ""
   const labels: string[] = []
-  for (const service of hint.services) {
+  // Guarded: a hint from an older or partial response may have no list.
+  for (const service of hint.services ?? []) {
     const label = service.label || service.service
     if (label && !labels.includes(label)) labels.push(label)
     if (labels.length >= max) break
