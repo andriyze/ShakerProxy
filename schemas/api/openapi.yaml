@@ -5112,7 +5112,7 @@ components:
             additionalProperties: false
             required: [kind, where]
             properties:
-              kind: {type: string, enum: [basic-auth, form-password, token-in-url, cleartext-cookie]}
+              kind: {type: string, enum: [basic-auth, bearer-token, form-password, token-in-url, cleartext-cookie]}
               where: {type: string, maxLength: 128}
         exchanges:
           type: array
