@@ -142,6 +142,15 @@ func init() {
 				"specific provider loses internet while blocking is on: set it to Automatic or Off.",
 			examples: []string{"shakerproxy dns", "shakerproxy dns block-encrypted off", "shakerproxy dns enforce on --json"},
 			run:      (*cli).dnsCommand},
+		{name: "syslog", aliases: []string{"router-logs"}, group: groupTraffic, summary: "Collect the lab router's own logs (UniFi): DHCP, Wi-Fi, firewall",
+			usage: []string{"syslog [status]", "syslog enable --sources <router IP> [--bind :1514] [--udp]", "syslog disable"},
+			details: "In single-arm and inline-bridge labs the router serves DHCP and Wi-Fi, so it sees devices that never reach\n" +
+				"ShakerProxy. Point the router's remote syslog at ShakerProxy and this turns its DHCP leases, Wi-Fi\n" +
+				"associations, firewall and IDS lines into events and device names. Off by default; enabling needs the\n" +
+				"administrator password and at least one allowed source (set it to the router's IP). See docs/network-gear-logs.md\n" +
+				"for the exact UniFi setup steps.",
+			examples: []string{"shakerproxy syslog", "shakerproxy syslog enable --sources 192.168.10.1 --password-file /root/.sp-pass", "shakerproxy syslog disable --password-file /root/.sp-pass"},
+			run:      (*cli).syslogCommand},
 		{name: "wifi", aliases: []string{"wi-fi", "wireless"}, group: groupTraffic, summary: "Listen on Wi-Fi: networks devices search for, join, roam between and leave",
 			usage: []string{"wifi [status]", "wifi on [--adapter wlan1]", "wifi off", "wifi channel <n|auto|hop>", "wifi nearby on|off [--confirm]"},
 			details: "Needs a Wi-Fi adapter that supports monitor mode (a second USB adapter, or the lab access point's when it can listen\n" +
