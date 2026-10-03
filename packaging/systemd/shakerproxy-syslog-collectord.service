@@ -1,0 +1,45 @@
+[Unit]
+Description=ShakerProxy network-gear syslog collector
+Documentation=https://github.com/andriyze/ShakerProxy
+After=shakerproxy-app.service network-online.target
+Wants=network-online.target
+
+# Off by default: this unit does nothing until the collector is enabled and an
+# allowed source is set in /etc/shakerproxy/syslog-collector.env.
+[Service]
+Type=simple
+User=shakerproxy-cloud
+Group=shakerproxy-app
+ExecStart=/usr/libexec/shakerproxy/shakerproxy-syslog-collectord
+Restart=on-failure
+RestartSec=3s
+EnvironmentFile=-/etc/shakerproxy/syslog-collector.env
+Environment=SHAKERPROXY_SYSLOG_STATUS_FILE=/var/lib/shakerproxy/forwarders/syslog-collector-status.json
+Environment=SHAKERPROXY_INGEST_TOKEN_FILE=/run/secrets/ingest_token
+# Binding 514 needs the capability; the default bind is 1514, which does not.
+# Uncomment to listen on the privileged syslog port:
+#   AmbientCapabilities=CAP_NET_BIND_SERVICE
+#   CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+UMask=0027
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/shakerproxy/forwarders
+ReadOnlyPaths=/run/secrets
+
+[Install]
+WantedBy=multi-user.target
