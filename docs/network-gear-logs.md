@@ -63,6 +63,11 @@ shakerproxy syslog disable
 The API equivalent is `PUT /api/v1/integrations/syslog-collector`; MCP exposes
 read-only status as `syslog_collector`.
 
+The status says whether the collector is actually **listening**. If it cannot
+bind its port (another service holds it), it shows *Not listening* with the
+reason and retries every few seconds, so an enabled collector that receives
+nothing is never shown as working.
+
 The default port is **1514** so the service needs no privileged-port
 capability. To listen on the standard syslog port **514**, add `--bind :514`
 and uncomment the `CAP_NET_BIND_SERVICE` lines in the unit.
@@ -97,5 +102,11 @@ and uncomment the `CAP_NET_BIND_SERVICE` lines in the unit.
   guessing; send a sample to correct the parser.
 - UDP syslog is spoofable. Keep the allowlist to the router's address and
   prefer TCP.
+- BSD-style (RFC 3164) lines carry the router's local time with no zone.
+  ShakerProxy places them by the time they arrive: the whole quarter-hours
+  between the two are taken as the router's time zone. RFC 5424 lines carry
+  their own zone and are used as sent.
+- Receiving never waits on the event pipeline: events queue (up to 1,024) for
+  delivery, and past that they are counted as `dropped_backlog`.
 - Firewall and IDS lines are visibility, not enforcement — ShakerProxy records
   them; it does not change the router's rules.

@@ -1,6 +1,7 @@
 package syslogcollector
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -105,11 +106,12 @@ func parseRFC3164(rest string, now time.Time, message *Message) {
 			continue
 		}
 		if timestamp, err := time.Parse(layout, rest[:width]); err == nil {
-			year := timestamp.Year()
-			if year == 0 {
-				year = now.Year()
+			year, inferred := timestamp.Year(), timestamp.Year() == 0
+			if inferred {
+				year = now.UTC().Year()
 			}
-			message.Timestamp = time.Date(year, timestamp.Month(), timestamp.Day(), timestamp.Hour(), timestamp.Minute(), timestamp.Second(), 0, time.UTC)
+			wall := time.Date(year, timestamp.Month(), timestamp.Day(), timestamp.Hour(), timestamp.Minute(), timestamp.Second(), 0, time.UTC)
+			message.Timestamp = alignZoneless(wall, now, inferred)
 			rest = strings.TrimSpace(rest[width:])
 			break
 		}
@@ -127,6 +129,33 @@ func parseRFC3164(rest string, now time.Time, message *Message) {
 		return
 	}
 	message.Content = rest
+}
+
+// alignZoneless places an RFC3164 timestamp, the sender's local wall clock
+// with no zone, on the UTC timeline. UniFi logs in the site's time zone, so
+// reading it as UTC put events hours off. Syslog is sent as it happens, so
+// the receive time anchors it: the whole quarter-hours between the two are
+// the sender's UTC offset, and the minutes and seconds stay the sender's.
+// With an inferred year, a December line received in January is from last
+// year. A difference beyond any time zone is a wrong clock, not a zone, and
+// is left alone.
+func alignZoneless(wall, now time.Time, inferredYear bool) time.Time {
+	now = now.UTC()
+	const halfYear = 183 * 24 * time.Hour
+	if inferredYear {
+		switch {
+		case wall.Sub(now) > halfYear:
+			wall = wall.AddDate(-1, 0, 0)
+		case now.Sub(wall) > halfYear:
+			wall = wall.AddDate(1, 0, 0)
+		}
+	}
+	skew := wall.Sub(now)
+	if skew > 14*time.Hour+15*time.Minute || skew < -12*time.Hour-15*time.Minute {
+		return wall
+	}
+	quarters := math.Round(float64(skew) / float64(15*time.Minute))
+	return wall.Add(-time.Duration(quarters) * 15 * time.Minute)
 }
 
 func splitHostTag(rest string) (string, string, bool) {

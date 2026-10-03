@@ -18,20 +18,34 @@ import (
 // outbound forwarders.
 
 type syslogCollectorView struct {
-	Available      bool                    `json:"available"`
-	Enabled        bool                    `json:"enabled"`
-	BindAddress    string                  `json:"bind_address"`
-	TCP            bool                    `json:"tcp"`
-	UDP            bool                    `json:"udp"`
-	AllowedSources []string                `json:"allowed_sources"`
-	Revision       int                     `json:"revision"`
-	UpdatedAt      time.Time               `json:"updated_at,omitzero"`
-	UpdatedBy      string                  `json:"updated_by,omitempty"`
-	Status         *syslogcollector.Status `json:"status,omitempty"`
+	Available      bool              `json:"available"`
+	Enabled        bool              `json:"enabled"`
+	BindAddress    string            `json:"bind_address"`
+	TCP            bool              `json:"tcp"`
+	UDP            bool              `json:"udp"`
+	AllowedSources []string          `json:"allowed_sources"`
+	Revision       int               `json:"revision"`
+	UpdatedAt      time.Time         `json:"updated_at,omitzero"`
+	UpdatedBy      string            `json:"updated_by,omitempty"`
+	Status         *syslogStatusView `json:"status,omitempty"`
 	// Setup is a short, static hint for the dashboard; the full steps are in
 	// docs/network-gear-logs.md.
 	Setup string `json:"setup"`
 }
+
+// syslogStatusView is the collector's state as the dashboard, the CLI and
+// MCP read it: the receiver counts at the top level (where all three always
+// read them), whether it is listening, and why not.
+type syslogStatusView struct {
+	syslogcollector.Stats
+	GeneratedAt time.Time `json:"generated_at"`
+	Listening   bool      `json:"listening"`
+	Error       string    `json:"error,omitempty"`
+}
+
+// syslogStatusStale is how old the collector's status may get; it rewrites
+// it every few seconds while its service runs.
+const syslogStatusStale = time.Minute
 
 const syslogSetupHint = "In UniFi Network → Settings → System, enable Remote Logging and set the server to ShakerProxy's lab address and this port. Restrict allowed sources to the router's IP."
 
@@ -134,7 +148,11 @@ func (s *Server) syslogCollectorView(config syslogcollector.FileConfig) syslogCo
 		view.AllowedSources = []string{}
 	}
 	if status, err := s.readSyslogStatus(); err == nil {
-		view.Status = status
+		view.Status = &syslogStatusView{Stats: status.Stats, GeneratedAt: status.GeneratedAt, Listening: status.Listening, Error: status.Error}
+		if age := time.Since(status.GeneratedAt); config.Enabled && age > syslogStatusStale {
+			view.Status.Listening = false
+			view.Status.Error = "The collector service has not reported for " + age.Round(time.Second).String() + "; it may not be running (systemctl status shakerproxy-syslog-collectord)."
+		}
 	}
 	return view
 }

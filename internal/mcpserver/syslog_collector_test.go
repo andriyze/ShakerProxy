@@ -15,15 +15,7 @@ func (f *fakeBackend) SyslogCollector(context.Context) (agentapi.SyslogCollector
 func TestSyslogCollectorReportsStatusReadOnly(t *testing.T) {
 	backend := newFakeBackend()
 	backend.syslog = agentapi.SyslogCollectorStatus{Available: true, Enabled: true, BindAddress: ":1514", TCP: true, AllowedSources: []string{"192.168.10.1"}}
-	backend.syslog.Status = &struct {
-		Received   uint64 `json:"received"`
-		Parsed     uint64 `json:"parsed"`
-		Unparsed   uint64 `json:"unparsed"`
-		Delivered  uint64 `json:"delivered"`
-		DeliverErr uint64 `json:"deliver_errors"`
-		Dropped    uint64 `json:"dropped_rate_limited"`
-		Rejected   uint64 `json:"rejected_not_allowed"`
-	}{Received: 10, Parsed: 8, Delivered: 8}
+	backend.syslog.Status = &agentapi.SyslogCollectorReceiver{Received: 10, Parsed: 8, Delivered: 8, Listening: true}
 	result, _, err := (&Service{backend: backend}).syslogCollector(context.Background(), nil, SyslogCollectorArgs{})
 	if err != nil {
 		t.Fatal(err)

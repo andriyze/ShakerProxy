@@ -2,6 +2,8 @@ package syslogcollector
 
 import (
 	"context"
+	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -109,4 +111,36 @@ func TestSupervisorFollowsConfigFile(t *testing.T) {
 	cancel()
 	<-done
 	_ = ingest.SourceNetworkGear // keep the ingest dependency explicit
+}
+
+// A listener that cannot bind is reported, not shown as running, and is
+// started again once its port is free.
+func TestSupervisorRestartsAListenerThatStopped(t *testing.T) {
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := taken.Addr().String()
+	dir := t.TempDir()
+	configPath, statusPath := filepath.Join(dir, "config.json"), filepath.Join(dir, "status.json")
+	enabled := DefaultFileConfig()
+	enabled.Enabled, enabled.BindAddress, enabled.AllowedSources = true, address, []string{"127.0.0.1"}
+	if err := SaveConfig(configPath, enabled); err != nil {
+		t.Fatal(err)
+	}
+	supervisor := &Supervisor{ConfigPath: configPath, StatusPath: statusPath, Interval: 20 * time.Millisecond, NewSink: func() (Sink, error) { return &captureSink{}, nil }}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = supervisor.Run(ctx) }()
+	status := func() Status {
+		var status Status
+		raw, _ := os.ReadFile(statusPath)
+		_ = json.Unmarshal(raw, &status)
+		return status
+	}
+	waitFor(t, func() bool { current := status(); return current.Enabled && !current.Listening && current.Error != "" })
+	taken.Close()
+	waitFor(t, func() bool { current := status(); return current.Listening && current.Error == "" })
+	cancel()
+	<-done
 }

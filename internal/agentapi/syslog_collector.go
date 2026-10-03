@@ -11,22 +11,28 @@ const maxAgentSyslogCollectorBytes = 256 << 10
 // collector: whether it is on, where it listens, which sources it accepts, and
 // its receiver counts. It never contains log content.
 type SyslogCollectorStatus struct {
-	Available      bool     `json:"available"`
-	Enabled        bool     `json:"enabled"`
-	BindAddress    string   `json:"bind_address"`
-	TCP            bool     `json:"tcp"`
-	UDP            bool     `json:"udp"`
-	AllowedSources []string `json:"allowed_sources"`
-	Revision       int      `json:"revision"`
-	Status         *struct {
-		Received   uint64 `json:"received"`
-		Parsed     uint64 `json:"parsed"`
-		Unparsed   uint64 `json:"unparsed"`
-		Delivered  uint64 `json:"delivered"`
-		DeliverErr uint64 `json:"deliver_errors"`
-		Dropped    uint64 `json:"dropped_rate_limited"`
-		Rejected   uint64 `json:"rejected_not_allowed"`
-	} `json:"status,omitempty"`
+	Available      bool                     `json:"available"`
+	Enabled        bool                     `json:"enabled"`
+	BindAddress    string                   `json:"bind_address"`
+	TCP            bool                     `json:"tcp"`
+	UDP            bool                     `json:"udp"`
+	AllowedSources []string                 `json:"allowed_sources"`
+	Revision       int                      `json:"revision"`
+	Status         *SyslogCollectorReceiver `json:"status,omitempty"`
+}
+
+// SyslogCollectorReceiver is the running receiver's counts, whether it is
+// listening, and why not.
+type SyslogCollectorReceiver struct {
+	Received   uint64 `json:"received"`
+	Parsed     uint64 `json:"parsed"`
+	Unparsed   uint64 `json:"unparsed"`
+	Delivered  uint64 `json:"delivered"`
+	DeliverErr uint64 `json:"deliver_errors"`
+	Dropped    uint64 `json:"dropped_rate_limited"`
+	Rejected   uint64 `json:"rejected_not_allowed"`
+	Listening  bool   `json:"listening"`
+	Error      string `json:"error,omitempty"`
 }
 
 // SyslogCollector reads the network-gear log collector's status.

@@ -24,7 +24,11 @@ type Status struct {
 	TCP            bool      `json:"tcp"`
 	UDP            bool      `json:"udp"`
 	AllowedSources []string  `json:"allowed_sources"`
-	Stats          Stats     `json:"stats"`
+	// Listening is true while the receiver holds its sockets; Error says why
+	// it does not (a taken port, an unavailable sink) while it is retried.
+	Listening bool   `json:"listening"`
+	Error     string `json:"error,omitempty"`
+	Stats     Stats  `json:"stats"`
 }
 
 // ParseAllowedSources parses a comma or space separated list of source
