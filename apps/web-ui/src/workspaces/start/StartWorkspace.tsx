@@ -5,6 +5,7 @@ import { buildChecklist, checklistProgress, nextStep, type ChecklistItem } from 
 import { isUnavailableEndpoint } from "../../lib/errors"
 import { isTransactionActive } from "../../lib/networkTransaction"
 import { useAppState } from "../../shell/AppContext"
+import { LabRoutingBanner } from "../../shell/LabRoutingBanner"
 import { FeatureViews } from "../../shell/common"
 import { useResource } from "../../shell/hooks"
 import type { CAOnboarding, InventorySnapshot, RecentEventPage, TestSession } from "../../types"
@@ -78,6 +79,7 @@ export function StartWorkspace() {
 
   return (
     <>
+      <LabRoutingBanner compact />
       <section className="checklist" aria-labelledby="checklist-title">
         <header>
           <h2 id="checklist-title">{progress.done === progress.total ? "You're all set" : "Get started"}</h2>

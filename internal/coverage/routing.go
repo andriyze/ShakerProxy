@@ -46,10 +46,19 @@ type RoutingInput struct {
 	VPNDevices    int
 	VPNPeerToPeer bool
 	VPNIPv6Routed bool
+	// BypassingDevices names the lab devices seen on the network whose
+	// traffic does not reach ShakerProxy ("iPhone · 192.168.10.130");
+	// LabPresenceChecked is set when that could be judged at all.
+	BypassingDevices   []string
+	LabPresenceChecked bool
+	// ShakerProxyIPv4 and RouterIPv4 make the fix concrete.
+	ShakerProxyIPv4 string
+	RouterIPv4      string
 }
 
 const (
 	FindingNotRouting     = "not-routing"
+	FindingBypassing      = "devices-bypassing"
 	FindingIPv6           = "ipv6-bypass"
 	FindingDHCP           = "other-dhcp-server"
 	FindingPeerToPeer     = "device-to-device"
@@ -75,7 +84,7 @@ func InspectRouting(in RoutingInput) []Finding {
 		}}
 	}
 	if in.Topology == "TRANSPARENT_BRIDGE" {
-		findings := inlineBridgeFindings(in)
+		findings := append(bypassFindings(in), inlineBridgeFindings(in)...)
 		findings = append(findings, encryptedDNSFindings(in)...)
 		if in.VPN {
 			findings = append(findings, vpnFinding(in))
@@ -83,13 +92,51 @@ func InspectRouting(in RoutingInput) []Finding {
 		return findings
 	}
 	singleArm := in.Topology == "SINGLE_ARM"
-	findings := []Finding{ipv6Finding(in, singleArm), dhcpFinding(in, singleArm), peerFinding(in, singleArm)}
+	findings := append(bypassFindings(in), ipv6Finding(in, singleArm), dhcpFinding(in, singleArm), peerFinding(in, singleArm))
 	findings = append(findings, encryptedDNSFindings(in)...)
 	findings = append(findings, discoveryFinding(singleArm))
 	if in.VPN {
 		findings = append(findings, vpnFinding(in))
 	}
 	return findings
+}
+
+// bypassFindings names the devices on the lab whose traffic goes around
+// ShakerProxy; it says nothing when presence could not be judged.
+func bypassFindings(in RoutingInput) []Finding {
+	if !in.LabPresenceChecked {
+		return nil
+	}
+	devices := uniqueSorted(in.BypassingDevices)
+	if len(devices) == 0 {
+		return []Finding{{ID: FindingBypassing, Title: "Devices on the lab that bypass ShakerProxy", Status: FindingOK,
+			Detail: "Every device seen on the lab network in the last 10 minutes sends its traffic through ShakerProxy, or has not been on long enough to tell."}}
+	}
+	gateway := "ShakerProxy's address"
+	if in.ShakerProxyIPv4 != "" {
+		gateway = in.ShakerProxyIPv4
+	}
+	router := "the router"
+	if in.RouterIPv4 != "" {
+		router = "the router (" + in.RouterIPv4 + ")"
+	}
+	return []Finding{{ID: FindingBypassing, Title: "Devices on the lab that bypass ShakerProxy", Status: FindingGap,
+		Detail: fmt.Sprintf("%s %s on the lab network, but %s traffic goes straight to %s, so ShakerProxy cannot see it.", strings.Join(devices, ", "), isAre(len(devices)), itsTheir(len(devices)), router),
+		Fix:    fmt.Sprintf("Set the device's gateway and DNS to %s (manual IP settings in its Wi-Fi or network settings), use VPN mode, or set the gateway and DNS your router's DHCP hands out to %s.", gateway, gateway)}}
+}
+
+func isAre(count int) string {
+	if count == 1 {
+		return "is"
+	}
+	return "are"
+}
+
+func itsTheir(count int) string {
+	if count == 1 {
+		return "its"
+	}
+	return "their"
 }
 
 // inlineBridgeFindings judges an inline bridge: devices keep the network's

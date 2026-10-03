@@ -135,3 +135,26 @@ func TestWiFiDeviceToDeviceFindingFollowsHowClientTrafficTravels(t *testing.T) {
 		}
 	}
 }
+
+// The test VM after the owner joined an iPhone to the lab Wi-Fi: it took the
+// router's DHCP and none of its traffic reached ShakerProxy.
+func TestBypassingDevicesAreNamedWithTheFix(t *testing.T) {
+	in := RoutingInput{Routing: true, Topology: "SINGLE_ARM", IPv6Strategy: "DISABLED", GatewayIPv4: "192.168.10.177", LabInterface: "ens18",
+		LabPresenceChecked: true, BypassingDevices: []string{"iPhone · 192.168.10.130"}, ShakerProxyIPv4: "192.168.10.177", RouterIPv4: "192.168.10.1"}
+	finding := findingsByID(InspectRouting(in))[FindingBypassing]
+	if finding.Status != FindingGap || finding.Detail != "iPhone · 192.168.10.130 is on the lab network, but its traffic goes straight to the router (192.168.10.1), so ShakerProxy cannot see it." ||
+		!strings.Contains(finding.Fix, "gateway and DNS to 192.168.10.177") || !strings.Contains(finding.Fix, "VPN mode") {
+		t.Fatalf("finding = %+v", finding)
+	}
+	if InspectRouting(in)[0].ID != FindingBypassing {
+		t.Fatal("bypassing devices are not the first finding")
+	}
+	in.BypassingDevices = nil
+	if finding := findingsByID(InspectRouting(in))[FindingBypassing]; finding.Status != FindingOK {
+		t.Fatalf("no bypassing devices = %+v", finding)
+	}
+	in.LabPresenceChecked = false
+	if _, ok := findingsByID(InspectRouting(in))[FindingBypassing]; ok {
+		t.Fatal("a finding was made without presence evidence")
+	}
+}

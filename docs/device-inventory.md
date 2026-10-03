@@ -89,6 +89,39 @@ neighbouring networks. Only an acknowledged lease inside the lab's IPv4 prefix
 creates a device. A phone that rotates its private MAC and gets the same
 address again stays one device.
 
+### Devices that bypass ShakerProxy
+
+A device can be on the lab network and still send everything straight to the
+router: in a single-arm lab the router's DHCP gives it the router as its
+gateway. ShakerProxy then records only its DHCP request and its multicast
+(mDNS, SSDP). ingestd reports, per lab address over the last 30 minutes, those
+sightings with the MACs Zeek saw sending from it, and how much of its traffic
+reached ShakerProxy: connections and lookups ShakerProxy handled, or recorded
+traffic to a unicast address, which a single-arm lab records only when it is
+sent to ShakerProxy (`GET /v1/lab-presence`). The control API judges each
+device seen in the last 10 minutes (`GET /api/v1/lab-routing`, also
+`lab_routing` on `/api/v1/devices` and MCP `lab_routing`):
+
+| State | When |
+| --- | --- |
+| `THROUGH_SHAKERPROXY` | Some of its traffic reached ShakerProxy in the last 30 minutes, and it has not rejoined through the router's DHCP since. |
+| `BYPASSING` | Seen for 2 minutes or more with none of its traffic reaching ShakerProxy: it asked the router's DHCP for an address (in a lab where ShakerProxy serves no DHCP), sent at least three messages, or kept sending for 2 minutes. The reason names the router: "It got its address from your router's DHCP, so it uses the router (192.168.10.1) as its gateway, not ShakerProxy." |
+| `UNKNOWN` | It just appeared; it may not have sent traffic yet. |
+
+ShakerProxy and the router (the lab interface's default gateway) are not
+judged. A device that bypasses ShakerProxy also becomes a device in the
+inventory, with the weakest evidence, `OBSERVED_LAN` at confidence 50 (below
+ARP's 70): its MAC, the address it used for 15 minutes after it was last seen,
+and its DHCP name as a suggestion. Pinned addresses and MAC rotation apply as
+for every other source, and a name an administrator chose is never touched.
+
+The Live view, the Start page and the System page show such devices with the
+fix, filled with the device's address and ShakerProxy's: set the device's
+gateway and DNS to ShakerProxy (manual IP settings), use VPN mode, or have the
+router's DHCP hand out ShakerProxy as gateway and DNS for the whole network
+(devices then have no internet while ShakerProxy is off). The coverage check
+names them first.
+
 The platform hint from a DHCP request is conservative: `android-dhcp-*` is an
 Android device, `MSFT 5.0` a Windows PC, `dhcpcd-*` a Linux or Android device,
 `udhcp` an embedded Linux device, and Apple's option order

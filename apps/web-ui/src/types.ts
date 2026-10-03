@@ -890,6 +890,39 @@ export type InventorySnapshot = {
   // What each device most likely is, keyed by device ID; derived from the
   // connectivity checks it made and never stored.
   platform_hints?: Record<string, DevicePlatformHint>
+  // Whether each device seen on the lab recently sends its traffic through
+  // ShakerProxy, keyed by device ID (GET /api/v1/lab-routing).
+  lab_routing?: Record<string, LabRoutingDevice>
+}
+
+export type LabRouting = "THROUGH_SHAKERPROXY" | "BYPASSING" | "UNKNOWN"
+
+export type LabRoutingDevice = {
+  address: string
+  hardware_addrs?: string[]
+  host_name?: string
+  routing: LabRouting
+  since: string
+  last_seen: string
+  evidence: string[]
+  reason?: string
+  device_id?: string
+  display_name?: string
+}
+
+export type LabRoutingReport = {
+  schema: 1
+  generated_at: string
+  available: boolean
+  unavailable?: string
+  topology?: string
+  prefix?: string
+  subnet_mask?: string
+  shakerproxy_address?: string
+  router_address?: string
+  threshold_seconds: number
+  counts: { through_shakerproxy: number; bypassing: number; unknown: number }
+  devices: LabRoutingDevice[]
 }
 
 // A hint names the connectivity check that identified the device (domain),
@@ -901,7 +934,7 @@ export type AttributionEvidence = {
   device_id: string
   address: string
   endpoint: "SOURCE" | "DESTINATION"
-  source: "DHCP4_LEASE" | "OBSERVED_DHCP" | "NDP" | "ARP" | "PINNED_ADDRESS"
+  source: "DHCP4_LEASE" | "OBSERVED_DHCP" | "OBSERVED_LAN" | "NDP" | "ARP" | "PINNED_ADDRESS"
   confidence: number
   valid_from: string
   valid_until: string

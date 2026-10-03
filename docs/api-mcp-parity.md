@@ -37,6 +37,7 @@ all read scopes and none sensitive); `http_exchange` additionally needs
 | --- | --- | --- | --- |
 | Device list: names, addresses, online, vendor | `GET /api/v1/agent/devices` (sessions: `/devices`) | `devices:read` | `list_devices` |
 | Device named by IP address; merged private-MAC records | `pinned_address`, `former_ids` on `/agent/devices` | `devices:read` | `list_devices` |
+| Devices on the lab whose traffic bypasses ShakerProxy, with the reason and the fix (Live view banner, Devices badge, System panel) | `GET /api/v1/lab-routing` (also `lab_routing` on `/devices`) | `devices:read` | `lab_routing` |
 | Platform in device titles ("GrapheneOS phone") and what showed it | `platform` on `/agent/devices` (sessions: `platform_hints` on `/devices`) | `devices:read` plus `traffic:read` | `list_devices` (`platform`, `platform_evidence`) |
 | Device lab controls (decrypt HTTPS, block internet, blocked domains) | `GET /api/v1/devices/{id}/controls` | `devices:read` | `device_controls` |
 | Find a device by name, IP, MAC or ID | `GET /api/v1/devices/resolve` | `devices:read` | `find_device` (and every `device` argument) |

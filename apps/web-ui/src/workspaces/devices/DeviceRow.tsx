@@ -5,7 +5,7 @@ import { withPassword } from "../../shell/passwordPrompt"
 import { timeAgo, idempotencyKey } from "../../lib/format"
 import { DeviceTrafficDeletionPreviewControl } from "./DeviceTrafficDeletion"
 import { api, describeError } from "../../api"
-import type { Device, DevicePlatformHint } from "../../types"
+import type { Device, DevicePlatformHint, LabRoutingDevice } from "../../types"
 
 export function DeviceRow({
   device,
@@ -14,6 +14,7 @@ export function DeviceRow({
   onInspect,
   onViewTraffic,
   platformHint,
+  routing,
 }: {
   device: Device
   devices: Device[]
@@ -21,6 +22,7 @@ export function DeviceRow({
   onInspect: () => void
   onViewTraffic: () => void
   platformHint?: DevicePlatformHint
+  routing?: LabRoutingDevice
 }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
@@ -159,7 +161,14 @@ export function DeviceRow({
       <div className="device-primary">
         <span className={device.online ? "online-dot" : "offline-dot"} />
         <div>
-          <strong>{deviceTitle(device, "", platformHint)}</strong>
+          <strong>
+            {deviceTitle(device, "", platformHint)}
+            {routing?.routing === "BYPASSING" && (
+              <span className="device-routing-badge" title={routing.reason ?? "Its traffic does not go through ShakerProxy."}>
+                Not through ShakerProxy
+              </span>
+            )}
+          </strong>
           {mac && (
             <small className="device-mac">
               MAC <code>{mac}</code>

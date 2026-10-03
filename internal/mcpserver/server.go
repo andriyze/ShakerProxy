@@ -59,6 +59,7 @@ type Backend interface {
 	Cases(context.Context, int) (agentapi.CasePage, error)
 	Case(context.Context, string) (agentapi.CaseDetail, error)
 	Diagnostics(context.Context) (agentapi.Diagnostics, error)
+	LabRouting(context.Context) (agentapi.LabRouting, error)
 }
 
 type Service struct {
@@ -107,6 +108,7 @@ const (
 	toolCaptures       = "captures"
 	toolCases          = "cases"
 	toolDiagnostics    = "diagnostics"
+	toolLabRouting     = "lab_routing"
 )
 
 // QuerySyntax is the cheat sheet embedded in search_traffic.
@@ -172,6 +174,8 @@ func New(backend Backend) (*mcp.Server, error) {
 		`List investigation cases (name, status, evidence counts, evidence hold), or pass case_id for one case's newest evidence and timeline; it needs a token with cases:read. Example: {} or {"case_id":"case-0123456789abcdef0123456789abcdef"}.`), service.cases)
 	mcp.AddTool(server, readOnlyTool(toolDiagnostics, "Appliance diagnostics",
 		`Run the checks shakerproxy doctor shows (interfaces, firewall, routes, DNS, forwarding, DHCP, Docker, services, disk, time, capture and packet drops), problems first. Example: {}.`), service.diagnostics)
+	mcp.AddTool(server, readOnlyTool(toolLabRouting, "Devices bypassing ShakerProxy",
+		`Show which devices seen on the lab in the last 10 minutes send their traffic through ShakerProxy and which bypass it (such as a phone that took the router's DHCP and uses the router as its gateway), bypassing ones first with the reason and the addresses for the fix; run it first when a device's traffic is missing. Example: {}.`), service.labRouting)
 	return server, nil
 }
 

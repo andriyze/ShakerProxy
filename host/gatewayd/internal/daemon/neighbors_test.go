@@ -312,3 +312,22 @@ func TestSelectLabIPv4NeighborsKeepsOnlyLabClients(t *testing.T) {
 		t.Fatalf("broadcast = %s", last)
 	}
 }
+
+// The test VM: ShakerProxy is 192.168.10.177 on the lab, and the lab
+// interface's default route goes through the UniFi router 192.168.10.1.
+func TestLabRouterIsTheLabsOwnDefaultGateway(t *testing.T) {
+	prefix := netip.MustParsePrefix("192.168.10.0/24")
+	gateways := map[netip.Addr]bool{netip.MustParseAddr("192.168.10.177"): true, netip.MustParseAddr("192.168.10.1"): true, netip.MustParseAddr("10.0.0.1"): true}
+	router, ok := labRouter(gateways, prefix, "192.168.10.177")
+	if !ok || router != netip.MustParseAddr("192.168.10.1") {
+		t.Fatalf("router = %v ok=%v", router, ok)
+	}
+	if _, ok := labRouter(map[netip.Addr]bool{netip.MustParseAddr("10.0.0.1"): true}, prefix, "192.168.10.177"); ok {
+		t.Fatal("a gateway outside the lab prefix was taken for the lab's router")
+	}
+	status := gatewayprotocol.Status{}
+	setLabIPv4Status(&status, networkplan.Plan{IPv4: networkplan.IPv4Configuration{Enabled: true, LabCIDR: "192.168.10.0/24", GatewayAddress: "192.168.10.177"}})
+	if status.LabIPv4Prefix != "192.168.10.0/24" || status.LabIPv4Gateway != "192.168.10.177" {
+		t.Fatalf("status = %+v", status)
+	}
+}

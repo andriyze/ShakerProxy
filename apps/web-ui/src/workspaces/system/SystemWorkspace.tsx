@@ -18,6 +18,7 @@ import {
   RecoveryObjectivePanel,
 } from "./SystemPanels"
 import { TestLabPanel } from "./TestLabPanel"
+import { LabRoutingPanel } from "../../shell/LabRoutingBanner"
 import { VisibilityCoveragePanel } from "./VisibilityCoveragePanel"
 import { WiFiVisibilityPanel } from "./WiFiVisibilityPanel"
 import type {
@@ -130,6 +131,7 @@ export function SystemWorkspace() {
       <StatusCards />
       <DiagnosticPanel report={diagnostics.report} error={diagnostics.error} />
       <AnalyzerHealthPanel report={analyzers.data} error={analyzers.error} />
+      <LabRoutingPanel />
       <VisibilityCoveragePanel />
       <WiFiVisibilityPanel />
       <TestLabPanel />
