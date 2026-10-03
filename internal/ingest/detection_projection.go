@@ -45,7 +45,7 @@ func ProjectDetectionFields(envelope Envelope) DetectionProjection {
 
 func validDetectionType(value string) bool {
 	switch value {
-	case "ROGUE_DHCP", "ROGUE_RA", "GATEWAY_SPOOF_SUSPECTED", "CLOCK_DRIFT", "CAPTURE_DEGRADED", "STORAGE_PRESSURE", "CPU_PRESSURE", "MEMORY_PRESSURE":
+	case "ROGUE_DHCP", "ROGUE_RA", "GATEWAY_SPOOF_SUSPECTED", "CLOCK_DRIFT", "CAPTURE_DEGRADED", "STORAGE_PRESSURE", "CPU_PRESSURE", "MEMORY_PRESSURE", "CLEARTEXT_CREDENTIAL":
 		return true
 	}
 	return false
