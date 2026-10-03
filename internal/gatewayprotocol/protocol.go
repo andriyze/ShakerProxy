@@ -225,6 +225,18 @@ type AppendCaptureImportParams struct {
 	Offset    int64  `json:"offset"`
 	Data      []byte `json:"data,omitempty"`
 	EOF       bool   `json:"eof,omitempty"`
+	// Name and Description, on the final (EOF) chunk only, replace the ones
+	// given to BeginCaptureImport: a multipart upload may carry its name
+	// field after the file.
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// AbortCaptureImportParams discards an in-progress import and its temporary
+// file at once (a cancelled, failed or oversized upload), instead of leaving
+// it to expire.
+type AbortCaptureImportParams struct {
+	SessionID string `json:"session_id"`
 }
 
 type AppendCaptureImportResult struct {
