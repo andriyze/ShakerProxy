@@ -102,6 +102,7 @@ type Server struct {
 	lastLeaseReadProblem        string
 	eventReader                 ingest.RecentEventReader
 	devicePlatforms             devicePlatformCache
+	deviceServices              deviceServiceCache
 	observedDHCP                observedDHCPState
 	labRouting                  labRoutingState
 	liveEventReader             ingest.LiveEventReader
@@ -1622,6 +1623,7 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	response := deviceListResponse{Snapshot: snapshot}
 	if mayReadTraffic(r) {
 		response.PlatformHints = platformHintsFor(snapshot.Devices, s.devicePlatformHints(r.Context()))
+		response.ServiceHints = serviceHintsFor(snapshot.Devices, s.deviceServiceHints(r.Context()))
 	}
 	response.LabRouting = labRoutingByDevice(routing)
 	writeJSON(w, http.StatusOK, response)

@@ -890,6 +890,10 @@ export type InventorySnapshot = {
   // What each device most likely is, keyed by device ID; derived from the
   // connectivity checks it made and never stored.
   platform_hints?: Record<string, DevicePlatformHint>
+  // What each device offers and looks for on the network (mDNS/Bonjour)
+  // and the device type that implies, keyed by device ID; derived from
+  // recorded discovery traffic and never stored.
+  service_hints?: Record<string, DeviceServiceHint>
   // Whether each device seen on the lab recently sends its traffic through
   // ShakerProxy, keyed by device ID (GET /api/v1/lab-routing).
   lab_routing?: Record<string, LabRoutingDevice>
@@ -928,6 +932,12 @@ export type LabRoutingReport = {
 // A hint names the connectivity check that identified the device (domain),
 // or, with source "dhcp", the DHCP vendor class or option order (detail).
 export type DevicePlatformHint = { platform: string; domain?: string; last_seen: string; source?: "dhcp"; detail?: string }
+
+export type DeviceService = { service: string; label?: string; category?: string; last_seen: string }
+
+// DeviceServiceHint is a device's discovery identity: the device type its
+// mDNS/Bonjour services imply, and the services themselves.
+export type DeviceServiceHint = { type?: string; services: DeviceService[]; last_seen: string }
 
 export type AttributionEvidence = {
   schema: 1

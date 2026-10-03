@@ -222,6 +222,7 @@ export function DeviceInventory() {
           onInspect={() => selectDevice(device.id)}
           onViewTraffic={() => viewDeviceTraffic(device.id)}
           platformHint={snapshot.platform_hints?.[device.id]}
+          serviceHint={snapshot.service_hints?.[device.id]}
           routing={snapshot.lab_routing?.[device.id]}
         />
       ))}
@@ -247,6 +248,7 @@ export function DeviceInventory() {
           onClose={() => selectDevice("")}
           onViewTraffic={() => viewDeviceTraffic(selectedDeviceID)}
           platformHint={snapshot?.platform_hints?.[selectedDeviceID]}
+          serviceHint={snapshot?.service_hints?.[selectedDeviceID]}
         />
       )}
     </section>
