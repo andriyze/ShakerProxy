@@ -384,6 +384,16 @@ if ip netns exec "$STATION" busybox ping -c 1 -W 2 "$STATION2_IP" >/dev/null 2>&
 fi
 role hairpin >"$LAB_TEMP/hairpin.log" || fail "ShakerProxy could not turn on hairpin mode on the access point's bridge port"
 [[ "$(ip netns exec "$GATEWAY" cat "/sys/class/net/$AP_IF/brport/hairpin_mode")" == 1 ]] || fail "hairpin mode is not on for the access point's bridge port"
+# Let the hairpin path settle before the reachability checks: the bridge has
+# to learn the second device's address out of the access point port and the
+# first device has to resolve ARP across the hairpin. Without this the first
+# connection races ahead of ARP and fails with "No route to host".
+reached=""
+for _ in $(seq 1 100); do
+  if ip netns exec "$STATION" busybox ping -c 1 -W 1 "$STATION2_IP" >/dev/null 2>&1; then reached=1; break; fi
+  sleep .2
+done
+[[ -n "$reached" ]] || fail "the Wi-Fi devices could not reach each other after hairpin mode was enabled"
 # The second device listens for one UDP datagram, one TCP connection and
 # one mDNS multicast from the first.
 ip netns exec "$STATION2" python3 - "$STATION2_IP" >"$LAB_TEMP/c2c-listener.log" 2>&1 <<'PY' &
