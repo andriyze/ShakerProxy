@@ -1139,6 +1139,15 @@ paths:
         "409": {$ref: "#/components/responses/Error"}
         "416": {$ref: "#/components/responses/Error"}
         "507": {$ref: "#/components/responses/Error"}
+  /lab-routing:
+    get:
+      operationId: getLabRouting
+      description: "Which devices seen on the lab network in the last 10 minutes send their traffic through ShakerProxy. A device that took the router's DHCP in a single-arm lab uses the router as its gateway; ShakerProxy then records only its DHCP request and its multicast (mDNS, SSDP) and reports it as BYPASSING, with the reason and ShakerProxy's and the router's addresses for the fix. Such devices are also added to the device inventory (evidence OBSERVED_LAN). Judged at most every 15 seconds; available is false without a routed lab or readable recorded traffic."
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Lab routing report, content: {application/json: {schema: {$ref: "#/components/schemas/LabRoutingReport"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
   /devices:
     get:
       operationId: listDevices
@@ -3976,6 +3985,50 @@ components:
               last_seen: {type: string, format: date-time}
               source: {type: string, enum: [dhcp], description: "Present when the device's DHCP request identified it."}
               detail: {type: string, maxLength: 300, description: "The vendor class or option order that matched."}
+        lab_routing:
+          type: object
+          description: "Keyed by device ID: whether each device seen on the lab recently sends its traffic through ShakerProxy (see GET /api/v1/lab-routing)."
+          maxProperties: 512
+          additionalProperties: {$ref: "#/components/schemas/LabRoutingDevice"}
+    LabRoutingDevice:
+      type: object
+      additionalProperties: false
+      required: [address, routing, since, last_seen, evidence]
+      properties:
+        address: {type: string, maxLength: 15}
+        hardware_addrs: {type: array, maxItems: 8, items: {type: string, maxLength: 17}}
+        host_name: {type: string, maxLength: 253, description: The name the device gave itself in DHCP.}
+        routing: {type: string, enum: [THROUGH_SHAKERPROXY, BYPASSING, UNKNOWN], description: "UNKNOWN: seen for less than threshold_seconds, with no traffic through ShakerProxy yet."}
+        since: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+        evidence: {type: array, maxItems: 8, items: {type: string, maxLength: 200}}
+        reason: {type: string, maxLength: 300, description: "Why the traffic bypasses ShakerProxy, for BYPASSING."}
+        device_id: {type: string, pattern: "^device-[a-f0-9]{32}$"}
+        display_name: {type: string, maxLength: 253, description: "The administrator's name for the device, else the name it gave itself."}
+    LabRoutingReport:
+      type: object
+      additionalProperties: false
+      required: [schema, generated_at, available, threshold_seconds, counts, devices]
+      properties:
+        schema: {const: 1}
+        generated_at: {type: string, format: date-time}
+        available: {type: boolean}
+        unavailable: {type: string, maxLength: 200}
+        topology: {type: string, maxLength: 64}
+        prefix: {type: string, maxLength: 18}
+        subnet_mask: {type: string, maxLength: 15}
+        shakerproxy_address: {type: string, maxLength: 15, description: The gateway and DNS server lab devices should use.}
+        router_address: {type: string, maxLength: 15, description: "The network's own router on the lab, when the lab side has a default route through one."}
+        threshold_seconds: {type: integer, minimum: 1}
+        counts:
+          type: object
+          additionalProperties: false
+          required: [through_shakerproxy, bypassing, unknown]
+          properties:
+            through_shakerproxy: {type: integer, minimum: 0}
+            bypassing: {type: integer, minimum: 0}
+            unknown: {type: integer, minimum: 0}
+        devices: {type: array, maxItems: 512, items: {$ref: "#/components/schemas/LabRoutingDevice"}}
     AddressAlias:
       type: object
       additionalProperties: false

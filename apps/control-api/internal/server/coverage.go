@@ -20,6 +20,7 @@ import (
 	"shakerproxy.dev/shakerproxy/internal/coverage"
 	"shakerproxy.dev/shakerproxy/internal/gatewayprotocol"
 	"shakerproxy.dev/shakerproxy/internal/ingest"
+	"shakerproxy.dev/shakerproxy/internal/labrouting"
 	"shakerproxy.dev/shakerproxy/internal/testlab"
 	"shakerproxy.dev/shakerproxy/internal/trafficpolicy"
 )
@@ -440,6 +441,14 @@ func (s *Server) inspectCoverageRouting(ctx context.Context) []coverage.Finding 
 	// connection with the type as its source port.
 	input.ForeignRouterAdverts, input.RouterAdvertsSearched = s.coverageForeignSources(ctx, "protocol:icmp AND src.port:134 AND time:last_24h", own)
 	input.ForeignDHCPServers, _ = s.coverageForeignSources(ctx, "protocol:udp AND src.port:67 AND time:last_24h", own)
+	if routing := s.currentLabRouting(ctx); routing.Available {
+		input.LabPresenceChecked, input.ShakerProxyIPv4, input.RouterIPv4 = true, routing.ShakerProxyAddress, routing.RouterAddress
+		for _, device := range routing.Devices {
+			if device.Routing == labrouting.Bypassing {
+				input.BypassingDevices = append(input.BypassingDevices, labDeviceTitle(device))
+			}
+		}
+	}
 	return coverage.InspectRouting(input)
 }
 

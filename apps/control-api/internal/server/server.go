@@ -98,6 +98,7 @@ type Server struct {
 	eventReader                 ingest.RecentEventReader
 	devicePlatforms             devicePlatformCache
 	observedDHCP                observedDHCPState
+	labRouting                  labRoutingState
 	liveEventReader             ingest.LiveEventReader
 	ingestStatus                ingest.StatusReader
 	eventSnapshots              ingest.EventQuerySnapshotRepository
@@ -249,6 +250,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/captures/{sessionID}/exports", s.requireAuth(http.HandlerFunc(s.captureExportHistory)))
 	mux.Handle("POST /api/v1/captures/{sessionID}/files/{fileName}/export", s.requireAuth(http.HandlerFunc(s.exportCaptureFile)))
 	mux.Handle("GET /api/v1/devices", s.requireAuthOrScope(apitoken.ScopeDevicesRead, http.HandlerFunc(s.listDevices)))
+	mux.Handle("GET /api/v1/lab-routing", s.requireAuthOrScope(apitoken.ScopeDevicesRead, http.HandlerFunc(s.getLabRouting)))
 	mux.Handle("GET /api/v1/device-aliases/export", s.requireAuth(http.HandlerFunc(s.exportDeviceAliases)))
 	mux.Handle("POST /api/v1/device-aliases/import-preview", s.requireAuth(http.HandlerFunc(s.previewDeviceAliasImport)))
 	mux.Handle("POST /api/v1/device-aliases/import", s.requireAuth(http.HandlerFunc(s.applyDeviceAliasImport)))
@@ -1598,6 +1600,9 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "inventory_unavailable", "device inventory is not configured")
 		return
 	}
+	// The lab routing report adds devices seen only on the network, so it
+	// runs before the inventory is read.
+	routing := s.currentLabRouting(r.Context())
 	snapshot, err := s.inventory.Snapshot()
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "inventory_unavailable", "device inventory is unavailable")
@@ -1608,6 +1613,7 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	if mayReadTraffic(r) {
 		response.PlatformHints = platformHintsFor(snapshot.Devices, s.devicePlatformHints(r.Context()))
 	}
+	response.LabRouting = labRoutingByDevice(routing)
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -2179,14 +2185,14 @@ func (s *Server) refreshInventory() (deviceinventory.Snapshot, error) {
 		if errors.Is(err, fs.ErrPermission) {
 			s.noteLeaseReadProblem(err)
 		}
-		return s.withObservedDHCP(s.withNeighborEvidence(s.inventory.Snapshot()))
+		return s.withLabPresence(s.withObservedDHCP(s.withNeighborEvidence(s.inventory.Snapshot())))
 	}
 	if err != nil {
 		return deviceinventory.Snapshot{}, err
 	}
 	s.noteLeaseReadProblem(nil)
 	s.scopeDHCP4Leases(leases)
-	return s.withObservedDHCP(s.withNeighborEvidence(s.inventory.ReconcileDHCP4(leases)))
+	return s.withLabPresence(s.withObservedDHCP(s.withNeighborEvidence(s.inventory.ReconcileDHCP4(leases))))
 }
 
 // readKeaDHCP4Leases is replaced in tests.

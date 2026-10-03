@@ -42,6 +42,9 @@ type devicePlatformHint struct {
 type deviceListResponse struct {
 	deviceinventory.Snapshot
 	PlatformHints map[string]devicePlatformHint `json:"platform_hints,omitempty"`
+	// LabRouting says, per device seen on the lab recently, whether its
+	// traffic goes through ShakerProxy (GET /api/v1/lab-routing).
+	LabRouting map[string]labRoutingDevice `json:"lab_routing,omitempty"`
 }
 
 func (s *Server) devicePlatformHints(ctx context.Context) []ingest.DevicePlatformHint {
