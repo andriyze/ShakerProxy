@@ -149,7 +149,8 @@ func (l NotificationLog) Unread() int {
 
 // Recent returns at most limit notifications, newest first.
 func (l NotificationLog) Recent(limit int) []Notification {
-	notifications := append([]Notification(nil), l.Notifications...)
+	// Never nil: an empty log is "notifications": [] for the dashboard, not null.
+	notifications := append([]Notification{}, l.Notifications...)
 	sort.SliceStable(notifications, func(i, j int) bool { return notifications[i].CreatedAt.After(notifications[j].CreatedAt) })
 	if limit > 0 && len(notifications) > limit {
 		notifications = notifications[:limit]

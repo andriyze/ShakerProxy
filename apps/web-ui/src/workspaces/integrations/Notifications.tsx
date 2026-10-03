@@ -11,7 +11,7 @@ import { usePolling } from "../../shell/hooks"
 
 type Channel = { id: string; kind: "IN_APP" | "WEBHOOK" | "SLACK"; name: string; enabled: boolean; url?: string; secret?: string }
 type Rule = { id: string; trigger: string; device_id?: string; min_severity?: string; channels: string[]; enabled: boolean }
-type ConfigView = { available: boolean; enabled: boolean; revision: number; channels: Channel[]; rules: Rule[]; unread: number }
+export type ConfigView = { available: boolean; enabled: boolean; revision: number; channels: Channel[]; rules: Rule[]; unread: number }
 type Notification = { id: string; created_at: string; trigger: string; severity: string; title: string; body: string; read: boolean }
 type ListView = { unread: number; notifications: Notification[] }
 
@@ -22,6 +22,11 @@ const TRIGGERS: { value: string; label: string }[] = [
   { value: "FLAGGED_DOMAIN", label: "A device contacts a flagged domain" },
   { value: "SECURITY_ALERT", label: "A security alert fires" },
 ]
+
+// Servers before beta.35 sent null for an empty list; treat it as empty.
+export function normalizeView(config: ConfigView): ConfigView {
+  return { ...config, channels: config.channels ?? [], rules: config.rules ?? [] }
+}
 
 function triggerLabel(value: string): string {
   return TRIGGERS.find((trigger) => trigger.value === value)?.label ?? value
@@ -37,8 +42,8 @@ export function Notifications() {
   async function refresh() {
     try {
       const [config, recent] = await Promise.all([api<ConfigView>("/api/v1/integrations/notifications"), api<ListView>("/api/v1/notifications")])
-      setView(config)
-      setList(recent)
+      setView(normalizeView(config))
+      setList({ ...recent, notifications: recent.notifications ?? [] })
       setUnavailable(false)
     } catch {
       setUnavailable(true)
@@ -58,7 +63,7 @@ export function Notifications() {
           body: JSON.stringify({ channels, rules, expected_revision: view!.revision, ...(password ? { password } : {}) }),
         }),
       )
-      setView(next)
+      setView(normalizeView(next))
       setMessage("Saved.")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The change could not be saved.")

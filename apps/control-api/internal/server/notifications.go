@@ -55,7 +55,7 @@ func (s *Server) notifyView(config notify.Config) notifyConfigView {
 		UpdatedAt: config.UpdatedAt,
 		UpdatedBy: config.UpdatedBy,
 		Channels:  channels,
-		Rules:     config.Rules,
+		Rules:     append([]notify.Rule{}, config.Rules...),
 		Unread:    unread,
 	}
 }
@@ -211,7 +211,7 @@ type notificationsListView struct {
 func (s *Server) listNotifications(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if !s.notifyConfigAvailable() {
-		writeJSON(w, http.StatusOK, notificationsListView{Schema: 1})
+		writeJSON(w, http.StatusOK, notificationsListView{Schema: 1, Notifications: []notify.Notification{}})
 		return
 	}
 	log, err := notify.LoadLog(s.notifyLogPath)
