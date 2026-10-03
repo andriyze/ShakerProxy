@@ -10,6 +10,7 @@ package labrouting
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"sort"
 	"time"
 
@@ -50,7 +51,42 @@ type Context struct {
 	// (a routed lab); false in a single-arm lab or an inline bridge, where
 	// the router does.
 	ShakerProxyServesDHCP bool
-	Threshold             time.Duration
+	// ShakerProxyLeases are the lab addresses ShakerProxy's own DHCP holds
+	// an active lease for, each with the lease's MAC ("" when unknown). A
+	// device with one has ShakerProxy as its gateway even when its DHCP
+	// exchange is older than the presence window.
+	ShakerProxyLeases map[netip.Addr]string
+	Threshold         time.Duration
+}
+
+// leaseOrigin is who gave a device its address, as far as ShakerProxy can
+// tell.
+type leaseOrigin int
+
+const (
+	leaseUnknown leaseOrigin = iota
+	// leaseShakerProxy: ShakerProxy's DHCP, which makes ShakerProxy the
+	// gateway.
+	leaseShakerProxy
+	// leaseOther: the router's DHCP, or another server on the lab.
+	leaseOther
+)
+
+// originOf prefers the newest DHCP acknowledgement ShakerProxy saw (its
+// gateway option, else its server), then ShakerProxy's own lease table.
+func originOf(host ingest.LabPresenceHost, address netip.Addr, context Context) leaseOrigin {
+	for _, observed := range []string{host.DHCPGateway, host.DHCPServer} {
+		if value, err := netip.ParseAddr(observed); err == nil {
+			if context.ShakerProxy.IsValid() && value == context.ShakerProxy {
+				return leaseShakerProxy
+			}
+			return leaseOther
+		}
+	}
+	if mac, leased := context.ShakerProxyLeases[address]; leased && (mac == "" || len(host.HardwareAddrs) == 0 || slices.Contains(host.HardwareAddrs, mac)) {
+		return leaseShakerProxy
+	}
+	return leaseUnknown
 }
 
 // Result is one device's state.
@@ -80,20 +116,27 @@ func Classify(hosts []ingest.LabPresenceHost, context Context) []Result {
 		if err != nil || address == context.ShakerProxy || address == context.Router || context.Now.Sub(host.LastSeen) > PresentWindow {
 			continue
 		}
-		result := Result{Address: host.Address, HardwareAddrs: host.HardwareAddrs, HostName: host.HostName, LastSeen: host.LastSeen, Evidence: evidence(host)}
+		origin := originOf(host, address, context)
+		result := Result{Address: host.Address, HardwareAddrs: host.HardwareAddrs, HostName: host.HostName, LastSeen: host.LastSeen, Evidence: evidence(host, origin)}
 		quiet := quietSince(host)
-		// A device that took the router's DHCP in a lab where ShakerProxy
-		// serves none has the router as its gateway; otherwise it must have
-		// been active for a while before its silence through ShakerProxy
-		// means anything.
-		routerLease := !host.DHCPLastSeen.IsZero() && !context.ShakerProxyServesDHCP
-		active := host.LastSeen.Sub(quiet) >= threshold || host.Events >= 3 || routerLease
+		// A device whose newest DHCP exchange was not ShakerProxy's (the
+		// router's, in a lab where ShakerProxy serves none, or another
+		// server's) has that server's gateway; otherwise it must have been
+		// active for a while before its silence through ShakerProxy means
+		// anything. Its DHCP and discovery broadcasts are not activity: an
+		// idle printer announcing itself sends nothing anywhere.
+		otherLease := !host.DHCPLastSeen.IsZero() && (origin == leaseOther || origin == leaseUnknown && !context.ShakerProxyServesDHCP)
+		activity := host.Events - host.DiscoveryEvents - host.DHCPEvents
+		active := host.LastSeen.Sub(quiet) >= threshold || activity >= 3 || otherLease
 		switch {
-		case host.VisibleEvents > 0 && !rejoinedSince(host, threshold):
+		case host.VisibleEvents > 0 && !rejoinedSince(host, otherLease, context.Now, threshold):
 			result.Routing, result.Since = Through, host.VisibleFirstSeen
+		case origin == leaseShakerProxy && !otherLease:
+			// ShakerProxy is its gateway; it has just sent nothing yet.
+			result.Routing, result.Since = Unknown, quiet
 		case context.Now.Sub(quiet) >= threshold && active:
 			result.Routing, result.Since = Bypassing, quiet
-			result.Reason = reason(host, context)
+			result.Reason = reason(host, origin, context)
 		default:
 			result.Routing, result.Since = Unknown, quiet
 		}
@@ -108,11 +151,13 @@ func Classify(hosts []ingest.LabPresenceHost, context Context) []Result {
 	return results
 }
 
-// rejoinedSince reports a device that asked for its address again after
-// its last traffic through ShakerProxy and has sent nothing through it since:
-// it rejoined the network and the router's DHCP took it over.
-func rejoinedSince(host ingest.LabPresenceHost, threshold time.Duration) bool {
-	return !host.DHCPLastSeen.IsZero() && host.DHCPLastSeen.After(host.VisibleLastSeen) && host.LastSeen.Sub(host.DHCPLastSeen) >= threshold
+// rejoinedSince reports a device that asked another DHCP server for its
+// address after its last traffic through ShakerProxy and has sent nothing
+// through it for threshold since: it rejoined the network and the router's
+// DHCP took it over. The time is measured to now, not to its last sighting,
+// so a device that rejoins and then goes quiet is caught too.
+func rejoinedSince(host ingest.LabPresenceHost, otherLease bool, now time.Time, threshold time.Duration) bool {
+	return otherLease && host.DHCPLastSeen.After(host.VisibleLastSeen) && now.Sub(host.DHCPLastSeen) >= threshold
 }
 
 // quietSince is when the device's time without traffic through ShakerProxy
@@ -135,9 +180,14 @@ func rank(routing Routing) int {
 	return 2
 }
 
-func evidence(host ingest.LabPresenceHost) []string {
+func evidence(host ingest.LabPresenceHost, origin leaseOrigin) []string {
 	var items []string
-	if !host.DHCPLastSeen.IsZero() {
+	switch {
+	case origin == leaseShakerProxy:
+		items = append(items, fmt.Sprintf("has a lease for %s from ShakerProxy's DHCP, so ShakerProxy is its gateway", host.Address))
+	case origin == leaseOther && host.DHCPServer != "":
+		items = append(items, fmt.Sprintf("got %s from the DHCP server at %s", host.Address, host.DHCPServer))
+	case !host.DHCPLastSeen.IsZero():
 		items = append(items, fmt.Sprintf("asked the network's DHCP server for %s", host.Address))
 	}
 	if host.DiscoveryEvents > 0 {
@@ -151,12 +201,21 @@ func evidence(host ingest.LabPresenceHost) []string {
 	return items
 }
 
-func reason(host ingest.LabPresenceHost, context Context) string {
+func reason(host ingest.LabPresenceHost, origin leaseOrigin, context Context) string {
 	router := "the router"
 	if context.Router.IsValid() {
 		router = fmt.Sprintf("the router (%s)", context.Router)
 	}
 	switch {
+	case origin == leaseOther && context.ShakerProxyServesDHCP:
+		server, gateway := "another DHCP server", "another gateway"
+		if host.DHCPServer != "" {
+			server = "another DHCP server (" + host.DHCPServer + ")"
+		}
+		if host.DHCPGateway != "" {
+			gateway = host.DHCPGateway
+		}
+		return fmt.Sprintf("It got its address from %s, not ShakerProxy, so it uses %s as its gateway.", server, gateway)
 	case !context.ShakerProxyServesDHCP && !host.DHCPLastSeen.IsZero():
 		return fmt.Sprintf("It got its address from your router's DHCP, so it uses %s as its gateway, not ShakerProxy.", router)
 	case !context.ShakerProxyServesDHCP:

@@ -107,3 +107,17 @@ func TestDeviceServiceHintsValidateRejectsBadRows(t *testing.T) {
 		}
 	}
 }
+
+// A HomePod advertises _airplay and _raop, which imply equally specific
+// types; the type must not flip with the order the rows arrive in.
+func TestResolveDeviceServiceHintsBreaksTiesTheSameWayEveryTime(t *testing.T) {
+	const homePod = "device-0123456789abcdef0123456789abcdef"
+	at := time.Date(2026, 10, 3, 1, 0, 0, 0, time.UTC)
+	airplay := deviceServiceObservation{homePod, "_airplay._tcp.local", at}
+	raop := deviceServiceObservation{homePod, "_raop._tcp.local", at}
+	one := resolveDeviceServiceHints([]deviceServiceObservation{airplay, raop})
+	two := resolveDeviceServiceHints([]deviceServiceObservation{raop, airplay})
+	if len(one) != 1 || len(two) != 1 || one[0].Type != two[0].Type || one[0].Type == "" {
+		t.Fatalf("types differ by order: %+v vs %+v", one, two)
+	}
+}

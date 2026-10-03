@@ -64,3 +64,28 @@ func TestLabPresencePrefixBounds(t *testing.T) {
 		}
 	}
 }
+
+// The newest acknowledged lease names its server and gateway, so the
+// classifier can tell ShakerProxy's lease from the router's or a rogue one.
+func TestMergeLabPresenceKeepsTheNewestLeasesServer(t *testing.T) {
+	prefix := netip.MustParsePrefix("192.168.50.0/24")
+	base := time.Date(2026, 10, 2, 23, 0, 0, 0, time.UTC)
+	older, ok := parseZeekDHCP([]byte(`{"mac":"00:11:22:33:44:55","msg_types":["REQUEST","ACK"],"assigned_addr":"192.168.50.20","server_addr":"192.168.50.250","routers":["192.168.50.254"]}`), base)
+	newer, ok2 := parseZeekDHCP([]byte(`{"mac":"00:11:22:33:44:55","msg_types":["REQUEST","ACK"],"assigned_addr":"192.168.50.20","server_addr":"192.168.50.1","routers":["192.168.50.1"]}`), base.Add(time.Minute))
+	request, ok3 := parseZeekDHCP([]byte(`{"mac":"00:11:22:33:44:55","msg_types":["REQUEST"],"requested_addr":"192.168.50.20"}`), base.Add(2*time.Minute))
+	if !ok || !ok2 || !ok3 {
+		t.Fatal("DHCP records did not parse")
+	}
+	merged := mergeLabPresence(map[string]*LabPresenceHost{}, nil, []dhcpExchange{older, request, newer}, prefix)
+	if len(merged) != 1 || merged[0].DHCPServer != "192.168.50.1" || merged[0].DHCPGateway != "192.168.50.1" || merged[0].DHCPEvents != 3 || merged[0].Events != 3 {
+		t.Fatalf("merged = %+v", merged)
+	}
+	presence := LabPresence{Schema: LabPresenceSchema, GeneratedAt: base.Add(4 * time.Minute), Prefix: prefix.String(), Since: base.Add(-26 * time.Minute), Hosts: merged}
+	if err := presence.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	presence.Hosts[0].DHCPGateway = "not-an-address"
+	if presence.Validate() == nil {
+		t.Fatal("an invalid gateway was accepted")
+	}
+}

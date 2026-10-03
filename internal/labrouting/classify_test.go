@@ -137,3 +137,89 @@ func TestRoutedLabReasonPointsAtAFixedAddress(t *testing.T) {
 		t.Fatalf("reason without a known router = %q", result.Reason)
 	}
 }
+
+// The iPhone case: it went through ShakerProxy, rejoined the Wi-Fi on the
+// router's DHCP, then went idle. Its last sighting is that DHCP request, so
+// the time since it must be measured to now, not to its last sighting.
+func TestAPhoneThatRejoinedAndWentQuietBypasses(t *testing.T) {
+	phone := ingest.LabPresenceHost{
+		Address: "192.168.10.130", FirstSeen: at("23:20:00"), LastSeen: at("23:45:00"), Events: 70, DiscoveryEvents: 9, DHCPEvents: 1,
+		VisibleEvents: 60, VisibleFirstSeen: at("23:20:00"), VisibleLastSeen: at("23:40:00"), DHCPLastSeen: at("23:45:00"),
+	}
+	result := only(t, Classify([]ingest.LabPresenceHost{phone}, singleArm), "192.168.10.130")
+	if result.Routing != Bypassing || !result.Since.Equal(at("23:45:00")) || !strings.Contains(result.Reason, "router's DHCP") {
+		t.Fatalf("result = %+v", result)
+	}
+	// Right after the rejoin it may still send through ShakerProxy.
+	early := singleArm
+	early.Now = at("23:46:00")
+	if result := only(t, Classify([]ingest.LabPresenceHost{phone}, early), "192.168.10.130"); result.Routing != Through {
+		t.Fatalf("within the threshold of the rejoin: %+v", result)
+	}
+}
+
+var routedLab = Context{
+	Now:                   singleArm.Now,
+	ShakerProxy:           netip.MustParseAddr("192.168.50.1"),
+	ShakerProxyServesDHCP: true,
+}
+
+// A printer that took ShakerProxy's lease and only announces itself is idle,
+// not bypassing: ShakerProxy is its gateway. Neither its lease nor its mDNS
+// counts as activity.
+func TestAnIdleDeviceOnShakerProxysLeaseIsNotBypassing(t *testing.T) {
+	printer := ingest.LabPresenceHost{Address: "192.168.50.20", HardwareAddrs: []string{"00:11:22:33:44:55"}, FirstSeen: at("23:25:00"), LastSeen: at("23:52:00"), Events: 40, DiscoveryEvents: 40}
+	leased := routedLab
+	leased.ShakerProxyLeases = map[netip.Addr]string{netip.MustParseAddr("192.168.50.20"): "00:11:22:33:44:55"}
+	result := only(t, Classify([]ingest.LabPresenceHost{printer}, leased), "192.168.50.20")
+	if result.Routing != Unknown || result.Reason != "" || !strings.Contains(strings.Join(result.Evidence, "; "), "from ShakerProxy's DHCP") {
+		t.Fatalf("leased printer = %+v", result)
+	}
+	// The same, known from the acknowledgement ShakerProxy saw.
+	observed := printer
+	observed.DHCPLastSeen, observed.DHCPEvents, observed.Events = at("23:50:00"), 1, 41
+	observed.DHCPServer, observed.DHCPGateway = "192.168.50.1", "192.168.50.1"
+	if result := only(t, Classify([]ingest.LabPresenceHost{observed}, routedLab), "192.168.50.20"); result.Routing != Unknown {
+		t.Fatalf("observed ShakerProxy lease = %+v", result)
+	}
+	// Another device's lease on the address does not count.
+	other := routedLab
+	other.ShakerProxyLeases = map[netip.Addr]string{netip.MustParseAddr("192.168.50.20"): "66:77:88:99:aa:bb"}
+	if result := only(t, Classify([]ingest.LabPresenceHost{printer}, other), "192.168.50.20"); result.Routing != Bypassing {
+		t.Fatalf("someone else's lease = %+v", result)
+	}
+}
+
+// A device that renewed ShakerProxy's lease after its last connection still
+// goes through ShakerProxy.
+func TestRenewingShakerProxysLeaseIsNotARejoin(t *testing.T) {
+	phone := ingest.LabPresenceHost{
+		Address: "192.168.50.30", FirstSeen: at("23:20:00"), LastSeen: at("23:45:00"), Events: 70, DiscoveryEvents: 9, DHCPEvents: 1,
+		VisibleEvents: 60, VisibleFirstSeen: at("23:20:00"), VisibleLastSeen: at("23:40:00"), DHCPLastSeen: at("23:45:00"),
+		DHCPServer: "192.168.50.1", DHCPGateway: "192.168.50.1",
+	}
+	if result := only(t, Classify([]ingest.LabPresenceHost{phone}, routedLab), "192.168.50.30"); result.Routing != Through {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+// A rogue DHCP server on a routed lab hands out its own gateway; the reason
+// names it instead of guessing at a fixed address.
+func TestARogueDHCPLeaseOnARoutedLabIsNamed(t *testing.T) {
+	host := ingest.LabPresenceHost{
+		Address: "192.168.50.40", FirstSeen: at("23:48:00"), LastSeen: at("23:48:05"), Events: 2, DHCPEvents: 2, DHCPLastSeen: at("23:48:05"),
+		DHCPServer: "192.168.50.250", DHCPGateway: "192.168.50.254",
+	}
+	result := only(t, Classify([]ingest.LabPresenceHost{host}, routedLab), "192.168.50.40")
+	if result.Routing != Bypassing || result.Reason != "It got its address from another DHCP server (192.168.50.250), not ShakerProxy, so it uses 192.168.50.254 as its gateway." {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+// Three announcements in a few seconds, long ago, are not activity.
+func TestBroadcastsAloneDoNotMakeADeviceActive(t *testing.T) {
+	host := ingest.LabPresenceHost{Address: "192.168.50.60", FirstSeen: at("23:45:00"), LastSeen: at("23:45:05"), Events: 3, DiscoveryEvents: 3}
+	if result := only(t, Classify([]ingest.LabPresenceHost{host}, routedLab), "192.168.50.60"); result.Routing != Unknown {
+		t.Fatalf("result = %+v", result)
+	}
+}
