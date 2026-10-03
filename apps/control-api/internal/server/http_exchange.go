@@ -60,6 +60,10 @@ type httpExchangeResponse struct {
 	Reason    string                  `json:"reason,omitempty"`
 	Matched   int                     `json:"matched"`
 	Exchanges []httpexchange.Exchange `json:"exchanges"`
+	// Exposures lists secrets this exchange sent in the clear, by kind and
+	// location, never the value. Only cleartext (CAPTURE) flows expose
+	// anything; a decrypted HTTPS flow was encrypted on the wire.
+	Exposures []httpexchange.Exposure `json:"exposures,omitempty"`
 	Notes     []string                `json:"notes,omitempty"`
 	Capture   *httpExchangeCapture    `json:"capture,omitempty"`
 }
@@ -95,6 +99,9 @@ func (s *Server) getHTTPExchange(w http.ResponseWriter, r *http.Request) {
 		response = s.capturedHTTPExchange(ctx, detail.Event)
 	}
 	response.Schema, response.RecordID = httpExchangeSchema, recordID
+	// Secrets sent in the clear are flagged (by kind and location, never the
+	// value) for cleartext flows; this survives credential redaction below.
+	response.Exposures = httpexchange.Exposures(response.Exchanges, response.Source == "CAPTURE" && response.State == "AVAILABLE")
 	if response.Exchanges == nil {
 		response.Exchanges = []httpexchange.Exchange{}
 	}

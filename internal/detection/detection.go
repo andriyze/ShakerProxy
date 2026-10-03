@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"shakerproxy.dev/shakerproxy/internal/httpexchange"
 	"shakerproxy.dev/shakerproxy/internal/ingest"
 	"shakerproxy.dev/shakerproxy/internal/resourcepressure"
 )
@@ -34,6 +35,7 @@ const (
 	StoragePressure       Type = "STORAGE_PRESSURE"
 	CPUPressure           Type = "CPU_PRESSURE"
 	MemoryPressure        Type = "MEMORY_PRESSURE"
+	CleartextCredential   Type = "CLEARTEXT_CREDENTIAL"
 
 	SeverityWarning  Severity = "WARNING"
 	SeverityHigh     Severity = "HIGH"
@@ -41,13 +43,18 @@ const (
 	StateOpen        State    = "OPEN"
 	StateResolved    State    = "RESOLVED"
 
-	ObserveDHCP     ObservationKind = "DHCP_SERVER"
-	ObserveRA       ObservationKind = "ROUTER_ADVERTISEMENT"
-	ObserveGateway  ObservationKind = "GATEWAY_CLAIM"
-	ObserveClock    ObservationKind = "CLOCK"
-	ObserveCapture  ObservationKind = "CAPTURE"
-	ObserveResource ObservationKind = "RESOURCE"
+	ObserveDHCP      ObservationKind = "DHCP_SERVER"
+	ObserveRA        ObservationKind = "ROUTER_ADVERTISEMENT"
+	ObserveGateway   ObservationKind = "GATEWAY_CLAIM"
+	ObserveClock     ObservationKind = "CLOCK"
+	ObserveCapture   ObservationKind = "CAPTURE"
+	ObserveResource  ObservationKind = "RESOURCE"
+	ObserveCleartext ObservationKind = "CLEARTEXT_EXPOSURE"
 )
+
+// cleartextScopePattern bounds a hostname or address used in a cleartext
+// exposure scope.
+var cleartextScopePattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,253}$`)
 
 var safeScopePattern = regexp.MustCompile(`^[A-Za-z0-9_.:/=@-]{1,256}$`)
 
@@ -66,6 +73,11 @@ type Observation struct {
 	PacketDrops       uint64                   `json:"packet_drops,omitempty"`
 	FeedEvictions     uint64                   `json:"feed_evictions,omitempty"`
 	Pressure          *resourcepressure.Report `json:"resource_pressure,omitempty"`
+	// DestinationHost and ExposureKind describe a cleartext credential
+	// exposure. They name the destination and the shape of the leak, never
+	// the secret itself.
+	DestinationHost string `json:"destination_host,omitempty"`
+	ExposureKind    string `json:"exposure_kind,omitempty"`
 }
 
 type Candidate struct {
@@ -205,9 +217,41 @@ func Evaluate(observation Observation) ([]Candidate, error) {
 			candidate(MemoryPressure, severity, "Available memory crossed the appliance degradation threshold", causes["MEMORY_AVAILABLE_DEGRADED"] || causes["MEMORY_AVAILABLE_CRITICAL"]),
 			candidate(StoragePressure, severity, "Managed storage crossed the emergency reserve threshold", causes["DISK_RESERVE_DEGRADED"] || causes["DISK_RESERVE_CRITICAL"]),
 		}, nil
+	case ObserveCleartext:
+		return cleartextCandidate(observation)
 	default:
 		return nil, errors.New("unknown detection observation kind")
 	}
+}
+
+// cleartextExposureSummaries describes each exposure shape in plain words,
+// without the secret.
+var cleartextExposureSummaries = map[string]string{
+	"basic-auth":       "sent a username and password in the clear over HTTP",
+	"form-password":    "sent a password or secret in a cleartext HTTP form",
+	"token-in-url":     "put a secret in a cleartext HTTP web address",
+	"cleartext-cookie": "sent a session cookie in the clear over HTTP",
+}
+
+func cleartextCandidate(observation Observation) ([]Candidate, error) {
+	host := strings.ToLower(strings.TrimSpace(observation.DestinationHost))
+	source := strings.ToLower(strings.TrimSpace(observation.SourceIdentity))
+	summary, known := cleartextExposureSummaries[observation.ExposureKind]
+	if !known || host == "" || source == "" || !cleartextScopePattern.MatchString(host) || !cleartextScopePattern.MatchString(source) {
+		return nil, errors.New("cleartext exposure observation is invalid")
+	}
+	scope := source + "/" + host + "/" + observation.ExposureKind
+	if !safeScopePattern.MatchString(scope) {
+		return nil, errors.New("cleartext exposure scope is invalid")
+	}
+	return []Candidate{{
+		Type:     CleartextCredential,
+		Severity: SeverityHigh,
+		Scope:    scope,
+		Summary:  "A device " + summary + " to " + host,
+		Active:   true,
+		At:       observation.OccurredAt.UTC(),
+	}}, nil
 }
 
 func (m *Manager) ObservationsFromEnvelope(envelope ingest.Envelope) []Observation {
@@ -254,7 +298,75 @@ func (m *Manager) ObservationsFromEnvelope(envelope ingest.Envelope) []Observati
 			return []Observation{{Schema: 1, Kind: ObserveGateway, OccurredAt: envelope.OccurredAt, Interface: iface, SourceIdentity: mac, ClaimedAddress: claimed, Authorized: strings.EqualFold(mac, expected)}}
 		}
 	}
+	if cleartext := cleartextHTTPObservation(envelope, raw); cleartext != nil {
+		return cleartext
+	}
 	return nil
+}
+
+// cleartextHTTPObservation flags a secret carried in a cleartext HTTP web
+// address, from the ingested Zeek or Suricata HTTP event (no packet replay).
+// HTTPS is a separate kind, so every HTTP event here was unencrypted. Only
+// the URL is available at ingest; headers, cookies and bodies are flagged
+// when the full exchange is reconstructed.
+func cleartextHTTPObservation(envelope ingest.Envelope, raw map[string]any) []Observation {
+	var source, host, uri string
+	switch envelope.Source {
+	case ingest.SourceZeek:
+		if !strings.HasSuffix(envelope.Kind, ".http") && !strings.HasSuffix(envelope.Kind, "_http") {
+			return nil
+		}
+		// The URI carries query characters (?, &) that firstString rejects,
+		// so read it raw; its credential names are extracted below.
+		source, host, uri = firstString(raw, "id.orig_h"), firstString(raw, "host"), rawString(raw, "uri")
+	case ingest.SourceSuricata:
+		http, ok := raw["http"].(map[string]any)
+		if !ok {
+			return nil
+		}
+		source, host, uri = firstString(raw, "src_ip"), firstString(http, "hostname"), rawString(http, "url")
+	default:
+		return nil
+	}
+	host = stripHostPort(strings.ToLower(strings.TrimSpace(host)))
+	source = strings.ToLower(strings.TrimSpace(source))
+	if source == "" || host == "" || uri == "" {
+		return nil
+	}
+	params := httpexchange.URLCredentialParams(uri)
+	if len(params) == 0 {
+		return nil
+	}
+	return []Observation{{
+		Schema:          1,
+		Kind:            ObserveCleartext,
+		OccurredAt:      envelope.OccurredAt,
+		SourceIdentity:  source,
+		DestinationHost: host,
+		ExposureKind:    "token-in-url",
+	}}
+}
+
+// rawString returns a string value unchanged, bounded in length. Unlike
+// firstString it does not require safeScopePattern, because a URL carries
+// query characters; only the credential parameter names are used downstream.
+func rawString(values map[string]any, key string) string {
+	if value, ok := values[key].(string); ok && len(value) <= 8192 {
+		return value
+	}
+	return ""
+}
+
+func stripHostPort(host string) string {
+	if host == "" || strings.HasPrefix(host, "[") {
+		return host // bracketed IPv6; leave as-is
+	}
+	if strings.Count(host, ":") == 1 {
+		if base, _, found := strings.Cut(host, ":"); found {
+			return base
+		}
+	}
+	return host
 }
 
 func newEvent(candidate Candidate, state State, first time.Time, revision uint64) Event {

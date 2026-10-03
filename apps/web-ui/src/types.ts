@@ -1633,6 +1633,10 @@ export type HTTPExchangeBody = {
 export type HTTPExchangeRequest = { method: string; target: string; proto: string; headers: HTTPExchangeHeaders; body: HTTPExchangeBody }
 export type HTTPExchangeResponse = { proto: string; status_code: number; status: string; headers: HTTPExchangeHeaders; body: HTTPExchangeBody }
 export type HTTPExchangePair = { request?: HTTPExchangeRequest; response?: HTTPExchangeResponse }
+// A secret this cleartext exchange sent in the clear, by kind and location,
+// never the value.
+export type HTTPExposureKind = "basic-auth" | "form-password" | "token-in-url" | "cleartext-cookie"
+export type HTTPExposure = { kind: HTTPExposureKind; where: string }
 export type HTTPExchange = {
   schema: 1
   record_id: string
@@ -1641,6 +1645,7 @@ export type HTTPExchange = {
   reason?: string
   matched: number
   exchanges: HTTPExchangePair[]
+  exposures?: HTTPExposure[]
   notes?: string[]
   capture?: {
     session_id: string

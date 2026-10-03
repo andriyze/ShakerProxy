@@ -6,6 +6,8 @@ import {
   curlCommand,
   exchangeSourceLabel,
   exchangeTitle,
+  exposureHeadline,
+  exposureSummary,
   hasHTTPExchange,
   messageHeaderLines,
   rawMessage,
@@ -303,6 +305,16 @@ function HTTPExchangePanel({
               Try again
             </button>
           )}
+        </div>
+      )}
+      {exchange?.exposures && exchange.exposures.length > 0 && (
+        <div className="event-detail-exposure" role="alert">
+          <strong>{exposureHeadline(exchange.exposures)}</strong>
+          <ul>
+            {exchange.exposures.map((exposure) => (
+              <li key={`${exposure.kind}-${exposure.where}`}>{exposureSummary(exposure)}</li>
+            ))}
+          </ul>
         </div>
       )}
       {exchange?.notes?.map((note) => (
