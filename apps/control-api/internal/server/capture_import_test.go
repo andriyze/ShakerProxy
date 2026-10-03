@@ -118,3 +118,75 @@ func TestImportCaptureRejectsBadRequests(t *testing.T) {
 		t.Fatalf("read-only import returned %d", recorder.Code)
 	}
 }
+
+// A name field after the file (curl -F file=@x -F name=y, and the web UI
+// before beta.34) still names the capture: it rides on the last chunk.
+func TestImportCaptureTakesANameSentAfterTheFile(t *testing.T) {
+	fixture := newIntelFixture(t)
+	socket := filepath.Join(t.TempDir(), "gw.sock")
+	fixture.server.gateway.SocketPath = socket
+	sessionID := "capture-00112233445566778899aabbccddeeff"
+	var lastChunk gatewayprotocol.AppendCaptureImportParams
+	requests := startGatewaySequenceStub(t, socket,
+		gatewayprotocol.BeginCaptureImportResult{SessionID: sessionID},
+		func(req gatewayprotocol.Request) any {
+			_ = gatewayprotocol.DecodeParams(req.Params, &lastChunk)
+			result := capture.ImportResult{SessionID: sessionID, Packets: 3}
+			return gatewayprotocol.AppendCaptureImportResult{Done: true, Result: &result}
+		})
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, _ := writer.CreateFormFile("file", "unifi-gateway.pcapng")
+	_, _ = part.Write(smallImportPCAPNG())
+	_ = writer.WriteField("name", "Router capture")
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/captures/import", body)
+	request.Host = "shakerproxy.test"
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Authorization", "Bearer "+fixture.session)
+	recorder := httptest.NewRecorder()
+	fixture.server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("import returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	begin := <-requests
+	var params gatewayprotocol.BeginCaptureImportParams
+	_ = gatewayprotocol.DecodeParams(begin.Params, &params)
+	<-requests
+	if params.Name != "unifi-gateway.pcapng" || !lastChunk.EOF || lastChunk.Name != "Router capture" {
+		t.Fatalf("begin name %q, last chunk %#v", params.Name, lastChunk)
+	}
+}
+
+// A failed upload is aborted on the gateway with the dedicated call.
+func TestImportCaptureAbortsAFailedUpload(t *testing.T) {
+	fixture := newIntelFixture(t)
+	socket := filepath.Join(t.TempDir(), "gw.sock")
+	fixture.server.gateway.SocketPath = socket
+	sessionID := "capture-00112233445566778899aabbccddeeff"
+	requests := startGatewaySequenceStub(t, socket, gatewayprotocol.BeginCaptureImportResult{SessionID: sessionID}, map[string]bool{"aborted": true})
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	for range 2 {
+		part, _ := writer.CreateFormFile("file", "twice.pcapng")
+		_, _ = part.Write(smallImportPCAPNG())
+	}
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/captures/import", body)
+	request.Host = "shakerproxy.test"
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Authorization", "Bearer "+fixture.session)
+	recorder := httptest.NewRecorder()
+	fixture.server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("a two-file upload returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	<-requests // Begin
+	abort := <-requests
+	var params gatewayprotocol.AbortCaptureImportParams
+	if abort.Method != "AbortCaptureImport" || gatewayprotocol.DecodeParams(abort.Params, &params) != nil || params.SessionID != sessionID {
+		t.Fatalf("second call = %s %s", abort.Method, abort.Params)
+	}
+}

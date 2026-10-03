@@ -887,7 +887,7 @@ paths:
   /captures/import:
     post:
       operationId: importCapture
-      description: "Imports a .pcapng captured elsewhere (for example the UniFi gateway's own packet capture, or tcpdump on another box) as a finalized capture the offline analyzers process. The upload is multipart/form-data with a 'file' part and optional 'name' and 'description' fields, streamed to the gateway in bounded chunks. Events keep the packets' own timestamps, so the import appears under its real time window and is scoped by capture_session_id. A classic .pcap is refused with how to convert it; the uploaded file name is never used for any path."
+      description: "Imports a .pcapng captured elsewhere (for example the UniFi gateway's own packet capture, or tcpdump on another box) as a finalized capture the offline analyzers process. The upload is multipart/form-data with a 'file' part and optional 'name' and 'description' fields (before or after the file), streamed to the gateway in bounded chunks. Events keep the packets' own timestamps, so the import appears under its real time window and is scoped by capture_session_id. A file whose last packet is cut off keeps its complete packets; truncated_bytes in the response says how much was dropped. A classic .pcap is refused with how to convert it; the uploaded file name is never used for any path."
       security: [{bearerAuth: []}]
       requestBody:
         required: true
