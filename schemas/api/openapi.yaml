@@ -181,6 +181,54 @@ paths:
         "401": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
         "503": {$ref: "#/components/responses/Error"}
+  /integrations/notifications:
+    get:
+      operationId: getNotificationsConfig
+      description: "Notification channels and rules, and the unread count. API tokens need system:read. Channel secrets are never returned; a configured secret shows as the marker set."
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Notifications configuration}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+    put:
+      operationId: putNotificationsConfig
+      description: "Freshly reauthenticated optimistic update of the channels and rules. Off by default; nothing is delivered until a rule is enabled. A webhook channel URL must be https. Sending a channel secret as the marker set keeps the stored secret."
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        "200": {description: Updated notifications configuration}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /integrations/notifications/test:
+    post:
+      operationId: postNotificationsTest
+      description: Deliver a test notification to one configured channel, to confirm it is set up correctly.
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {channel: {type: string}}}}}}
+      responses:
+        "200": {description: Delivered}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+  /notifications:
+    get:
+      operationId: listNotifications
+      description: "The in-app notification list, newest first, with the unread count. Each notification states what happened and the subject (device, host, finding kind); it never contains a secret value. API tokens need system:read."
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Recent notifications}
+        "401": {$ref: "#/components/responses/Error"}
+  /notifications/read:
+    post:
+      operationId: markNotificationsRead
+      description: Mark the given notification ids read, or all when ids is empty.
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {ids: {type: array, items: {type: string}}}}}}}
+      responses:
+        "200": {description: Count marked read}
+        "401": {$ref: "#/components/responses/Error"}
   /metrics:
     get:
       operationId: getOpenMetrics

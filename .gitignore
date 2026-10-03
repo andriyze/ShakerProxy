@@ -58,3 +58,6 @@ __pycache__/
 *.db-wal
 *.db-shm
 *.log
+
+# Built CLI binary — never commit
+/shakerproxy

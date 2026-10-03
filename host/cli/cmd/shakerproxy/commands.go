@@ -151,6 +151,13 @@ func init() {
 				"for the exact UniFi setup steps.",
 			examples: []string{"shakerproxy syslog", "shakerproxy syslog enable --sources 192.168.10.1 --password-file /root/.sp-pass", "shakerproxy syslog disable --password-file /root/.sp-pass"},
 			run:      (*cli).syslogCommand},
+		{name: "alerts", aliases: []string{"notifications"}, group: groupTraffic, summary: "Recent notifications: new devices, bypassing devices, cleartext secrets, flagged domains",
+			usage: []string{"alerts [list]"},
+			details: "Lists the recent in-app notifications. Each states what happened and the subject; it never shows a secret value.\n" +
+				"Turn notifications on and add channels (an in-app list, or a webhook/Slack URL) and rules in the web UI under\n" +
+				"Integrations. Off by default.",
+			examples: []string{"shakerproxy alerts", "shakerproxy alerts --json"},
+			run:      (*cli).alertsCommand},
 		{name: "wifi", aliases: []string{"wi-fi", "wireless"}, group: groupTraffic, summary: "Listen on Wi-Fi: networks devices search for, join, roam between and leave",
 			usage: []string{"wifi [status]", "wifi on [--adapter wlan1]", "wifi off", "wifi channel <n|auto|hop>", "wifi nearby on|off [--confirm]"},
 			details: "Needs a Wi-Fi adapter that supports monitor mode (a second USB adapter, or the lab access point's when it can listen\n" +

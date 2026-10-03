@@ -125,6 +125,8 @@ func main() {
 		Forwarders:                  &forwarder.Manager{Root: envOr("SHAKERPROXY_FORWARDER_ROOT", "/var/lib/shakerproxy/forwarders")},
 		SyslogCollectorConfigPath:   envOr("SHAKERPROXY_SYSLOG_CONFIG_FILE", "/var/lib/shakerproxy/syslog-collector/config.json"),
 		SyslogCollectorStatusPath:   envOr("SHAKERPROXY_SYSLOG_STATUS_FILE", "/var/lib/shakerproxy/syslog-collector/status.json"),
+		NotifyConfigPath:            envOr("SHAKERPROXY_NOTIFY_CONFIG_FILE", dataDirectory+"/notifications.json"),
+		NotifyLogPath:               envOr("SHAKERPROXY_NOTIFY_LOG_FILE", dataDirectory+"/notification-log.json"),
 		OpenAPIPath:                 filepath.Join(registryRoot, "schemas", "api", "openapi.yaml"),
 		AdminResetRequestPath:       envOr("SHAKERPROXY_ADMIN_RESET_REQUEST", filepath.Join(dataDirectory, "admin-reset.request")),
 	}
@@ -158,6 +160,7 @@ func main() {
 		controlServer.RunDeviceTrafficDeletionRecovery,
 		func(ctx context.Context) { controlServer.RunCaptureRetentionScheduler(ctx, 30*time.Second) },
 		func(ctx context.Context) { controlServer.RunAdminResetWatcher(ctx, 5*time.Second) },
+		func(ctx context.Context) { controlServer.RunNotifications(ctx, 30*time.Second) },
 	} {
 		workers.Add(1)
 		go func() {
