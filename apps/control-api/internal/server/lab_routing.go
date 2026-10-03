@@ -115,15 +115,17 @@ func (s *Server) buildLabRouting(ctx context.Context, now time.Time) (labRouting
 	if err != nil {
 		return unavailableLabRouting(now, "Recorded traffic cannot be read right now."), err.Error()
 	}
-	// ShakerProxy and the router are not devices under test; without a
-	// usable address for them the report would judge them too.
+	// ShakerProxy and the router are not devices under test. Either may be
+	// absent (an inline bridge whose own address comes from the router's
+	// DHCP; a routed lab with no other router), but one that is reported and
+	// unusable would be judged as a device, so it is logged, not ignored.
+	problem := ""
 	shakerProxy, err := netip.ParseAddr(status.LabIPv4Gateway)
-	if err != nil || !prefix.Contains(shakerProxy) {
-		return unavailableLabRouting(now, "ShakerProxy's own lab address is not known right now."), "the gateway reported an unusable lab address " + strconv.Quote(status.LabIPv4Gateway)
+	if status.LabIPv4Gateway != "" && (err != nil || !prefix.Contains(shakerProxy)) {
+		problem = "the gateway reported an unusable lab address " + strconv.Quote(status.LabIPv4Gateway)
 	}
 	router, err := netip.ParseAddr(status.LabIPv4Router)
-	problem := ""
-	if status.LabIPv4Router != "" && err != nil {
+	if status.LabIPv4Router != "" && (err != nil || !prefix.Contains(router)) {
 		problem = "the gateway reported an unusable router address " + strconv.Quote(status.LabIPv4Router)
 	}
 	servesDHCP := networkplan.UsesManagedDHCP4(networkplan.Plan{Topology: networkplan.Topology(status.LabTopology)})

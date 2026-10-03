@@ -131,7 +131,7 @@ func Classify(hosts []ingest.LabPresenceHost, context Context) []Result {
 		switch {
 		case host.VisibleEvents > 0 && !rejoinedSince(host, otherLease, context.Now, threshold):
 			result.Routing, result.Since = Through, host.VisibleFirstSeen
-		case origin == leaseShakerProxy && !otherLease:
+		case origin == leaseShakerProxy:
 			// ShakerProxy is its gateway; it has just sent nothing yet.
 			result.Routing, result.Since = Unknown, quiet
 		case context.Now.Sub(quiet) >= threshold && active:
