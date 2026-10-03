@@ -61,6 +61,7 @@ type Backend interface {
 	Diagnostics(context.Context) (agentapi.Diagnostics, error)
 	LabRouting(context.Context) (agentapi.LabRouting, error)
 	SyslogCollector(context.Context) (agentapi.SyslogCollectorStatus, error)
+	Notifications(context.Context) (agentapi.NotificationList, error)
 }
 
 type Service struct {
@@ -111,6 +112,7 @@ const (
 	toolDiagnostics     = "diagnostics"
 	toolLabRouting      = "lab_routing"
 	toolSyslogCollector = "syslog_collector"
+	toolNotifications   = "notifications"
 )
 
 // QuerySyntax is the cheat sheet embedded in search_traffic.
@@ -180,6 +182,8 @@ func New(backend Backend) (*mcp.Server, error) {
 		`Show which devices seen on the lab in the last 10 minutes send their traffic through ShakerProxy and which bypass it (such as a phone that took the router's DHCP and uses the router as its gateway), bypassing ones first with the reason and the addresses for the fix; run it first when a device's traffic is missing. Example: {}.`), service.labRouting)
 	mcp.AddTool(server, readOnlyTool(toolSyslogCollector, "Network-gear log collector status",
 		`Show whether the network-gear (UniFi) log collector is on, where it listens, which router addresses it accepts, and its message counts, read-only with no action to enable or disable it. Example: {}.`), service.syslogCollector)
+	mcp.AddTool(server, readOnlyTool(toolNotifications, "Recent notifications",
+		`List recent in-app notifications (new device, bypassing device, cleartext secret, flagged domain, security alert) with the unread count, read-only and stating only what happened and the subject, never a secret. Example: {}.`), service.notifications)
 	return server, nil
 }
 

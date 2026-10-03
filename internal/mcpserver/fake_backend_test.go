@@ -28,34 +28,35 @@ const (
 type fakeBackend struct {
 	mu sync.Mutex
 
-	overview     agentapi.SystemOverview
-	devicePage   agentapi.DevicePage
-	resolutions  map[string]agentapi.DeviceResolution
-	report       devicereport.Report
-	comparison   devicereport.Comparison
-	sessions     agentapi.TestSessionList
-	session      testsession.Session
-	protocols    agentapi.ProtocolsPage
-	protocolsErr error
-	page         agentapi.EventPage
-	httpPage     ingest.HTTPActivityPage
-	detail       ingest.EventDetail
-	coverage     coverage.Overview
-	exchange     agentapi.HTTPExchange
-	exchangeErr  error
-	followBatch  agentapi.FollowBatch
-	follows      []agentapi.FollowRequest
-	controls     agentapi.DeviceControls
-	capturePage  agentapi.CapturePage
-	capturesErr  error
-	casePage     agentapi.CasePage
-	caseDetail   agentapi.CaseDetail
-	diagnostics  agentapi.Diagnostics
-	labRouting   agentapi.LabRouting
-	syslog       agentapi.SyslogCollectorStatus
-	controlsFor  []string
-	captureLimit int
-	caseRequests []string
+	overview      agentapi.SystemOverview
+	devicePage    agentapi.DevicePage
+	resolutions   map[string]agentapi.DeviceResolution
+	report        devicereport.Report
+	comparison    devicereport.Comparison
+	sessions      agentapi.TestSessionList
+	session       testsession.Session
+	protocols     agentapi.ProtocolsPage
+	protocolsErr  error
+	page          agentapi.EventPage
+	httpPage      ingest.HTTPActivityPage
+	detail        ingest.EventDetail
+	coverage      coverage.Overview
+	exchange      agentapi.HTTPExchange
+	exchangeErr   error
+	followBatch   agentapi.FollowBatch
+	follows       []agentapi.FollowRequest
+	controls      agentapi.DeviceControls
+	capturePage   agentapi.CapturePage
+	capturesErr   error
+	casePage      agentapi.CasePage
+	caseDetail    agentapi.CaseDetail
+	diagnostics   agentapi.Diagnostics
+	labRouting    agentapi.LabRouting
+	syslog        agentapi.SyslogCollectorStatus
+	notifications agentapi.NotificationList
+	controlsFor   []string
+	captureLimit  int
+	caseRequests  []string
 
 	resolved        []string
 	reportRequest   agentapi.DeviceReportRequest

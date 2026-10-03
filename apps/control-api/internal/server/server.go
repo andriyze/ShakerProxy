@@ -35,6 +35,7 @@ import (
 	deviceinventory "shakerproxy.dev/shakerproxy/internal/inventory"
 	"shakerproxy.dev/shakerproxy/internal/managementpki"
 	"shakerproxy.dev/shakerproxy/internal/networkplan"
+	"shakerproxy.dev/shakerproxy/internal/notify"
 	"shakerproxy.dev/shakerproxy/internal/querylang"
 	"shakerproxy.dev/shakerproxy/internal/recoveryobjectives"
 	"shakerproxy.dev/shakerproxy/internal/savedview"
@@ -84,6 +85,11 @@ type Config struct {
 	// here). Empty disables the integration endpoints.
 	SyslogCollectorConfigPath string
 	SyslogCollectorStatusPath string
+	// NotifyConfigPath and NotifyLogPath hold the notifications configuration
+	// (channels and rules) and the in-app notification list. Empty disables
+	// the notifications endpoints and evaluator.
+	NotifyConfigPath string
+	NotifyLogPath    string
 }
 
 type analyzerStatusService interface {
@@ -135,6 +141,10 @@ type Server struct {
 	adminResetOwnerUID          int
 	syslogCollectorConfigPath   string
 	syslogCollectorStatusPath   string
+	notifyConfigPath            string
+	notifyLogPath               string
+	notifyDeliverer             notify.Deliverer
+	notifyEvalState             *notifyState
 	retentionSchedulerMu        sync.Mutex
 	retentionSchedulerLastError string
 	tokenRateMu                 sync.Mutex
@@ -153,7 +163,7 @@ func New(config Config) *Server {
 	for _, host := range config.AllowedHosts {
 		hosts[strings.ToLower(strings.TrimSpace(host))] = struct{}{}
 	}
-	server := &Server{store: config.Store, gateway: gatewayclient.Client{SocketPath: config.GatewaySocket}, allowedHosts: hosts, logger: config.Logger, inventory: config.Inventory, keaLeasePath: config.KeaLeasePath, eventReader: config.EventReader, liveEventReader: config.LiveEventReader, ingestStatus: config.IngestStatus, eventSnapshots: config.EventSnapshots, savedViews: config.SavedViews, captureEventDeletions: config.CaptureEventDeletions, eventSelectionDeletions: config.EventSelectionDeletions, zeekCheckpointDeletions: config.ZeekCheckpointDeletions, suricataCheckpointDeletions: config.SuricataCheckpointDeletions, capabilities: config.Capabilities, recoveryObjectives: config.RecoveryObjectives, managementCACertPath: config.ManagementCACertPath, managementPKIStatusPath: config.ManagementPKIStatusPath, cases: config.Cases, apiTokens: config.APITokens, forwarders: config.Forwarders, nameResolver: &deviceinventory.NameResolver{Store: config.Inventory}, sessions: make(map[string]sessionRecord), authFailures: make(map[string]authFailureCounter), tokenRates: make(map[string]tokenRateWindow), liveSlots: make(chan struct{}, 16), openAPIPath: config.OpenAPIPath, adminResetRequestPath: config.AdminResetRequestPath, syslogCollectorConfigPath: config.SyslogCollectorConfigPath, syslogCollectorStatusPath: config.SyslogCollectorStatusPath}
+	server := &Server{store: config.Store, gateway: gatewayclient.Client{SocketPath: config.GatewaySocket}, allowedHosts: hosts, logger: config.Logger, inventory: config.Inventory, keaLeasePath: config.KeaLeasePath, eventReader: config.EventReader, liveEventReader: config.LiveEventReader, ingestStatus: config.IngestStatus, eventSnapshots: config.EventSnapshots, savedViews: config.SavedViews, captureEventDeletions: config.CaptureEventDeletions, eventSelectionDeletions: config.EventSelectionDeletions, zeekCheckpointDeletions: config.ZeekCheckpointDeletions, suricataCheckpointDeletions: config.SuricataCheckpointDeletions, capabilities: config.Capabilities, recoveryObjectives: config.RecoveryObjectives, managementCACertPath: config.ManagementCACertPath, managementPKIStatusPath: config.ManagementPKIStatusPath, cases: config.Cases, apiTokens: config.APITokens, forwarders: config.Forwarders, nameResolver: &deviceinventory.NameResolver{Store: config.Inventory}, sessions: make(map[string]sessionRecord), authFailures: make(map[string]authFailureCounter), tokenRates: make(map[string]tokenRateWindow), liveSlots: make(chan struct{}, 16), openAPIPath: config.OpenAPIPath, adminResetRequestPath: config.AdminResetRequestPath, syslogCollectorConfigPath: config.SyslogCollectorConfigPath, syslogCollectorStatusPath: config.SyslogCollectorStatusPath, notifyConfigPath: config.NotifyConfigPath, notifyLogPath: config.NotifyLogPath, notifyDeliverer: notify.HTTPDeliverer{}}
 	if config.Store != nil {
 		server.sessionsPath = config.Store.SessionsPath()
 		server.loadSessions()
@@ -208,6 +218,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/v1/integrations/forwarders/{forwarderID}", s.requireAuth(http.HandlerFunc(s.deleteForwarder)))
 	mux.Handle("GET /api/v1/integrations/syslog-collector", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.getSyslogCollector)))
 	mux.Handle("PUT /api/v1/integrations/syslog-collector", s.requireAuth(http.HandlerFunc(s.putSyslogCollector)))
+	mux.Handle("GET /api/v1/integrations/notifications", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.getNotifyConfig)))
+	mux.Handle("PUT /api/v1/integrations/notifications", s.requireAuth(http.HandlerFunc(s.putNotifyConfig)))
+	mux.Handle("POST /api/v1/integrations/notifications/test", s.requireAuth(http.HandlerFunc(s.postNotifyTest)))
+	mux.Handle("GET /api/v1/notifications", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.listNotifications)))
+	mux.Handle("POST /api/v1/notifications/read", s.requireAuth(http.HandlerFunc(s.markNotificationsRead)))
 	mux.Handle("GET /api/v1/cases", s.requireAuthOrScope(apitoken.ScopeCasesRead, http.HandlerFunc(s.listCases)))
 	mux.Handle("POST /api/v1/cases", s.requireAuthOrScope(apitoken.ScopeCasesWrite, http.HandlerFunc(s.createCase)))
 	mux.Handle("GET /api/v1/cases/{caseID}", s.requireAuthOrScope(apitoken.ScopeCasesRead, http.HandlerFunc(s.getCase)))
