@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"shakerproxy.dev/shakerproxy/internal/firewall"
@@ -19,10 +20,10 @@ func TestDiagnosticsAreBoundedOrderedAndReadOnly(t *testing.T) {
 	}
 	server := NewServer(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	report := server.inspectDiagnostics(context.Background())
-	if report.Schema != diagnosticSchema || report.GeneratedAt.IsZero() || len(report.Checks) != 14 {
+	if report.Schema != diagnosticSchema || report.GeneratedAt.IsZero() || len(report.Checks) != 15 {
 		t.Fatalf("unexpected diagnostic report: %#v", report)
 	}
-	expected := []string{"interfaces", "firewall", "routes", "dns", "service_ports", "forwarding", "dhcp", "docker", "services", "disk", "resource_pressure", "time_sync", "capture", "packet_drops"}
+	expected := []string{"interfaces", "firewall", "routes", "dns", "service_ports", "forwarding", "dhcp", "docker", "services", "host_services", "disk", "resource_pressure", "time_sync", "capture", "packet_drops"}
 	for index, check := range report.Checks {
 		if check.Name != expected[index] || len(check.Summary) < 1 || len(check.Summary) > 256 || len(check.Observations) > 8 {
 			t.Fatalf("unbounded or unordered diagnostic check %d: %#v", index, check)
@@ -100,5 +101,34 @@ func TestDoctorDoesNotFailAHealthySingleArmLab(t *testing.T) {
 	foreign := firewall.Inspection{SelectedBackend: "iptables-nft", Issues: []firewall.Issue{{Code: "SHAKERPROXY_CHAIN_CONFLICT", Blocking: true}, {Code: "DOCKER_USER_CHAIN_MISSING", Blocking: true}, {Code: "UFW_ACTIVE", Blocking: false}}}
 	if status, notes := firewallDiagnostic(foreign, true, true); status != gatewayprotocol.DiagnosticFail || notes[1] != "blocking issues: DOCKER_USER_CHAIN_MISSING" {
 		t.Fatalf("a real blocking issue: %s %v", status, notes)
+	}
+}
+
+// The unit list from the test VM on beta.34: the syslog collector had been
+// failing to start for days and every other check passed.
+func TestHostServicesDiagnosticFailsOnAServiceStuckRestarting(t *testing.T) {
+	units := `shakerproxy-app.service loaded active exited ShakerProxy application stack
+shakerproxy-ca-onboarding.service loaded active running ShakerProxy CA onboarding
+shakerproxy-capture@17aa965d72284798766b16aad012313c.service loaded active running ShakerProxy capture
+shakerproxy-dnsd.service loaded active running ShakerProxy DNS
+shakerproxy-gatewayd.service loaded active running ShakerProxy gateway
+shakerproxy-syslog-collectord.service loaded activating auto-restart ShakerProxy network-gear syslog collector
+shakerproxy-testlab.service loaded active running ShakerProxy test lab
+`
+	check := hostServicesDiagnostic(units)
+	if check.Name != "host_services" || check.Status != gatewayprotocol.DiagnosticFail || len(check.Observations) != 1 || !strings.Contains(check.Observations[0], "shakerproxy-syslog-collectord.service keeps failing") {
+		t.Fatalf("check = %#v; want a FAIL naming the syslog collector", check)
+	}
+
+	failed := "● shakerproxy-traffic-policy.service loaded failed failed ShakerProxy traffic policy\nshakerproxy-dnsd.service loaded active running ShakerProxy DNS\n"
+	if check := hostServicesDiagnostic(failed); check.Status != gatewayprotocol.DiagnosticFail || !strings.Contains(check.Observations[0], "shakerproxy-traffic-policy.service has failed") {
+		t.Fatalf("failed unit check = %#v", check)
+	}
+
+	// A failed per-capture instance is the capture check's business, and an
+	// inactive optional unit (no Wi-Fi adapter) is not a failure.
+	healthy := "shakerproxy-capture@0123.service loaded failed failed ShakerProxy capture\nshakerproxy-hostapd.service loaded inactive dead ShakerProxy Wi-Fi\nshakerproxy-dnsd.service loaded active running ShakerProxy DNS\nshakerproxy-gatewayd.service loaded active running ShakerProxy gateway\n"
+	if check := hostServicesDiagnostic(healthy); check.Status != gatewayprotocol.DiagnosticPass || !strings.Contains(check.Summary, "2 ShakerProxy host service(s) running") {
+		t.Fatalf("healthy check = %#v", check)
 	}
 }
