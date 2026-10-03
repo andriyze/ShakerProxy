@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 
 	"shakerproxy.dev/shakerproxy/internal/capture"
 	"shakerproxy.dev/shakerproxy/internal/gatewayprotocol"
@@ -22,7 +25,7 @@ type captureImportResponse struct {
 // importCapture streams an uploaded .pcapng to the gateway in bounded chunks,
 // which stores it as a finalized capture the offline analyzers process. The
 // upload is multipart/form-data with a "file" part and optional "name" and
-// "description" fields.
+// "description" fields, before or after the file.
 func (s *Server) importCapture(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -54,7 +57,22 @@ func (s *Server) importCapture(w http.ResponseWriter, r *http.Request) {
 			description = readFormField(part)
 		case "file":
 			fileName = part.FileName()
-			s.streamCaptureImport(w, r, part, importName(name, fileName), importDescription(description, fileName), username)
+			// Fields after the file are read once it has been streamed, and
+			// sent with the last chunk.
+			trailing := func() (string, string, error) {
+				lateName, lateDescription, err := readTrailingFields(reader)
+				if err != nil {
+					return "", "", err
+				}
+				if lateName != "" {
+					lateName = importName(lateName, fileName)
+				}
+				if lateDescription != "" {
+					lateDescription = importDescription(lateDescription, fileName)
+				}
+				return lateName, lateDescription, nil
+			}
+			s.streamCaptureImport(w, r, part, importName(name, fileName), importDescription(description, fileName), username, trailing)
 			return
 		default:
 			part.Close()
@@ -63,7 +81,33 @@ func (s *Server) importCapture(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusBadRequest, "import_file_missing", "the upload has no 'file' part")
 }
 
-func (s *Server) streamCaptureImport(w http.ResponseWriter, r *http.Request, file io.Reader, name, description, username string) {
+// readTrailingFields reads the parts after the file: a name or description
+// field there still names the capture. A second file part is refused.
+func readTrailingFields(reader *multipart.Reader) (string, string, error) {
+	name, description := "", ""
+	for parts := 0; ; parts++ {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			return name, description, nil
+		}
+		if err != nil || parts >= 16 {
+			return "", "", errors.New("the upload could not be read")
+		}
+		switch part.FormName() {
+		case "name":
+			name = readFormField(part)
+		case "description":
+			description = readFormField(part)
+		case "file":
+			part.Close()
+			return "", "", errors.New("the upload has more than one 'file' part")
+		default:
+			part.Close()
+		}
+	}
+}
+
+func (s *Server) streamCaptureImport(w http.ResponseWriter, r *http.Request, file io.Reader, name, description, username string, trailing func() (string, string, error)) {
 	limited := io.LimitReader(file, capture.DefaultMaxImportBytes+1)
 	var begun gatewayprotocol.BeginCaptureImportResult
 	beginParams := gatewayprotocol.BeginCaptureImportParams{Name: name, Description: description, Administrator: username}
@@ -94,6 +138,15 @@ func (s *Server) streamCaptureImport(w http.ResponseWriter, r *http.Request, fil
 		eof := atEnd
 		var appended gatewayprotocol.AppendCaptureImportResult
 		params := gatewayprotocol.AppendCaptureImportParams{SessionID: sessionID, Offset: offset, Data: buffer[:read], EOF: eof}
+		if eof && trailing != nil {
+			lateName, lateDescription, err := trailing()
+			if err != nil {
+				s.abortImport(r, sessionID)
+				writeError(w, http.StatusBadRequest, "import_unreadable", err.Error())
+				return
+			}
+			params.Name, params.Description = lateName, lateDescription
+		}
 		if err := s.gateway.Call(r.Context(), "AppendCaptureImport", params, &appended); err != nil {
 			s.abortImport(r, sessionID)
 			writeError(w, http.StatusBadRequest, "import_rejected", err.Error())
@@ -108,15 +161,20 @@ func (s *Server) streamCaptureImport(w http.ResponseWriter, r *http.Request, fil
 		}
 	}
 
-	s.logger.Info("capture import accepted", "username", username, "capture_id", result.SessionID, "packets", result.Packets, "bytes", result.SizeBytes)
+	s.logger.Info("capture import accepted", "username", username, "capture_id", result.SessionID, "packets", result.Packets, "bytes", result.SizeBytes, "truncated_bytes", result.TruncatedBytes)
 	writeJSON(w, http.StatusCreated, captureImportResponse{ImportResult: result, ViewPath: "/#/traffic?capture_session_id=" + result.SessionID})
 }
 
+// abortImport drops the in-progress import and its temporary file on the
+// gateway. It runs even when the request was cancelled (the browser gave up
+// mid-upload), so it does not use the request's context; failure here only
+// means the import is already gone, and the gateway expires it regardless.
 func (s *Server) abortImport(r *http.Request, sessionID string) {
-	var discard gatewayprotocol.AppendCaptureImportResult
-	// A zero-length append at a deliberately wrong offset makes the gateway
-	// drop the in-progress import; failure here only means it is already gone.
-	_ = s.gateway.Call(r.Context(), "AppendCaptureImport", gatewayprotocol.AppendCaptureImportParams{SessionID: sessionID, Offset: -1}, &discard)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+	defer cancel()
+	if err := s.gateway.Call(ctx, "AbortCaptureImport", gatewayprotocol.AbortCaptureImportParams{SessionID: sessionID}, nil); err != nil {
+		s.logger.Warn("capture import could not be aborted; it expires on its own", "session_id", sessionID, "error", err)
+	}
 }
 
 func readFormField(part io.ReadCloser) string {

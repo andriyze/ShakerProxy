@@ -22,6 +22,8 @@ type syslogCollectorResult struct {
 	Delivered      uint64   `json:"delivered"`
 	Dropped        uint64   `json:"dropped_rate_limited"`
 	Rejected       uint64   `json:"rejected_not_allowed"`
+	Listening      bool     `json:"listening"`
+	Error          string   `json:"error,omitempty"`
 }
 
 // syslogCollector reports the read-only status of the network-gear log
@@ -41,12 +43,19 @@ func (s *Service) syslogCollector(ctx context.Context, _ *mcp.CallToolRequest, _
 	if status.Status != nil {
 		result.Received, result.Parsed, result.Unparsed = status.Status.Received, status.Status.Parsed, status.Status.Unparsed
 		result.Delivered, result.Dropped, result.Rejected = status.Status.Delivered, status.Status.Dropped, status.Status.Rejected
+		result.Listening, result.Error = status.Status.Listening, boundText(status.Status.Error, 300)
 	}
 	switch {
 	case !status.Available:
 		result.Summary = "The network-gear log collector is not configured on this appliance."
 	case !status.Enabled:
 		result.Summary = "The network-gear log collector is off. Enable it (with the router's IP as an allowed source) to turn the router's DHCP, Wi-Fi and firewall logs into events."
+	case status.Status != nil && !status.Status.Listening:
+		reason := "it is starting"
+		if result.Error != "" {
+			reason = result.Error
+		}
+		result.Summary = boundText("The network-gear log collector is on but not listening on "+status.BindAddress+": "+reason+". It retries every few seconds.", 900)
 	default:
 		sources := "no sources"
 		if len(status.AllowedSources) > 0 {

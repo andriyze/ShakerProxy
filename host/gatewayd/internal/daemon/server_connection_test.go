@@ -315,3 +315,41 @@ func TestReadCaptureFlowValidatesItsRequest(t *testing.T) {
 		t.Fatal("flow reads should get the capture read budget")
 	}
 }
+
+// A cancelled or failed upload is dropped over the wire at once, freeing its
+// slot and temporary file; the earlier abort (an append at offset -1) was
+// rejected by the parameter check before it reached the import manager.
+func TestAbortCaptureImportDropsTheUploadOverTheWire(t *testing.T) {
+	server := connectionTestServer(t, nil)
+	root := t.TempDir()
+	server.imports = &capture.ImportManager{Store: capture.Store{Root: filepath.Join(root, "pcap")}, TempRoot: filepath.Join(root, ".imports")}
+	call := func(method, params string) (any, *gatewayprotocol.RPCError) {
+		return server.dispatch(t.Context(), gatewayprotocol.Request{JSONRPC: gatewayprotocol.JSONRPCVersion, ID: "import", Method: method, Params: json.RawMessage(params)})
+	}
+	begun, rpcErr := call("BeginCaptureImport", `{"name":"x","administrator":"admin"}`)
+	if rpcErr != nil {
+		t.Fatal(rpcErr.Message)
+	}
+	sessionID := begun.(gatewayprotocol.BeginCaptureImportResult).SessionID
+	temporary := filepath.Join(root, ".imports", "import-"+sessionID+".pcapng")
+	if _, err := os.Stat(temporary); err != nil {
+		t.Fatal(err)
+	}
+	if _, rpcErr := call("AbortCaptureImport", `{"session_id":"`+sessionID+`"}`); rpcErr != nil {
+		t.Fatal(rpcErr.Message)
+	}
+	if _, err := os.Stat(temporary); !os.IsNotExist(err) {
+		t.Fatalf("the temporary file outlived the abort: %v", err)
+	}
+	if _, rpcErr := call("AppendCaptureImport", `{"session_id":"`+sessionID+`","offset":0,"eof":true}`); rpcErr == nil {
+		t.Fatal("the aborted import still accepted data")
+	}
+	if _, rpcErr := call("AbortCaptureImport", `{"session_id":"../x"}`); rpcErr == nil {
+		t.Fatal("an invalid session id was accepted")
+	}
+	// A name rides only on the last chunk.
+	again, _ := call("BeginCaptureImport", `{"name":"x","administrator":"admin"}`)
+	if _, rpcErr := call("AppendCaptureImport", `{"session_id":"`+again.(gatewayprotocol.BeginCaptureImportResult).SessionID+`","offset":0,"name":"late"}`); rpcErr == nil {
+		t.Fatal("a name on a middle chunk was accepted")
+	}
+}

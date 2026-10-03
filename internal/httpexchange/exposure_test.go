@@ -134,3 +134,28 @@ func TestURLCredentialParamsNamesOnly(t *testing.T) {
 		t.Fatal("no-credential targets reported params")
 	}
 }
+
+func TestExposuresNamesTheAuthorizationScheme(t *testing.T) {
+	cases := map[string]ExposureKind{"Basic dXNlcjpwYXNz": ExposureBasicAuth, "Digest username=\"a\"": ExposureBasicAuth, "Bearer eyJhbGciOi": ExposureBearerToken, "Token abc": ExposureBearerToken}
+	for value, want := range cases {
+		got := Exposures([]Exchange{{Request: &Request{Target: "/", Headers: Headers{Items: []Header{header("Authorization", value)}}}}}, true)
+		if len(got) != 1 || got[0].Kind != want || got[0].Where != "Authorization header" {
+			t.Errorf("%q: %+v", value, got)
+		}
+	}
+}
+
+func TestExposuresFindsSecretsTheRedactorRemoves(t *testing.T) {
+	for _, preview := range []string{`{"key":"k-9f2c41d07e5b"}`, `{"token":{"jwt":"eyJ"}}`, `{"accessToken":"eyJ"}`, "user=a&password=hunter 2\n", "<key>password</key><string>x</string>"} {
+		got := Exposures([]Exchange{{Request: &Request{Target: "/", Body: Body{ContentType: "text/plain", PreviewEncoding: "text", Preview: preview}}}}, true)
+		if len(got) != 1 || got[0].Kind != ExposureFormPassword {
+			t.Errorf("%q: %+v", preview, got)
+		}
+	}
+	if names := URLCredentialParams("/cb?state=x;code=493021"); len(names) != 1 || names[0] != "code" {
+		t.Errorf("semicolon query names = %v", names)
+	}
+	if names := URLCredentialParams("/cb?code=&state=x"); names != nil {
+		t.Errorf("an empty value is not an exposure: %v", names)
+	}
+}

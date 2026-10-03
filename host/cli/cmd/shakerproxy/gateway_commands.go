@@ -544,6 +544,9 @@ func (c *cli) captureImport(args []string) error {
 		return c.printJSON(result)
 	}
 	c.printf("Imported %q (%s): %d packets, %s. Analyzing now.\n", sanitize(captureName), result.SessionID, result.Packets, humanBytes(result.SizeBytes))
+	if result.TruncatedBytes > 0 {
+		c.printf("The file's last packet was cut off; its %s were dropped and every complete packet was kept.\n", humanBytes(result.TruncatedBytes))
+	}
 	if !result.FirstPacket.IsZero() {
 		c.printf("Captured %s to %s.\n", result.FirstPacket.Format("2006-01-02 15:04"), result.LastPacket.Format("2006-01-02 15:04"))
 	}
@@ -552,8 +555,8 @@ func (c *cli) captureImport(args []string) error {
 }
 
 func (c *cli) abortImport(sessionID string) {
-	var discard gatewayprotocol.AppendCaptureImportResult
-	_ = c.gatewayCall("AppendCaptureImport", gatewayprotocol.AppendCaptureImportParams{SessionID: sessionID, Offset: -1}, &discard)
+	var discard map[string]bool
+	_ = c.gatewayCall("AbortCaptureImport", gatewayprotocol.AbortCaptureImportParams{SessionID: sessionID}, &discard)
 }
 
 // captureAuto shows or changes automatic lab recording: gatewayd records the

@@ -184,7 +184,7 @@ paths:
   /integrations/notifications:
     get:
       operationId: getNotificationsConfig
-      description: "Notification channels and rules, and the unread count. API tokens need system:read. Channel secrets are never returned; a configured secret shows as the marker set."
+      description: "Notification channels and rules, and the unread count. API tokens need system:read. Channel secrets and webhook URLs are never returned; a configured secret shows as the marker set, and a URL as its scheme and host followed by /[redacted]."
       security: [{bearerAuth: []}]
       responses:
         "200": {description: Notifications configuration}
@@ -192,7 +192,7 @@ paths:
         "503": {$ref: "#/components/responses/Error"}
     put:
       operationId: putNotificationsConfig
-      description: "Freshly reauthenticated optimistic update of the channels and rules. Off by default; nothing is delivered until a rule is enabled. A webhook channel URL must be https. Sending a channel secret as the marker set keeps the stored secret."
+      description: "Freshly reauthenticated optimistic update of the channels and rules. Off by default; nothing is delivered until a rule is enabled. A webhook channel URL must be https. Sending a channel secret as the marker set keeps the stored secret, and sending a channel's masked URL back keeps the stored URL."
       security: [{bearerAuth: []}]
       requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
       responses:
@@ -887,7 +887,7 @@ paths:
   /captures/import:
     post:
       operationId: importCapture
-      description: "Imports a .pcapng captured elsewhere (for example the UniFi gateway's own packet capture, or tcpdump on another box) as a finalized capture the offline analyzers process. The upload is multipart/form-data with a 'file' part and optional 'name' and 'description' fields, streamed to the gateway in bounded chunks. Events keep the packets' own timestamps, so the import appears under its real time window and is scoped by capture_session_id. A classic .pcap is refused with how to convert it; the uploaded file name is never used for any path."
+      description: "Imports a .pcapng captured elsewhere (for example the UniFi gateway's own packet capture, or tcpdump on another box) as a finalized capture the offline analyzers process. The upload is multipart/form-data with a 'file' part and optional 'name' and 'description' fields (before or after the file), streamed to the gateway in bounded chunks. Events keep the packets' own timestamps, so the import appears under its real time window and is scoped by capture_session_id. A file whose last packet is cut off keeps its complete packets; truncated_bytes in the response says how much was dropped. A classic .pcap is refused with how to convert it; the uploaded file name is never used for any path."
       security: [{bearerAuth: []}]
       requestBody:
         required: true
@@ -5112,7 +5112,7 @@ components:
             additionalProperties: false
             required: [kind, where]
             properties:
-              kind: {type: string, enum: [basic-auth, form-password, token-in-url, cleartext-cookie]}
+              kind: {type: string, enum: [basic-auth, bearer-token, form-password, token-in-url, cleartext-cookie]}
               where: {type: string, maxLength: 128}
         exchanges:
           type: array

@@ -1,11 +1,13 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"shakerproxy.dev/shakerproxy/internal/syslogcollector"
 )
@@ -69,5 +71,46 @@ func TestSyslogCollectorUnavailableWhenUnconfigured(t *testing.T) {
 	server.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("unconfigured collector returned %d", recorder.Code)
+	}
+}
+
+// The dashboard, CLI and MCP read the receiver counts directly under
+// "status"; the collector's own file nests them under "stats", which made
+// the dashboard tile throw and the CLI and MCP report zero. A status the
+// service stopped refreshing is not shown as listening.
+func TestSyslogCollectorStatusIsFlatAndGoesStale(t *testing.T) {
+	dir := t.TempDir()
+	configPath, statusPath := filepath.Join(dir, "config.json"), filepath.Join(dir, "status.json")
+	enabled := syslogcollector.DefaultFileConfig()
+	enabled.Enabled, enabled.AllowedSources = true, []string{"192.168.10.1"}
+	if err := syslogcollector.SaveConfig(configPath, enabled); err != nil {
+		t.Fatal(err)
+	}
+	server, session := configuredAPIServerWithConfig(t, filepath.Join(t.TempDir(), "absent.sock"), func(config *Config) {
+		config.SyslogCollectorConfigPath, config.SyslogCollectorStatusPath = configPath, statusPath
+	})
+	read := func() map[string]any {
+		request := tokenRequest(http.MethodGet, "/api/v1/integrations/syslog-collector", session)
+		request.Host = "shakerproxy.test"
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, request)
+		var view map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &view); err != nil {
+			t.Fatalf("%d: %s", recorder.Code, recorder.Body.String())
+		}
+		status, _ := view["status"].(map[string]any)
+		return status
+	}
+	if err := syslogcollector.WriteStatusFile(statusPath, syslogcollector.Status{Enabled: true, Listening: true, Stats: syslogcollector.Stats{Received: 10, Parsed: 8, Delivered: 8}}); err != nil {
+		t.Fatal(err)
+	}
+	if status := read(); status["received"] != float64(10) || status["delivered"] != float64(8) || status["listening"] != true {
+		t.Fatalf("status = %v", status)
+	}
+	if err := syslogcollector.WriteStatusFile(statusPath, syslogcollector.Status{GeneratedAt: time.Now().Add(-10 * time.Minute), Enabled: true, Listening: true}); err != nil {
+		t.Fatal(err)
+	}
+	if status := read(); status["listening"] != false || !strings.Contains(status["error"].(string), "has not reported") {
+		t.Fatalf("stale status = %v", status)
 	}
 }

@@ -72,4 +72,8 @@ test("cleartext exposures read as plain sentences and never carry a value", asyn
   assert.match(exposureSummary({ kind: "cleartext-cookie", where: "Cookie header" }), /session cookie sent in the clear/)
   assert.match(exposureHeadline([{ kind: "form-password", where: "request body" }]), /credentials in the clear over HTTP/)
   assert.match(exposureHeadline([{ kind: "cleartext-cookie", where: "Cookie header" }]), /session cookie in the clear/)
+  assert.match(exposureSummary({ kind: "bearer-token", where: "Authorization header" }), /sign-in token sent in the clear/)
+  assert.match(exposureHeadline([{ kind: "bearer-token", where: "Authorization header" }]), /credentials in the clear/)
+  // A kind from a newer appliance still reads as a sentence.
+  assert.match(exposureSummary({ kind: "future-kind", where: "somewhere" }), /secret sent in the clear \(somewhere\)/)
 })

@@ -21,6 +21,9 @@ type ExposureKind string
 const (
 	// ExposureBasicAuth is an HTTP Basic or Digest Authorization header.
 	ExposureBasicAuth ExposureKind = "basic-auth"
+	// ExposureBearerToken is any other Authorization scheme (Bearer, Token,
+	// an API key): a reusable sign-in token rather than a password.
+	ExposureBearerToken ExposureKind = "bearer-token"
 	// ExposureFormPassword is a credential field in a form or multipart body.
 	ExposureFormPassword ExposureKind = "form-password"
 	// ExposureTokenInURL is a credential in the request target's query string.
@@ -79,9 +82,19 @@ func scanRequestHeaders(headers Headers, add func(ExposureKind, string)) {
 		name := strings.ToLower(strings.TrimSpace(header.Name))
 		switch name {
 		case "authorization", "proxy-authorization":
-			// A bearer token is also a secret, but "Authorization" already
-			// names the exposure; Basic/Digest carry the password itself.
-			add(ExposureBasicAuth, "Authorization header")
+			// Basic carries the password itself and Digest a crackable hash
+			// of it; every other scheme carries a token.
+			where := "Authorization header"
+			if name == "proxy-authorization" {
+				where = "Proxy-Authorization header"
+			}
+			scheme, _, _ := strings.Cut(strings.TrimSpace(header.Value), " ")
+			switch strings.ToLower(scheme) {
+			case "basic", "digest":
+				add(ExposureBasicAuth, where)
+			default:
+				add(ExposureBearerToken, where)
+			}
 		case "cookie":
 			add(ExposureCleartextCookie, "Cookie header")
 		}
@@ -97,17 +110,17 @@ func bodyHasCredential(body Body) bool {
 	// the same way redactBody does when removing the values.
 	contentType := strings.ToLower(body.ContentType)
 	preview := body.Preview
-	if strings.Contains(contentType, "x-www-form-urlencoded") || looksLikeForm(preview) {
-		if len(URLCredentialParams("?"+preview)) > 0 {
-			return true
-		}
+	if (strings.Contains(contentType, "x-www-form-urlencoded") || looksLikeForm(preview)) && len(credentialPairs(preview, strictPair, false)) > 0 {
+		return true
 	}
-	return jsonCredential.MatchString(preview) || multipartCredential.MatchString(preview) || xmlCredential.MatchString(preview)
+	return len(credentialPairs(preview, loosePair, true)) > 0 || jsonCredential.MatchString(preview) || jsonCredentialContainer.MatchString(preview) ||
+		multipartCredential.MatchString(preview) || xmlCredential.MatchString(preview) || plistCredential.MatchString(preview)
 }
 
 // URLCredentialParams returns the names of credential-looking query
-// parameters in a request target. The names are not secret; the values are,
-// and are never returned.
+// parameters with a value in a request target, whether its pairs are
+// separated by & or ;. The names are not secret; the values are, and are
+// never returned.
 func URLCredentialParams(target string) []string {
 	_, query, found := strings.Cut(target, "?")
 	if !found || query == "" {
@@ -115,17 +128,13 @@ func URLCredentialParams(target string) []string {
 	}
 	seen := map[string]bool{}
 	var names []string
-	for _, part := range strings.Split(query, "&") {
-		name, _, hasValue := strings.Cut(part, "=")
-		if !hasValue {
-			continue
+	for _, pair := range credentialPairs(query, strictPair, false) {
+		name := query[pair[0]:pair[1]]
+		if decoded, err := url.QueryUnescape(name); err == nil {
+			name = decoded
 		}
-		decoded, err := url.QueryUnescape(name)
-		if err != nil {
-			decoded = name
-		}
-		lower := strings.ToLower(decoded)
-		if credentialNames[lower] && !seen[lower] {
+		lower := strings.ToLower(name)
+		if !seen[lower] {
 			seen[lower] = true
 			names = append(names, lower)
 		}

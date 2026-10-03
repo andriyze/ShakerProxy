@@ -82,6 +82,8 @@ func NewServerWithHostServices(store *StateStore, logger *slog.Logger, activatio
 	if captures != nil {
 		server.recorder = &LabRecorder{Store: store, Captures: captures, Source: server.captureSource, LabRevision: labRecordingRevision, NewCaptureAllowed: server.newCaptureAllowed, ConfigLock: server.configLock, Logger: logger}
 		server.imports = &capture.ImportManager{Store: captures.Store, TempRoot: filepath.Join(captures.Store.Root, ".imports")}
+		// Uploads in flight when the daemon last stopped can never finish.
+		server.imports.SweepOrphans()
 	}
 	return server
 }
@@ -990,7 +992,10 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil || len(params.Data) > capture.ImportChunkBytes || params.Offset < 0 {
 			return nil, &gatewayprotocol.RPCError{Code: -32602, Message: "invalid parameters"}
 		}
-		result, err := s.imports.Append(params.SessionID, params.Offset, params.Data, params.EOF)
+		if !params.EOF && (params.Name != "" || params.Description != "") {
+			return nil, &gatewayprotocol.RPCError{Code: -32602, Message: "invalid parameters"}
+		}
+		result, err := s.imports.AppendNamed(params.SessionID, params.Offset, params.Data, params.EOF, params.Name, params.Description)
 		if err != nil {
 			return nil, &gatewayprotocol.RPCError{Code: -32046, Message: err.Error()}
 		}
@@ -998,6 +1003,16 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 			return gatewayprotocol.AppendCaptureImportResult{Done: true, Result: &result}, nil
 		}
 		return gatewayprotocol.AppendCaptureImportResult{Done: false}, nil
+	case "AbortCaptureImport":
+		if s.imports == nil {
+			return nil, &gatewayprotocol.RPCError{Code: -32040, Message: "capture is unavailable in this daemon profile"}
+		}
+		var params gatewayprotocol.AbortCaptureImportParams
+		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil || !capture.ValidSessionID(params.SessionID) {
+			return nil, &gatewayprotocol.RPCError{Code: -32602, Message: "invalid parameters"}
+		}
+		s.imports.Abort(params.SessionID)
+		return map[string]bool{"aborted": true}, nil
 	case "SetOperatingMode":
 		var params gatewayprotocol.SetOperatingModeParams
 		if err := gatewayprotocol.DecodeParams(req.Params, &params); err != nil {

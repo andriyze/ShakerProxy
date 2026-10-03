@@ -45,6 +45,16 @@ type LabPresenceHost struct {
 	VisibleFirstSeen time.Time `json:"visible_first_seen,omitzero"`
 	VisibleLastSeen  time.Time `json:"visible_last_seen,omitzero"`
 	DHCPLastSeen     time.Time `json:"dhcp_last_seen,omitzero"`
+	// DHCPEvents counts the DHCP exchanges for the address. Like discovery
+	// messages they are broadcasts, and say nothing about where the
+	// device's traffic goes.
+	DHCPEvents int64 `json:"dhcp_events,omitempty"`
+	// DHCPServer and DHCPGateway are the server and the gateway (router
+	// option) of the newest acknowledged lease ShakerProxy saw for the
+	// address: they tell a lease ShakerProxy served from the router's or a
+	// rogue server's.
+	DHCPServer  string `json:"dhcp_server,omitempty"`
+	DHCPGateway string `json:"dhcp_gateway,omitempty"`
 }
 
 type LabPresence struct {
@@ -87,6 +97,9 @@ func (p LabPresence) Validate() error {
 		}
 		if host.HostName != "" && dhcpText(host.HostName, 253) != host.HostName {
 			return errors.New("lab presence host name is invalid")
+		}
+		if host.DHCPEvents < 0 || host.DHCPEvents > host.Events || !validOptionalAddress(host.DHCPServer) || !validOptionalAddress(host.DHCPGateway) {
+			return errors.New("lab presence DHCP lease is invalid")
 		}
 	}
 	return nil
@@ -253,6 +266,16 @@ func mergeLabPresence(hosts map[string]*LabPresenceHost, macs []labPresenceMAC, 
 			hosts[key] = host
 		}
 		host.Events++
+		host.DHCPEvents++
+		if request.acknowledged && host.DHCPServer == "" && host.DHCPGateway == "" {
+			// requests run newest first, so this is the newest lease.
+			if request.server.IsValid() {
+				host.DHCPServer = request.server.String()
+			}
+			if request.router.IsValid() {
+				host.DHCPGateway = request.router.String()
+			}
+		}
 		host.FirstSeen = minTime(host.FirstSeen, request.at)
 		if request.at.After(host.LastSeen) {
 			host.LastSeen = request.at
@@ -280,6 +303,14 @@ func mergeLabPresence(hosts map[string]*LabPresenceHost, macs []labPresenceMAC, 
 		result = result[:MaxLabPresenceHosts]
 	}
 	return result
+}
+
+func validOptionalAddress(value string) bool {
+	if value == "" {
+		return true
+	}
+	address, err := netip.ParseAddr(value)
+	return err == nil && address.String() == value
 }
 
 func addMAC(host *LabPresenceHost, mac string) {

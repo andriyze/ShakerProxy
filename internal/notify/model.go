@@ -241,6 +241,24 @@ func validateWebhookURL(raw string) error {
 	return nil
 }
 
+// MaskedURL is how a webhook or Slack URL is shown to a reader: a Slack
+// incoming-webhook URL is itself a send-capable credential, so only its
+// scheme and host are kept, enough to tell which service a channel posts to.
+// A configuration write that sends the masked form back keeps the stored URL.
+func MaskedURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return MaskedURLSuffix
+	}
+	return parsed.Scheme + "://" + parsed.Host + "/" + MaskedURLSuffix
+}
+
+// MaskedURLSuffix ends every masked URL.
+const MaskedURLSuffix = "[redacted]"
+
 // Enabled reports whether any rule is enabled, i.e. whether the evaluator has
 // anything to do.
 func (c Config) Enabled() bool {

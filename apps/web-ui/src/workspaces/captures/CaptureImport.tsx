@@ -10,6 +10,7 @@ type ImportResult = {
   size_bytes: number
   first_packet?: string
   last_packet?: string
+  truncated_bytes?: number
   view_path: string
 }
 
@@ -29,9 +30,11 @@ export function CaptureImport({ canImport, blockedReason, onImported }: { canImp
       setError("Choose a .pcapng file to import.")
       return
     }
+    // Fields go before the file, so the server has them when the file
+    // streams (it also reads ones sent after it).
     const form = new FormData()
-    form.append("file", file)
     if (name.trim()) form.append("name", name.trim())
+    form.append("file", file)
     setBusy(true)
     setError("")
     setResult(null)
@@ -74,6 +77,7 @@ export function CaptureImport({ canImport, blockedReason, onImported }: { canImp
       {result && (
         <p className="capture-import-result">
           Imported {result.packets.toLocaleString()} packets ({formatBytes(result.size_bytes)}). Analyzing now.{" "}
+          {result.truncated_bytes ? `The file's last packet was cut off, so its ${formatBytes(result.truncated_bytes)} were dropped. ` : ""}
           <a href={result.view_path}>View its traffic</a>.
         </p>
       )}

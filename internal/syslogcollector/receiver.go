@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"shakerproxy.dev/shakerproxy/internal/ingest"
@@ -47,20 +49,26 @@ const (
 	defaultGlobalBurst    = 4000
 	maxUDPDatagram        = MaxMessageBytes
 	maxConcurrentTCP      = 8
+	// deliveryQueueSize bounds the events waiting for the sink. Receiving
+	// never waits on delivery: a slow ingestd must not stall the UDP read
+	// loop, where the kernel would then drop datagrams unseen.
+	deliveryQueueSize = 1024
 )
 
 // Stats is a snapshot of what the receiver has seen. It never includes message
 // content, only counts and per-source liveness.
 type Stats struct {
-	Received   uint64              `json:"received"`
-	Parsed     uint64              `json:"parsed"`
-	Unparsed   uint64              `json:"unparsed"`
-	Delivered  uint64              `json:"delivered"`
-	DeliverErr uint64              `json:"deliver_errors"`
-	Dropped    uint64              `json:"dropped_rate_limited"`
-	Rejected   uint64              `json:"rejected_not_allowed"`
-	Oversize   uint64              `json:"oversize"`
-	PerSource  map[string]SourceSt `json:"per_source,omitempty"`
+	Received   uint64 `json:"received"`
+	Parsed     uint64 `json:"parsed"`
+	Unparsed   uint64 `json:"unparsed"`
+	Delivered  uint64 `json:"delivered"`
+	DeliverErr uint64 `json:"deliver_errors"`
+	Dropped    uint64 `json:"dropped_rate_limited"`
+	Rejected   uint64 `json:"rejected_not_allowed"`
+	Oversize   uint64 `json:"oversize"`
+	// Backlog counts events dropped because the delivery queue was full.
+	Backlog   uint64              `json:"dropped_backlog"`
+	PerSource map[string]SourceSt `json:"per_source,omitempty"`
 }
 
 // SourceSt is per-device liveness, keyed by device address.
@@ -79,6 +87,10 @@ type Receiver struct {
 	allowed map[netip.Addr]bool
 	global  *bucket
 	now     func() time.Time
+
+	queue     chan ingest.Envelope
+	delivery  sync.Once
+	listening atomic.Bool
 
 	mu      sync.Mutex
 	stats   Stats
@@ -116,13 +128,20 @@ func NewReceiver(config Config, sink Sink, logger *slog.Logger) (*Receiver, erro
 		allowed: allowed,
 		global:  newBucket(rate, burst),
 		now:     time.Now,
+		queue:   make(chan ingest.Envelope, deliveryQueueSize),
 		buckets: map[netip.Addr]*bucket{},
 		sources: map[netip.Addr]*SourceSt{},
 	}, nil
 }
 
+// Listening reports whether the receiver holds its sockets.
+func (r *Receiver) Listening() bool { return r.listening.Load() }
+
 // Run listens until ctx is cancelled. It does nothing when the config is
-// disabled, so enabling is always an explicit choice.
+// disabled, so enabling is always an explicit choice. Every socket is bound
+// before any is served: if one cannot be, the others are closed and the
+// error returned, and when one stops serving the others stop too, so the
+// caller restarts a whole receiver, never half of one.
 func (r *Receiver) Run(ctx context.Context) error {
 	if !r.config.Enabled {
 		return nil
@@ -130,6 +149,30 @@ func (r *Receiver) Run(ctx context.Context) error {
 	if len(r.allowed) == 0 {
 		r.logger.Warn("syslog collector has no allowed sources; it will accept nothing")
 	}
+	var listener net.Listener
+	var packet net.PacketConn
+	if r.config.EnableTCP {
+		bound, err := net.Listen("tcp", r.config.BindAddress)
+		if err != nil {
+			return fmt.Errorf("listen on TCP %s: %w", r.config.BindAddress, err)
+		}
+		listener = bound
+	}
+	if r.config.EnableUDP {
+		bound, err := net.ListenPacket("udp", r.config.BindAddress)
+		if err != nil {
+			if listener != nil {
+				listener.Close()
+			}
+			return fmt.Errorf("listen on UDP %s: %w", r.config.BindAddress, err)
+		}
+		packet = bound
+	}
+	r.listening.Store(true)
+	defer r.listening.Store(false)
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	var group sync.WaitGroup
 	var firstErr error
 	var errMu sync.Mutex
@@ -139,39 +182,73 @@ func (r *Receiver) Run(ctx context.Context) error {
 			firstErr = err
 		}
 		errMu.Unlock()
+		cancel()
 	}
-	if r.config.EnableTCP {
-		listener, err := net.Listen("tcp", r.config.BindAddress)
-		if err != nil {
-			return err
-		}
+	if listener != nil {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			if serveErr := r.serveTCP(ctx, listener); serveErr != nil && ctx.Err() == nil {
+			if serveErr := r.serveTCP(runCtx, listener); serveErr != nil && runCtx.Err() == nil {
 				fail(serveErr)
 			}
 		}()
 	}
-	if r.config.EnableUDP {
-		packet, err := net.ListenPacket("udp", r.config.BindAddress)
-		if err != nil {
-			return err
-		}
+	if packet != nil {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			if serveErr := r.serveUDP(ctx, packet); serveErr != nil && ctx.Err() == nil {
+			if serveErr := r.serveUDP(runCtx, packet); serveErr != nil && runCtx.Err() == nil {
 				fail(serveErr)
 			}
 		}()
 	}
 	group.Wait()
+	if firstErr == nil && ctx.Err() == nil {
+		firstErr = errors.New("the syslog listener stopped")
+	}
 	return firstErr
+}
+
+// startDelivery runs the one delivery worker, which sends queued events to
+// the sink in order until ctx ends.
+func (r *Receiver) startDelivery(ctx context.Context) {
+	r.delivery.Do(func() {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case envelope := <-r.queue:
+					r.deliver(ctx, envelope)
+				}
+			}
+		}()
+	})
+}
+
+func (r *Receiver) deliver(ctx context.Context, envelope ingest.Envelope) {
+	if err := r.sink.Deliver(ctx, envelope); err != nil {
+		r.count(func(s *Stats) { s.DeliverErr++ })
+		return
+	}
+	r.count(func(s *Stats) { s.Delivered++ })
+}
+
+// drain delivers what is queued now, on the caller's goroutine.
+func (r *Receiver) drain(ctx context.Context) {
+	for {
+		select {
+		case envelope := <-r.queue:
+			r.deliver(ctx, envelope)
+		default:
+			return
+		}
+	}
 }
 
 func (r *Receiver) serveTCP(ctx context.Context, listener net.Listener) error {
 	defer listener.Close()
+	r.startDelivery(ctx)
 	go func() {
 		<-ctx.Done()
 		listener.Close()
@@ -210,6 +287,10 @@ func (r *Receiver) serveTCP(ctx context.Context, listener net.Listener) error {
 
 func (r *Receiver) handleTCP(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
+	// An idle sender would hold the read for its whole deadline; closing
+	// the connection on shutdown ends it at once.
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
 	source := addrOf(conn.RemoteAddr())
 	reader := bufio.NewReaderSize(conn, 16<<10)
 	for {
@@ -231,6 +312,7 @@ func (r *Receiver) handleTCP(ctx context.Context, conn net.Conn) {
 
 func (r *Receiver) serveUDP(ctx context.Context, packet net.PacketConn) error {
 	defer packet.Close()
+	r.startDelivery(ctx)
 	go func() {
 		<-ctx.Done()
 		packet.Close()
@@ -304,11 +386,11 @@ func (r *Receiver) ingest(ctx context.Context, source netip.Addr, frame []byte) 
 		r.count(func(s *Stats) { s.Unparsed++ })
 		return
 	}
-	if err := r.sink.Deliver(ctx, envelope); err != nil {
-		r.count(func(s *Stats) { s.DeliverErr++ })
-		return
+	select {
+	case r.queue <- envelope:
+	default:
+		r.count(func(s *Stats) { s.Backlog++ })
 	}
-	r.count(func(s *Stats) { s.Delivered++ })
 }
 
 // Stats returns a snapshot, including per-source liveness.

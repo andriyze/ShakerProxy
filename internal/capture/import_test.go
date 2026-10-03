@@ -1,12 +1,14 @@
 package capture
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"shakerproxy.dev/shakerproxy/internal/pcapng"
 	"shakerproxy.dev/shakerproxy/internal/pcapng/pcapngtest"
 )
 
@@ -188,5 +190,76 @@ func TestImportIgnoresTheUploadedNameForPaths(t *testing.T) {
 	entries, _ := os.ReadDir(m.TempRoot)
 	if len(entries) != 1 || entries[0].Name() != "import-"+id+".pcapng" {
 		t.Fatalf("temp file name derived from the upload name: %v", entries)
+	}
+}
+
+// A capture whose writer stopped mid-packet keeps its complete packets, and
+// the stored file ends on a whole block so the analyzers read it.
+func TestImportTrimsACutOffLastBlock(t *testing.T) {
+	m := importManager(t)
+	whole := validImportPCAPNG(5)
+	cut := whole[:len(whole)-10]
+	result, err := importInChunks(t, m, cut)
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if result.Packets != 4 || result.TruncatedBytes <= 0 || result.SizeBytes+result.TruncatedBytes != int64(len(cut)) {
+		t.Fatalf("result = %#v", result)
+	}
+	artifactDir, _ := m.Store.ArtifactDirectory(result.SessionID)
+	stored, err := os.ReadFile(filepath.Join(artifactDir, "capture.pcapng"))
+	if err != nil || int64(len(stored)) != result.SizeBytes {
+		t.Fatalf("stored %d bytes (%v), want %d", len(stored), err, result.SizeBytes)
+	}
+	if err := pcapng.ScanPackets(t.Context(), bytes.NewReader(stored), func(pcapng.Packet) error { return nil }); err != nil {
+		t.Fatalf("the stored file does not end cleanly: %v", err)
+	}
+	// A whole file is stored as is.
+	clean, err := importInChunks(t, importManager(t), whole)
+	if err != nil || clean.TruncatedBytes != 0 || clean.SizeBytes != int64(len(whole)) {
+		t.Fatalf("whole file: %#v %v", clean, err)
+	}
+}
+
+// A name sent with the last chunk (a form field after the file) wins.
+func TestImportTakesTheNameFromTheLastChunk(t *testing.T) {
+	m := importManager(t)
+	data := validImportPCAPNG(2)
+	id, err := m.Begin("unifi.pcapng", "Imported from unifi.pcapng", "operator", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := m.AppendNamed(id, 0, data, true, "Router capture", "the gateway's own capture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := m.Store.ReadSession(result.SessionID)
+	if err != nil || session.Request.Name != "Router capture" || session.Request.Description != "the gateway's own capture" {
+		t.Fatalf("session request = %#v (%v)", session.Request, err)
+	}
+}
+
+// Temporary files of uploads the daemon was handling when it stopped are
+// removed; uploads still in progress are not.
+func TestImportSweepsOrphanedTemporaryFiles(t *testing.T) {
+	m := importManager(t)
+	live, err := m.Begin("live", "", "operator", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(m.TempRoot, "import-capture-00112233445566778899aabbccddeeff.pcapng")
+	if err := os.WriteFile(orphan, []byte("partial"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	m.SweepOrphans()
+	if _, err := os.Stat(orphan); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("orphan kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(m.TempRoot, "import-"+live+".pcapng")); err != nil {
+		t.Fatalf("the live upload's file was removed: %v", err)
+	}
+	m.Abort(live)
+	if _, err := os.Stat(filepath.Join(m.TempRoot, "import-"+live+".pcapng")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abort kept the file: %v", err)
 	}
 }

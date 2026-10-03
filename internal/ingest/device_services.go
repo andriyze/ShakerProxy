@@ -184,7 +184,9 @@ func resolveDeviceServiceHints(observations []deviceServiceObservation) []Device
 		if last.After(got.lastSeen) {
 			got.lastSeen = last
 		}
-		if known && info.typeHint != "" && info.typeRank > got.typeRank {
+		// Ties go to the alphabetically first type, so the result does not
+		// depend on the order rows arrive in.
+		if info.typeHint != "" && (info.typeRank > got.typeRank || info.typeRank == got.typeRank && info.typeHint < got.typeHint) {
 			got.typeHint, got.typeRank = info.typeHint, info.typeRank
 		}
 	}
@@ -239,6 +241,7 @@ WHERE device_id IS NOT NULL AND occurred_at >= $1 AND app_protocol = 'mdns'
   AND dns_query IS NOT NULL
   AND (dns_query LIKE '%._tcp.local' OR dns_query LIKE '%._udp.local')
 GROUP BY device_id, dns_query
+ORDER BY max(occurred_at) DESC, device_id, dns_query
 LIMIT $2`
 
 // QueryDeviceServices reads the mDNS service types each device used in the

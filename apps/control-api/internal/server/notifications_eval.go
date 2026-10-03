@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -10,15 +11,30 @@ import (
 	"shakerproxy.dev/shakerproxy/internal/notify"
 )
 
-// notifyState holds the evaluator's in-memory memory: which trigger+subject
-// last fired (so a chatty condition is one notification per window), and which
-// devices were already known on the first pass (so turning notifications on,
-// or a restart, does not announce every device already present).
+// notifyState holds the evaluator's memory: which trigger+subject last fired
+// (so a chatty condition is one notification per window), and which devices
+// were already known on the first pass (so turning notifications on does not
+// announce every device already present). It is saved next to the log, so a
+// restart neither re-sends every still-active condition nor forgets which
+// devices it has seen.
 type notifyState struct {
 	lastFired map[string]time.Time
 	known     map[string]bool
 	seeded    bool
+	// dirty is set when the state changed since it was last saved.
+	dirty bool
+	// deliveries feeds the webhook/Slack worker, so a slow or failing
+	// endpoint (each one retried) never stalls the evaluation pass.
+	deliveries chan notifyDelivery
 }
+
+type notifyDelivery struct {
+	channel      notify.Channel
+	notification notify.Notification
+}
+
+// notifyDeliveryQueue bounds the deliveries waiting for the worker.
+const notifyDeliveryQueue = 64
 
 // notifyEvalWindow is how far back each pass looks for detections and flagged
 // domains. It is a bounded, recent window, not a full-table scan.
@@ -31,11 +47,14 @@ func (s *Server) RunNotifications(ctx context.Context, interval time.Duration) {
 	if interval < time.Second {
 		interval = 30 * time.Second
 	}
-	s.notifyEvalState = &notifyState{lastFired: map[string]time.Time{}, known: map[string]bool{}}
+	s.notifyEvalState = s.loadNotifyState()
+	s.notifyEvalState.deliveries = make(chan notifyDelivery, notifyDeliveryQueue)
+	go s.runNotifyDeliveries(ctx, s.notifyEvalState.deliveries)
 	tick := func() {
 		if !s.notifyConfigAvailable() {
 			return
 		}
+		defer s.saveNotifyState()
 		config, err := notify.LoadConfig(s.notifyConfigPath)
 		if err != nil {
 			s.logger.Warn("notifications config could not be read", "error", err)
@@ -53,7 +72,8 @@ func (s *Server) RunNotifications(ctx context.Context, interval time.Duration) {
 		if len(fired) == 0 {
 			return
 		}
-		s.deliverNotifications(ctx, config, fired, now)
+		s.notifyEvalState.dirty = true
+		s.deliverNotifications(config, fired, now)
 	}
 	tick()
 	ticker := time.NewTicker(interval)
@@ -68,7 +88,45 @@ func (s *Server) RunNotifications(ctx context.Context, interval time.Duration) {
 	}
 }
 
-func (s *Server) deliverNotifications(ctx context.Context, config notify.Config, fired []notify.Notification, now time.Time) {
+// notifyStatePath is the evaluator state file beside the in-app log.
+func (s *Server) notifyStatePath() string {
+	return strings.TrimSuffix(s.notifyLogPath, filepath.Ext(s.notifyLogPath)) + "-state.json"
+}
+
+func (s *Server) loadNotifyState() *notifyState {
+	state := &notifyState{lastFired: map[string]time.Time{}, known: map[string]bool{}}
+	if !s.notifyConfigAvailable() {
+		return state
+	}
+	saved, err := notify.LoadEvalState(s.notifyStatePath())
+	if err != nil {
+		s.logger.Warn("notifications state could not be read; starting fresh", "error", err)
+		return state
+	}
+	state.lastFired, state.seeded = saved.LastFired, saved.Seeded
+	for _, id := range saved.Known {
+		state.known[id] = true
+	}
+	return state
+}
+
+func (s *Server) saveNotifyState() {
+	state := s.notifyEvalState
+	if state == nil || !state.dirty {
+		return
+	}
+	known := make([]string, 0, len(state.known))
+	for id := range state.known {
+		known = append(known, id)
+	}
+	if err := notify.SaveEvalState(s.notifyStatePath(), notify.EvalState{Seeded: state.seeded, LastFired: state.lastFired, Known: known}); err != nil {
+		s.logger.Warn("notifications state could not be saved", "error", err)
+		return
+	}
+	state.dirty = false
+}
+
+func (s *Server) deliverNotifications(config notify.Config, fired []notify.Notification, now time.Time) {
 	channels := map[string]notify.Channel{}
 	for _, channel := range config.Channels {
 		channels[channel.ID] = channel
@@ -84,8 +142,25 @@ func (s *Server) deliverNotifications(ctx context.Context, config notify.Config,
 			if !ok || !channel.Enabled || channel.Kind == notify.ChannelInApp {
 				continue
 			}
-			if err := s.notifyDeliverer.Deliver(ctx, channel, n); err != nil {
-				s.logger.Warn("notification delivery failed", "channel", channel.ID, "kind", channel.Kind, "error", err)
+			select {
+			case s.notifyEvalState.deliveries <- notifyDelivery{channel: channel, notification: n}:
+			default:
+				s.logger.Warn("notification delivery queue is full; dropped", "channel", channel.ID, "kind", channel.Kind, "notification", n.ID)
+			}
+		}
+	}
+}
+
+// runNotifyDeliveries sends queued notifications one at a time, retrying
+// transient failures.
+func (s *Server) runNotifyDeliveries(ctx context.Context, deliveries <-chan notifyDelivery) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case delivery := <-deliveries:
+			if err := notify.DeliverWithRetry(ctx, s.notifyDeliverer, delivery.channel, delivery.notification); err != nil {
+				s.logger.Warn("notification delivery failed", "channel", delivery.channel.ID, "kind", delivery.channel.Kind, "notification", delivery.notification.ID, "error", err)
 			}
 		}
 	}
@@ -114,8 +189,8 @@ func (s *Server) gatherNotifyCandidates(ctx context.Context) []notify.Candidate 
 		}
 		// After the first enabled pass the current devices are known, so
 		// later passes announce only genuinely new ones.
-		if s.notifyEvalState != nil {
-			s.notifyEvalState.seeded = true
+		if s.notifyEvalState != nil && !s.notifyEvalState.seeded {
+			s.notifyEvalState.seeded, s.notifyEvalState.dirty = true, true
 		}
 	}
 
@@ -164,34 +239,36 @@ func (s *Server) detectionCandidates(ctx context.Context, names map[string]strin
 // seedKnownDevices records the current devices so that enabling notifications
 // later does not announce devices already present.
 func (s *Server) seedKnownDevices(ctx context.Context) {
-	if s.notifyEvalState == nil {
+	s.seedKnownDevicesFrom(s.currentLabRouting(ctx))
+}
+
+// seedKnownDevicesFrom seeds only from an available report: an unavailable
+// one lists no devices, and marking the state seeded from it would announce
+// every device already present as new once the report is back.
+func (s *Server) seedKnownDevicesFrom(report labRoutingReport) {
+	state := s.notifyEvalState
+	if state == nil || !report.Available {
 		return
 	}
-	report := s.currentLabRouting(ctx)
 	for _, device := range report.Devices {
-		if device.DeviceID != "" {
-			s.notifyEvalState.known[device.DeviceID] = true
+		if device.DeviceID != "" && !state.known[device.DeviceID] {
+			state.known[device.DeviceID], state.dirty = true, true
 		}
 	}
-	s.notifyEvalState.seeded = true
+	if !state.seeded {
+		state.seeded, state.dirty = true, true
+	}
 }
 
 // noteNewDevice reports whether deviceID is newly seen, and records it. The
 // first pass only seeds and never reports new, so startup is quiet.
 func (s *Server) noteNewDevice(deviceID string) bool {
 	state := s.notifyEvalState
-	if state == nil {
+	if state == nil || state.known[deviceID] {
 		return false
 	}
-	if !state.seeded {
-		state.known[deviceID] = true
-		return false
-	}
-	if state.known[deviceID] {
-		return false
-	}
-	state.known[deviceID] = true
-	return true
+	state.known[deviceID], state.dirty = true, true
+	return state.seeded
 }
 
 func firstNonEmpty(values ...string) string {

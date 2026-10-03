@@ -228,6 +228,7 @@ func Evaluate(observation Observation) ([]Candidate, error) {
 // without the secret.
 var cleartextExposureSummaries = map[string]string{
 	"basic-auth":       "sent a username and password in the clear over HTTP",
+	"bearer-token":     "sent a sign-in token in the clear over HTTP",
 	"form-password":    "sent a password or secret in a cleartext HTTP form",
 	"token-in-url":     "put a secret in a cleartext HTTP web address",
 	"cleartext-cookie": "sent a session cookie in the clear over HTTP",
@@ -316,21 +317,22 @@ func cleartextHTTPObservation(envelope ingest.Envelope, raw map[string]any) []Ob
 		if !strings.HasSuffix(envelope.Kind, ".http") && !strings.HasSuffix(envelope.Kind, "_http") {
 			return nil
 		}
-		// The URI carries query characters (?, &) that firstString rejects,
-		// so read it raw; its credential names are extracted below.
-		source, host, uri = firstString(raw, "id.orig_h"), firstString(raw, "host"), rawString(raw, "uri")
+		// The URI carries query characters (?, &) and an IPv6 host brackets
+		// that firstString rejects, so read them raw; the host is checked
+		// below and only the URI's credential names are used.
+		source, host, uri = firstString(raw, "id.orig_h"), rawString(raw, "host"), rawString(raw, "uri")
 	case ingest.SourceSuricata:
 		http, ok := raw["http"].(map[string]any)
 		if !ok {
 			return nil
 		}
-		source, host, uri = firstString(raw, "src_ip"), firstString(http, "hostname"), rawString(http, "url")
+		source, host, uri = firstString(raw, "src_ip"), rawString(http, "hostname"), rawString(http, "url")
 	default:
 		return nil
 	}
 	host = stripHostPort(strings.ToLower(strings.TrimSpace(host)))
 	source = strings.ToLower(strings.TrimSpace(source))
-	if source == "" || host == "" || uri == "" {
+	if source == "" || uri == "" || !cleartextScopePattern.MatchString(host) {
 		return nil
 	}
 	params := httpexchange.URLCredentialParams(uri)
@@ -358,8 +360,12 @@ func rawString(values map[string]any, key string) string {
 }
 
 func stripHostPort(host string) string {
-	if host == "" || strings.HasPrefix(host, "[") {
-		return host // bracketed IPv6; leave as-is
+	if strings.HasPrefix(host, "[") {
+		// A bracketed IPv6 literal, with or without a port: "[2001:db8::1]:8080".
+		if address, _, found := strings.Cut(host[1:], "]"); found {
+			return address
+		}
+		return ""
 	}
 	if strings.Count(host, ":") == 1 {
 		if base, _, found := strings.Cut(host, ":"); found {

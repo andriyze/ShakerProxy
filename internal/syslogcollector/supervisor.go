@@ -2,6 +2,7 @@ package syslogcollector
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"reflect"
 	"time"
@@ -24,7 +25,10 @@ type Supervisor struct {
 	Logger     *slog.Logger
 }
 
-// Run supervises until ctx is cancelled.
+// Run supervises until ctx is cancelled. A listener that stops on its own
+// (its port was taken, a socket failed) is started again on the next tick,
+// and its error is in the status until it listens again, so the dashboard
+// never shows a dead collector as on.
 func (s *Supervisor) Run(ctx context.Context) error {
 	logger := s.Logger
 	if logger == nil {
@@ -37,21 +41,45 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	type running struct {
+		receiver *Receiver
+		cancel   context.CancelFunc
+		done     chan struct{}
+		err      error // set before done closes
+	}
 	var (
 		current   Config
-		receiver  *Receiver
-		cancelRun context.CancelFunc
-		done      chan struct{}
+		active    *running
+		lastError string
 	)
+	exited := func() bool {
+		if active == nil {
+			return false
+		}
+		select {
+		case <-active.done:
+			return true
+		default:
+			return false
+		}
+	}
 	stop := func() {
-		if cancelRun != nil {
-			cancelRun()
-			<-done
-			cancelRun = nil
-			receiver = nil
+		if active != nil {
+			active.cancel()
+			<-active.done
+			active = nil
 		}
 	}
 	defer stop()
+	// fail records why the collector is not listening, logging each new
+	// reason once rather than on every retry.
+	fail := func(message string, err error) {
+		text := message + ": " + err.Error()
+		if text != lastError {
+			logger.Error(message, "error", err)
+		}
+		lastError = text
+	}
 
 	writeStatus := func() {
 		if s.StatusPath == "" {
@@ -61,9 +89,14 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		for _, address := range current.AllowedSources {
 			status.AllowedSources = append(status.AllowedSources, address.String())
 		}
-		if receiver != nil {
-			status.Stats = receiver.Stats()
+		if active != nil {
+			status.Stats = active.receiver.Stats()
+			status.Listening = active.receiver.Listening() && !exited()
 		}
+		if status.Listening {
+			lastError = ""
+		}
+		status.Error = lastError
 		if err := WriteStatusFile(s.StatusPath, status); err != nil {
 			logger.Warn("syslog collector status could not be written", "error", err)
 		}
@@ -80,37 +113,45 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			logger.Warn("syslog collector config cannot run; leaving the current state", "error", err)
 			return
 		}
-		if receiver != nil && reflect.DeepEqual(next, current) {
+		if exited() {
+			stopped := active.err
+			if stopped == nil {
+				stopped = errors.New("the listener stopped")
+			}
+			fail("syslog collector listener stopped; starting it again", stopped)
+			stop()
+		}
+		if active != nil && reflect.DeepEqual(next, current) {
 			return
 		}
 		stop()
 		current = next
 		if !next.Enabled {
+			lastError = ""
 			logger.Info("syslog collector is off")
 			writeStatus()
 			return
 		}
 		sink, err := s.NewSink()
 		if err != nil {
-			logger.Error("syslog collector sink is unavailable", "error", err)
+			fail("syslog collector sink is unavailable", err)
 			return
 		}
 		newReceiver, err := NewReceiver(next, sink, logger)
 		if err != nil {
-			logger.Error("syslog collector could not start", "error", err)
+			fail("syslog collector could not start", err)
 			return
 		}
 		runCtx, cancel := context.WithCancel(ctx)
-		cancelRun = cancel
-		receiver = newReceiver
-		done = make(chan struct{})
-		go func(r *Receiver, c context.Context, finished chan struct{}) {
-			defer close(finished)
-			if runErr := r.Run(c); runErr != nil && c.Err() == nil {
-				logger.Error("syslog collector listener stopped", "error", runErr)
+		run := &running{receiver: newReceiver, cancel: cancel, done: make(chan struct{})}
+		active = run
+		go func() {
+			defer close(run.done)
+			if runErr := run.receiver.Run(runCtx); runErr != nil && runCtx.Err() == nil {
+				run.err = runErr
 			}
-		}(newReceiver, runCtx, done)
-		logger.Info("syslog collector listening", "bind", next.BindAddress, "tcp", next.EnableTCP, "udp", next.EnableUDP, "allowed_sources", len(next.AllowedSources))
+		}()
+		logger.Info("syslog collector starting", "bind", next.BindAddress, "tcp", next.EnableTCP, "udp", next.EnableUDP, "allowed_sources", len(next.AllowedSources))
 		writeStatus()
 	}
 

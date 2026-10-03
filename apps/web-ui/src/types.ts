@@ -1645,7 +1645,7 @@ export type HTTPExchangeResponse = { proto: string; status_code: number; status:
 export type HTTPExchangePair = { request?: HTTPExchangeRequest; response?: HTTPExchangeResponse }
 // A secret this cleartext exchange sent in the clear, by kind and location,
 // never the value.
-export type HTTPExposureKind = "basic-auth" | "form-password" | "token-in-url" | "cleartext-cookie"
+export type HTTPExposureKind = "basic-auth" | "bearer-token" | "form-password" | "token-in-url" | "cleartext-cookie"
 export type HTTPExposure = { kind: HTTPExposureKind; where: string }
 export type HTTPExchange = {
   schema: 1

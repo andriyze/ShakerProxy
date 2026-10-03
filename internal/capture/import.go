@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +68,10 @@ type ImportResult struct {
 	LinkTypes   []uint16  `json:"link_types"`
 	FirstPacket time.Time `json:"first_packet,omitzero"`
 	LastPacket  time.Time `json:"last_packet,omitzero"`
+	// TruncatedBytes is how much of a cut-off last block was dropped: a
+	// capture whose writer was stopped mid-packet keeps its complete
+	// packets, and the stored file ends cleanly so the analyzers read it.
+	TruncatedBytes int64 `json:"truncated_bytes,omitempty"`
 }
 
 type pendingImport struct {
@@ -163,6 +168,12 @@ func (m *ImportManager) Begin(name, description, administrator, operatingMode, s
 // validates and finalizes the capture and returns the result; otherwise the
 // returned result is zero.
 func (m *ImportManager) Append(sessionID string, offset int64, data []byte, eof bool) (ImportResult, error) {
+	return m.AppendNamed(sessionID, offset, data, eof, "", "")
+}
+
+// AppendNamed is Append whose final chunk may also set the capture's name
+// and description, for an upload that sends them after the file.
+func (m *ImportManager) AppendNamed(sessionID string, offset int64, data []byte, eof bool, name, description string) (ImportResult, error) {
 	if !ValidSessionID(sessionID) {
 		return ImportResult{}, errors.New("invalid import session ID")
 	}
@@ -192,6 +203,20 @@ func (m *ImportManager) Append(sessionID string, offset int64, data []byte, eof 
 	}
 	if !eof {
 		return ImportResult{}, nil
+	}
+	if name != "" {
+		if err := validateText("capture name", name, 1, 96); err != nil {
+			m.abortLocked(pending)
+			return ImportResult{}, err
+		}
+		pending.name = name
+	}
+	if description != "" {
+		if err := validateText("capture description", description, 0, 1024); err != nil {
+			m.abortLocked(pending)
+			return ImportResult{}, err
+		}
+		pending.description = description
 	}
 	result, err := m.finalizeLocked(pending)
 	if err != nil {
@@ -224,6 +249,32 @@ func (m *ImportManager) sweepLocked() {
 			m.abortLocked(pending)
 		}
 	}
+	m.removeOrphansLocked()
+}
+
+// SweepOrphans removes temporary files of imports this manager is not
+// tracking: uploads that were in flight when the daemon stopped, which can
+// never finish and would otherwise hold up to the import limit each.
+func (m *ImportManager) SweepOrphans() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removeOrphansLocked()
+}
+
+func (m *ImportManager) removeOrphansLocked() {
+	if m.TempRoot == "" {
+		return
+	}
+	matches, err := filepath.Glob(filepath.Join(m.TempRoot, "import-capture-*.pcapng"))
+	if err != nil {
+		return
+	}
+	for _, path := range matches {
+		sessionID := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "import-"), ".pcapng")
+		if _, tracked := m.pending[sessionID]; !tracked {
+			os.Remove(path)
+		}
+	}
 }
 
 func (m *ImportManager) finalizeLocked(pending *pendingImport) (ImportResult, error) {
@@ -240,6 +291,15 @@ func (m *ImportManager) finalizeLocked(pending *pendingImport) (ImportResult, er
 	stats, err := inspectImport(pending.path)
 	if err != nil {
 		return ImportResult{}, err
+	}
+	size, truncatedBytes := pending.written, int64(0)
+	if stats.completeBytes < pending.written {
+		// Drop the cut-off last block so Zeek and Suricata read a file that
+		// ends cleanly.
+		if err := os.Truncate(pending.path, stats.completeBytes); err != nil {
+			return ImportResult{}, fmt.Errorf("trim the cut-off last block: %w", err)
+		}
+		size, truncatedBytes = stats.completeBytes, pending.written-stats.completeBytes
 	}
 
 	now := m.now()
@@ -286,8 +346,9 @@ func (m *ImportManager) finalizeLocked(pending *pendingImport) (ImportResult, er
 		}
 		os.Remove(pending.path)
 		return ImportResult{
-			SessionID: session.ID, Packets: stats.packets, SizeBytes: pending.written,
+			SessionID: session.ID, Packets: stats.packets, SizeBytes: size,
 			LinkTypes: stats.linkTypes, FirstPacket: stats.first, LastPacket: stats.last,
+			TruncatedBytes: truncatedBytes,
 		}, nil
 	}
 	result, err := finalize()
@@ -305,6 +366,23 @@ type importStats struct {
 	linkTypes []uint16
 	first     time.Time
 	last      time.Time
+	// completeBytes ends the last whole block: the file size, or less when
+	// the last block is cut off.
+	completeBytes int64
+}
+
+// countingReader counts the bytes read through it; the PCAPNG scanner
+// reads blocks without buffering ahead, so the count after a block is
+// where that block ends.
+type countingReader struct {
+	reader io.Reader
+	read   int64
+}
+
+func (c *countingReader) Read(buffer []byte) (int, error) {
+	read, err := c.reader.Read(buffer)
+	c.read += int64(read)
+	return read, err
 }
 
 // inspectImport validates the file is a well-formed .pcapng of an importable
@@ -335,7 +413,9 @@ func inspectImport(path string) (importStats, error) {
 
 	stats := importStats{}
 	seen := map[uint16]bool{}
-	scanErr := pcapng.ScanPackets(context.Background(), file, func(packet pcapng.Packet) error {
+	counter := &countingReader{reader: file}
+	scanErr := pcapng.ScanPackets(context.Background(), counter, func(packet pcapng.Packet) error {
+		stats.completeBytes = counter.read
 		if !importableLinkTypes[packet.LinkType] {
 			return fmt.Errorf("the capture uses link type %d, which ShakerProxy cannot analyze", packet.LinkType)
 		}
@@ -359,6 +439,10 @@ func inspectImport(path string) (importStats, error) {
 			return importStats{}, ErrNotCapture
 		}
 		return importStats{}, scanErr
+	}
+	if scanErr == nil {
+		// Every block is whole, including any after the last packet.
+		stats.completeBytes = counter.read
 	}
 	if stats.packets < 1 {
 		return importStats{}, errors.New("the capture holds no packets")
