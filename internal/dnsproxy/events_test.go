@@ -161,12 +161,18 @@ func TestServerReportsForwardedAndBlockedLookups(t *testing.T) {
 	address := startServer(t, &Server{Provider: staticProvider{runtime}, Timeout: 2 * time.Second, Observer: observed})
 	ask(t, address, "allowed.example")
 	ask(t, address, "www.blocked.example")
-	lookups := observed.wait(t, 2)
-	if lookups[0].Name != "allowed.example" || lookups[0].Blocked || lookups[0].Rcode != "NOERROR" || lookups[0].Transport != "udp" || lookups[0].Client.Addr().String() != "127.0.0.1" || lookups[0].Client.Port() == 0 {
-		t.Fatalf("forwarded lookup = %+v", lookups[0])
+	// Observations may arrive in either order: each is reported after its
+	// own answer is sent.
+	byName := map[string]Lookup{}
+	for _, lookup := range observed.wait(t, 2) {
+		byName[lookup.Name] = lookup
 	}
-	if lookups[1].Name != "www.blocked.example" || !lookups[1].Blocked || lookups[1].BlockedDomain != "blocked.example" || lookups[1].Rcode != "NXDOMAIN" {
-		t.Fatalf("blocked lookup = %+v", lookups[1])
+	forwarded, blocked := byName["allowed.example"], byName["www.blocked.example"]
+	if forwarded.Name == "" || forwarded.Blocked || forwarded.Rcode != "NOERROR" || forwarded.Transport != "udp" || forwarded.Client.Addr().String() != "127.0.0.1" || forwarded.Client.Port() == 0 {
+		t.Fatalf("forwarded lookup = %+v", forwarded)
+	}
+	if blocked.Name == "" || !blocked.Blocked || blocked.BlockedDomain != "blocked.example" || blocked.Rcode != "NXDOMAIN" {
+		t.Fatalf("blocked lookup = %+v", blocked)
 	}
 }
 
