@@ -234,20 +234,20 @@ type Status struct {
 	// ShakerProxy's access point travels (networkplan.WiFiClientTraffic):
 	// BRIDGED (through ShakerProxy, recorded), ISOLATED, or
 	// INSIDE_ACCESS_POINT (switched by the adapter, not recorded).
-	LabWiFiClientTraffic string             `json:"lab_wifi_client_traffic,omitempty"`
+	LabWiFiClientTraffic string `json:"lab_wifi_client_traffic,omitempty"`
 	// LabIPv4Prefix and LabIPv4Gateway are the lab's IPv4 prefix and
 	// ShakerProxy's address in it, the gateway lab devices should use.
 	// LabIPv4Router is the network's own router on the lab, when the lab
 	// interface has a default route through one (a single-arm lab, an
 	// inline bridge): a device that takes the router's DHCP uses it as its
 	// gateway instead.
-	LabIPv4Prefix  string `json:"lab_ipv4_prefix,omitempty"`
-	LabIPv4Gateway string `json:"lab_ipv4_gateway,omitempty"`
-	LabIPv4Router  string `json:"lab_ipv4_router,omitempty"`
-	LabIPv6Strategy      string             `json:"lab_ipv6_strategy,omitempty"`
-	LabIPv6Prefix        string             `json:"lab_ipv6_prefix,omitempty"`
-	LabIPv6Gateway       string             `json:"lab_ipv6_gateway,omitempty"`
-	ConfigurationLock    *configlock.Status `json:"configuration_lock,omitempty"`
+	LabIPv4Prefix     string             `json:"lab_ipv4_prefix,omitempty"`
+	LabIPv4Gateway    string             `json:"lab_ipv4_gateway,omitempty"`
+	LabIPv4Router     string             `json:"lab_ipv4_router,omitempty"`
+	LabIPv6Strategy   string             `json:"lab_ipv6_strategy,omitempty"`
+	LabIPv6Prefix     string             `json:"lab_ipv6_prefix,omitempty"`
+	LabIPv6Gateway    string             `json:"lab_ipv6_gateway,omitempty"`
+	ConfigurationLock *configlock.Status `json:"configuration_lock,omitempty"`
 	// Warnings explain, in plain language, parts of the managed state that
 	// could not be read. The rest of the status is still valid.
 	Warnings []string `json:"warnings,omitempty"`

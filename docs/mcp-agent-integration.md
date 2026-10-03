@@ -231,7 +231,7 @@ stdout is the MCP transport. Diagnostics belong on stderr.
 
 ## 7. Implemented tools
 
-Twenty-five tools, all read-only (see [API and MCP parity](api-mcp-parity.md) for
+Twenty-six tools, all read-only (see [API and MCP parity](api-mcp-parity.md) for
 how they map to the Web UI and the API). Every tool is annotated `readOnlyHint: true`,
 `idempotentHint: true`, and `openWorldHint: false`, and every result is compact
 JSON with plain-language `summary` lines.
@@ -446,6 +446,16 @@ can read those cases but not list all of them. Input: `{}` or
 The checks `shakerproxy doctor` runs (interfaces, firewall, routes, DNS,
 forwarding, DHCP, Docker, services, disk, time, capture, packet drops), with
 problems first and their observations. Input: `{}`. Scope: `system:read`.
+
+### `lab_routing`
+
+Which devices seen on the lab network in the last 10 minutes send their
+traffic through ShakerProxy and which bypass it, from
+`GET /api/v1/lab-routing`, bypassing ones first. A phone that took the
+router's DHCP in a single-arm lab uses the router as its gateway, so
+ShakerProxy sees only its DHCP request and mDNS; the tool names it, gives the
+reason, and the fix with ShakerProxy's and the router's addresses. Run it first
+when a device's traffic is missing. Input: `{}`. Scope: `devices:read`.
 
 `list_devices` also carries `platform` (what the device most likely is, e.g.
 `GrapheneOS phone`) and `platform_evidence` (the connectivity check or DHCP
