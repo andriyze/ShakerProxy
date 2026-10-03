@@ -62,9 +62,9 @@ test("traffic recorded under a merged record finds the device", () => {
 })
 
 test("devices, the drawer and Traffic all use the shared title", () => {
-  assert.match(webUIFile("workspaces/devices/DeviceRow.tsx"), /deviceTitle\(device, "", platformHint\)/)
+  assert.match(webUIFile("workspaces/devices/DeviceRow.tsx"), /deviceTitle\(device, "", platformHint, serviceHint\)/)
   assert.match(webUIFile("workspaces/devices/DeviceRow.tsx"), />\s*Rename\s*</)
-  assert.match(webUIFile("workspaces/devices/DeviceDetailDrawer.tsx"), /deviceTitle\(device, "", platformHint\)/)
+  assert.match(webUIFile("workspaces/devices/DeviceDetailDrawer.tsx"), /deviceTitle\(device, "", platformHint, serviceHint\)/)
   assert.match(webUIFile("workspaces/traffic/TrafficTable.tsx"), /eventDeviceTitle\(item, directory\)/)
   assert.doesNotMatch(webUIFile("workspaces/devices/DeviceInventory.tsx"), /address assignments \(DHCP\)\. /)
 })

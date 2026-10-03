@@ -166,6 +166,12 @@ func resolveDeviceServiceHints(observations []deviceServiceObservation) []Device
 			continue
 		}
 		info, known := serviceCatalog[service]
+		if !known {
+			// Only catalog services are listed: an unrecognised DNS-SD type
+			// says nothing about the device and would be raw noise. It is
+			// still visible as an mDNS row in the traffic.
+			continue
+		}
 		got := devices[observation.deviceID]
 		if got == nil {
 			got = &collected{services: map[string]DeviceService{}}
