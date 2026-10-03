@@ -4958,6 +4958,16 @@ components:
         reason: {type: string}
         matched: {type: integer, minimum: -1, description: Index of the exchange this event describes, or -1.}
         notes: {type: array, items: {type: string}}
+        exposures:
+          type: array
+          description: "Secrets this cleartext exchange sent in the clear, by kind and location, never the value. Empty for encrypted/decrypted flows."
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, where]
+            properties:
+              kind: {type: string, enum: [basic-auth, form-password, token-in-url, cleartext-cookie]}
+              where: {type: string, maxLength: 128}
         exchanges:
           type: array
           maxItems: 32
