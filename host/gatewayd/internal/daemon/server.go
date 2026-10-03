@@ -394,6 +394,7 @@ func (s *Server) dispatch(ctx context.Context, req gatewayprotocol.Request) (any
 				status.LabScopePlanHash = active.PlanHash
 			}
 			setLabIPv6Status(&status, active.Plan)
+			setLabIPv4Status(&status, active.Plan)
 		}
 		return status, nil
 	case "InspectHost":

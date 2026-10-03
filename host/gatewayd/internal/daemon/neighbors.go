@@ -357,6 +357,50 @@ func defaultIPv4Gateways(iface string) map[netip.Addr]bool {
 	return gateways
 }
 
+// setLabIPv4Status publishes the lab's IPv4 prefix, ShakerProxy's address
+// in it and, when the lab side has a default route through another router,
+// that router: the control API tells testers which devices use it instead
+// of ShakerProxy.
+func setLabIPv4Status(status *gatewayprotocol.Status, plan networkplan.Plan) {
+	prefix, err := netip.ParsePrefix(plan.IPv4.LabCIDR)
+	if !plan.IPv4.Enabled || err != nil || !prefix.Addr().Is4() {
+		return
+	}
+	prefix = prefix.Masked()
+	status.LabIPv4Prefix = prefix.String()
+	if gateway, err := netip.ParseAddr(plan.IPv4.GatewayAddress); err == nil && prefix.Contains(gateway) {
+		status.LabIPv4Gateway = gateway.String()
+	}
+	candidates := []string{}
+	if lab, ok := networkplan.LabInterface(plan); ok {
+		candidates = append(candidates, lab.CurrentName)
+	}
+	if plan.Topology == networkplan.TopologyTransparentBridge {
+		candidates = append(candidates, networkplan.InlineBridgeName)
+	}
+	for _, name := range candidates {
+		if router, ok := labRouter(defaultIPv4Gateways(name), prefix, status.LabIPv4Gateway); ok {
+			status.LabIPv4Router = router.String()
+			return
+		}
+	}
+}
+
+// labRouter picks the lowest default gateway inside the lab prefix that is
+// not ShakerProxy itself.
+func labRouter(gateways map[netip.Addr]bool, prefix netip.Prefix, own string) (netip.Addr, bool) {
+	var best netip.Addr
+	for gateway := range gateways {
+		if !prefix.Contains(gateway) || gateway.String() == own {
+			continue
+		}
+		if !best.IsValid() || gateway.Less(best) {
+			best = gateway
+		}
+	}
+	return best, best.IsValid()
+}
+
 // setLabIPv6Status publishes the confirmed plan's IPv6 lab scope in
 // GetManagedState so other components can discover it.
 func setLabIPv6Status(status *gatewayprotocol.Status, plan networkplan.Plan) {
