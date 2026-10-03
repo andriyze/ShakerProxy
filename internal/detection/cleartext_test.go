@@ -83,6 +83,8 @@ func TestCleartextHTTPObservationFromEnvelope(t *testing.T) {
 		{"suricata with token", string(ingest.SourceSuricata), "suricata.http", `{"src_ip":"192.168.10.131","http":{"hostname":"api.example.com","url":"/v1?access_token=abc"}}`, true},
 		{"zeek no credential", string(ingest.SourceZeek), "zeek.http", `{"id.orig_h":"192.168.10.130","host":"example.com","uri":"/search?q=cats"}`, false},
 		{"not http", string(ingest.SourceZeek), "zeek.conn", `{"id.orig_h":"192.168.10.130","uri":"/x?token=a"}`, false},
+		{"bracketed IPv6 with port", string(ingest.SourceZeek), "zeek.http", `{"id.orig_h":"fd00::20","host":"[2001:db8::1]:8080","uri":"/x?token=a"}`, true},
+		{"bracketed IPv6", string(ingest.SourceSuricata), "suricata.http", `{"src_ip":"fd00::20","http":{"hostname":"[2001:db8::1]","url":"/x;y?a=1;token=a"}}`, true},
 	}
 	for _, test := range cases {
 		envelope := ingest.Envelope{Schema: 1, EventID: "event-0000000000000001", Source: ingest.Source(test.source), Kind: test.kind, OccurredAt: at, SourceVersion: "t", ParserVersion: "t", Payload: json.RawMessage(test.payload)}
@@ -93,6 +95,12 @@ func TestCleartextHTTPObservationFromEnvelope(t *testing.T) {
 		for _, observation := range observations {
 			if observation.Kind != ObserveCleartext || observation.ExposureKind != "token-in-url" {
 				t.Fatalf("%s: wrong observation %#v", test.name, observation)
+			}
+			if strings.Contains(observation.DestinationHost, "[") || strings.HasSuffix(observation.DestinationHost, ":8080") {
+				t.Fatalf("%s: host keeps its brackets or port: %q", test.name, observation.DestinationHost)
+			}
+			if _, err := Evaluate(observation); err != nil {
+				t.Fatalf("%s: the observation is dropped: %v", test.name, err)
 			}
 			blob, _ := json.Marshal(observation)
 			for _, secret := range []string{"s3cr3t", "abc"} {

@@ -146,6 +146,8 @@ func humanKind(kind string) string {
 	switch kind {
 	case "basic-auth":
 		return "an HTTP Basic auth credential"
+	case "bearer-token":
+		return "a sign-in token"
 	case "form-password":
 		return "a password"
 	case "url-credential", "token-in-url":

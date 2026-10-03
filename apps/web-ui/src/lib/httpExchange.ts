@@ -124,19 +124,24 @@ export function exposureSummary(exposure: HTTPExposure): string {
   switch (exposure.kind) {
     case "basic-auth":
       return `Username and password sent in the clear (${exposure.where})`
+    case "bearer-token":
+      return `A sign-in token sent in the clear (${exposure.where})`
     case "form-password":
       return `A password or secret sent in a cleartext form (${exposure.where})`
     case "token-in-url":
       return `A secret in the cleartext web address (${exposure.where})`
     case "cleartext-cookie":
       return `A session cookie sent in the clear (${exposure.where})`
+    default:
+      // A kind added by a newer appliance than this page knows.
+      return `A secret sent in the clear (${exposure.where})`
   }
 }
 
 // exposureHeadline is the banner's one-line summary for a set of exposures.
 export function exposureHeadline(exposures: HTTPExposure[]): string {
   const kinds = new Set(exposures.map((exposure) => exposure.kind))
-  const credentials = kinds.has("basic-auth") || kinds.has("form-password") || kinds.has("token-in-url")
+  const credentials = [...kinds].some((kind) => kind !== "cleartext-cookie")
   const noun = credentials ? "credentials" : "a session cookie"
   return `This device sent ${noun} in the clear over HTTP — anyone on the network path could read ${credentials ? "them" : "it"}.`
 }
