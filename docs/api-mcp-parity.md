@@ -55,6 +55,7 @@ all read scopes and none sensitive); `http_exchange` additionally needs
 | `shakerproxy doctor` and the System page health checks | `GET /api/v1/system/diagnostics` | `system:read` | `diagnostics` |
 | Captures page: recordings, sizes, drops, holds | `GET /api/v1/agent/captures` (full records: `/captures`) | `captures:read` | `captures` |
 | Cases: case list, evidence, timeline, hold | `GET /api/v1/agent/cases`, `/agent/cases/{caseID}` (full records: `/cases`) | `cases:read` | `cases` |
+| Network-gear (UniFi) log collector: on/off, listen, allowlist, counts (Integrations page) | `GET /api/v1/integrations/syslog-collector` (config: `PUT`, session + password) | `system:read` | `syslog_collector` (read-only) |
 
 ## Gaps closed with this page
 

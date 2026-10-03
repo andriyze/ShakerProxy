@@ -205,7 +205,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/v1/integrations/forwarders/{forwarderID}/enabled", s.requireAuth(http.HandlerFunc(s.setForwarderEnabled)))
 	mux.Handle("PATCH /api/v1/integrations/forwarders/{forwarderID}", s.requireAuth(http.HandlerFunc(s.updateForwarder)))
 	mux.Handle("DELETE /api/v1/integrations/forwarders/{forwarderID}", s.requireAuth(http.HandlerFunc(s.deleteForwarder)))
-	mux.Handle("GET /api/v1/integrations/syslog-collector", s.requireAuth(http.HandlerFunc(s.getSyslogCollector)))
+	mux.Handle("GET /api/v1/integrations/syslog-collector", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.getSyslogCollector)))
 	mux.Handle("PUT /api/v1/integrations/syslog-collector", s.requireAuth(http.HandlerFunc(s.putSyslogCollector)))
 	mux.Handle("GET /api/v1/cases", s.requireAuthOrScope(apitoken.ScopeCasesRead, http.HandlerFunc(s.listCases)))
 	mux.Handle("POST /api/v1/cases", s.requireAuthOrScope(apitoken.ScopeCasesWrite, http.HandlerFunc(s.createCase)))
