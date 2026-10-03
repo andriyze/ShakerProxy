@@ -380,10 +380,14 @@ export function CaptureSession({
       {view.worker?.analyzer_feed_error && (
         <ErrorBox message={`Analyzer rotation feed error: ${view.worker.analyzer_feed_error}`} />
       )}
-      {(view.worker?.analyzer_feed_evicted ?? 0) > 0 && (
-        <ErrorBox
-          message={`${(view.worker?.analyzer_feed_evicted ?? 0).toLocaleString()} closed capture rotation(s) left the bounded analyzer feed before publication or consumption; finalized retained files will still be analyzed.`}
-        />
+      {/* Not an error: the analyzers read these files from the saved recording
+          instead of the live queue. A real analysis problem shows as the feed
+          error above or in System → Traffic analyzers. */}
+      {(view.worker?.analyzer_feed_evicted ?? 0) > 0 && !view.worker?.analyzer_feed_error && (
+        <p className="capture-note">
+          {(view.worker?.analyzer_feed_evicted ?? 0).toLocaleString()} recording file(s) skipped the live analysis queue; the
+          analyzers read them from the saved recording instead.
+        </p>
       )}
       {onStop && (
         <button className="quiet" onClick={onStop} disabled={busy}>
