@@ -28,12 +28,19 @@ cleartext finding it is built from keeps only the kind and location.
 - **Slack-compatible** — a Slack incoming-webhook body, which Slack, Mattermost
   and Discord-compatible endpoints accept.
 
+A webhook or Slack URL can post on its own, so it is treated like a password:
+once saved, the API and UI show only its service (`https://hooks.slack.com/[redacted]`).
+A transient delivery failure (a timeout, HTTP 5xx or 429) is retried twice; a
+rejected request (another 4xx, a private address) is not.
+
 ## Rules
 
 A rule subscribes a trigger — optionally scoped to one device and to a minimum
 severity — to one or more channels. The same trigger for the same subject is
 sent **once per 10 minutes**, so a chatty condition is one notification, not a
-flood. Turning notifications on does not announce devices already present.
+flood; two different Suricata signatures are two notifications. Turning
+notifications on does not announce devices already present, and the evaluator
+remembers what it sent across restarts, so an upgrade does not repeat them.
 
 ## Where
 

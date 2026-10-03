@@ -1,11 +1,16 @@
 package server
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"shakerproxy.dev/shakerproxy/internal/notify"
 )
 
 func TestNotificationsConfigAndInApp(t *testing.T) {
@@ -40,6 +45,21 @@ func TestNotificationsConfigAndInApp(t *testing.T) {
 		t.Fatalf("PUT returned %d: %s", ok.Code, ok.Body.String())
 	}
 
+	// The Slack URL is a credential: no reader gets it back, and sending the
+	// masked view back (as the UI does on its next change) keeps it.
+	view := serve(tokenRequest(http.MethodGet, "/api/v1/integrations/notifications", session))
+	if strings.Contains(view.Body.String(), "hooks.example.com/x") || !strings.Contains(view.Body.String(), `"url":"https://hooks.example.com/[redacted]"`) {
+		t.Fatalf("GET exposes the webhook URL: %s", view.Body.String())
+	}
+	roundTrip := strings.NewReplacer(`"url":"https://hooks.example.com/x"`, `"url":"https://hooks.example.com/[redacted]"`, `"expected_revision":0`, `"expected_revision":1`, `"password":"wrong"`, `"password":"`+activationTestPassword+`"`).Replace(body)
+	if kept := serve(authenticatedJSONRequest(http.MethodPut, "/api/v1/integrations/notifications", roundTrip, session, "")); kept.Code != http.StatusOK {
+		t.Fatalf("round-trip PUT returned %d: %s", kept.Code, kept.Body.String())
+	}
+	stored, err := notify.LoadConfig(filepath.Join(dir, "notifications.json"))
+	if err != nil || len(stored.Channels) != 2 || stored.Channels[1].URL != "https://hooks.example.com/x" {
+		t.Fatalf("stored channels after a round-trip = %#v (%v)", stored.Channels, err)
+	}
+
 	// A stale revision conflicts.
 	stale := serve(authenticatedJSONRequest(http.MethodPut, "/api/v1/integrations/notifications", strings.Replace(body, `"password":"wrong"`, `"password":"`+activationTestPassword+`"`, 1), session, ""))
 	if stale.Code != http.StatusConflict {
@@ -64,5 +84,41 @@ func TestNotificationsConfigAndInApp(t *testing.T) {
 	after := serve(tokenRequest(http.MethodGet, "/api/v1/notifications", session))
 	if !strings.Contains(after.Body.String(), `"unread":0`) {
 		t.Fatalf("still unread after mark: %s", after.Body.String())
+	}
+}
+
+func TestNotificationSeedingWaitsForAnAvailableReport(t *testing.T) {
+	const present = "device-00000000000000000000000000000001"
+	server := &Server{notifyEvalState: &notifyState{lastFired: map[string]time.Time{}, known: map[string]bool{}}}
+	// The report is down while the rule is off: nothing is learned.
+	server.seedKnownDevicesFrom(labRoutingReport{Available: false})
+	if server.notifyEvalState.seeded {
+		t.Fatal("an unavailable report marked the device list seeded")
+	}
+	// Once it is back the present device is learned quietly, not announced.
+	server.seedKnownDevicesFrom(labRoutingReport{Available: true, Devices: []labRoutingDevice{{DeviceID: present}}})
+	if !server.notifyEvalState.seeded || server.noteNewDevice(present) {
+		t.Fatal("a device present at seeding was announced as new")
+	}
+	if !server.noteNewDevice("device-00000000000000000000000000000002") {
+		t.Fatal("a device that joined later was not announced")
+	}
+}
+
+func TestNotificationStateSurvivesARestart(t *testing.T) {
+	dir := t.TempDir()
+	newServer := func() *Server {
+		server := &Server{notifyConfigPath: filepath.Join(dir, "notifications.json"), notifyLogPath: filepath.Join(dir, "notification-log.json"), logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		server.notifyEvalState = server.loadNotifyState()
+		return server
+	}
+	first := newServer()
+	first.seedKnownDevicesFrom(labRoutingReport{Available: true, Devices: []labRoutingDevice{{DeviceID: "device-00000000000000000000000000000001"}}})
+	first.notifyEvalState.lastFired["r1\x00BYPASSING"] = time.Now().UTC()
+	first.saveNotifyState()
+
+	second := newServer()
+	if !second.notifyEvalState.seeded || second.noteNewDevice("device-00000000000000000000000000000001") || len(second.notifyEvalState.lastFired) != 1 {
+		t.Fatalf("restored state = %#v", second.notifyEvalState)
 	}
 }
