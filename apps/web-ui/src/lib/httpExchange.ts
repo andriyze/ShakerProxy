@@ -1,4 +1,4 @@
-import type { HTTPExchange, HTTPExchangeBody, HTTPExchangeHeaders, HTTPExchangePair, HTTPExchangeRequest, RecentEvent } from "../types"
+import type { HTTPExchange, HTTPExchangeBody, HTTPExchangeHeaders, HTTPExchangePair, HTTPExchangeRequest, HTTPExposure, RecentEvent } from "../types"
 
 // Helpers for the Request / Response panel of an HTTP event.
 
@@ -115,4 +115,28 @@ export function curlCommand(request: HTTPExchangeRequest, scheme: "http" | "http
   }
   if (hasBody) parts.push("--data-raw", shellQuote(request.body.preview))
   return parts.join(" ")
+}
+
+// exposureSummary turns a cleartext exposure into one plain sentence. The
+// server only reports these for genuinely unencrypted flows, by kind and
+// location — never the secret value.
+export function exposureSummary(exposure: HTTPExposure): string {
+  switch (exposure.kind) {
+    case "basic-auth":
+      return `Username and password sent in the clear (${exposure.where})`
+    case "form-password":
+      return `A password or secret sent in a cleartext form (${exposure.where})`
+    case "token-in-url":
+      return `A secret in the cleartext web address (${exposure.where})`
+    case "cleartext-cookie":
+      return `A session cookie sent in the clear (${exposure.where})`
+  }
+}
+
+// exposureHeadline is the banner's one-line summary for a set of exposures.
+export function exposureHeadline(exposures: HTTPExposure[]): string {
+  const kinds = new Set(exposures.map((exposure) => exposure.kind))
+  const credentials = kinds.has("basic-auth") || kinds.has("form-password") || kinds.has("token-in-url")
+  const noun = credentials ? "credentials" : "a session cookie"
+  return `This device sent ${noun} in the clear over HTTP — anyone on the network path could read ${credentials ? "them" : "it"}.`
 }

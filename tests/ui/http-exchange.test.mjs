@@ -64,3 +64,12 @@ test("a message reads like developer tools and replays with curl", async () => {
   assert.match(curlCommand(request, "http", true), /-H 'Cookie: session=abc'/)
   assert.equal(bodyDisplay({ ...body, preview_encoding: "hex", preview: "48545450ff00" }), `0000  ${"48 54 54 50 ff 00".padEnd(47)}  HTTP..`)
 })
+
+test("cleartext exposures read as plain sentences and never carry a value", async () => {
+  const { exposureSummary, exposureHeadline } = await import("../../apps/web-ui/src/lib/httpExchange.ts")
+  assert.match(exposureSummary({ kind: "basic-auth", where: "Authorization header" }), /password sent in the clear/)
+  assert.match(exposureSummary({ kind: "token-in-url", where: "api_key query parameter" }), /secret in the cleartext web address/)
+  assert.match(exposureSummary({ kind: "cleartext-cookie", where: "Cookie header" }), /session cookie sent in the clear/)
+  assert.match(exposureHeadline([{ kind: "form-password", where: "request body" }]), /credentials in the clear over HTTP/)
+  assert.match(exposureHeadline([{ kind: "cleartext-cookie", where: "Cookie header" }]), /session cookie in the clear/)
+})
