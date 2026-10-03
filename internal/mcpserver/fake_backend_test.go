@@ -52,6 +52,7 @@ type fakeBackend struct {
 	caseDetail   agentapi.CaseDetail
 	diagnostics  agentapi.Diagnostics
 	labRouting   agentapi.LabRouting
+	syslog       agentapi.SyslogCollectorStatus
 	controlsFor  []string
 	captureLimit int
 	caseRequests []string

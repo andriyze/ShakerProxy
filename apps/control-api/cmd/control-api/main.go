@@ -123,6 +123,8 @@ func main() {
 		Cases:                       &casework.Store{Path: dataDirectory + "/cases.json"},
 		APITokens:                   &apitoken.Store{Path: dataDirectory + "/api-tokens.json"},
 		Forwarders:                  &forwarder.Manager{Root: envOr("SHAKERPROXY_FORWARDER_ROOT", "/var/lib/shakerproxy/forwarders")},
+		SyslogCollectorConfigPath:   envOr("SHAKERPROXY_SYSLOG_CONFIG_FILE", "/var/lib/shakerproxy/syslog-collector/config.json"),
+		SyslogCollectorStatusPath:   envOr("SHAKERPROXY_SYSLOG_STATUS_FILE", "/var/lib/shakerproxy/syslog-collector/status.json"),
 		OpenAPIPath:                 filepath.Join(registryRoot, "schemas", "api", "openapi.yaml"),
 		AdminResetRequestPath:       envOr("SHAKERPROXY_ADMIN_RESET_REQUEST", filepath.Join(dataDirectory, "admin-reset.request")),
 	}

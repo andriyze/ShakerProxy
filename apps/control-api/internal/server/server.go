@@ -79,6 +79,11 @@ type Config struct {
 	// (root) for tests.
 	AdminResetRequestPath string
 	AdminResetOwnerUID    *int
+	// SyslogCollectorConfigPath and SyslogCollectorStatusPath are the
+	// network-gear syslog collector's config (written here) and status (read
+	// here). Empty disables the integration endpoints.
+	SyslogCollectorConfigPath string
+	SyslogCollectorStatusPath string
 }
 
 type analyzerStatusService interface {
@@ -127,6 +132,8 @@ type Server struct {
 	openAPIPath                 string
 	adminResetRequestPath       string
 	adminResetOwnerUID          int
+	syslogCollectorConfigPath   string
+	syslogCollectorStatusPath   string
 	retentionSchedulerMu        sync.Mutex
 	retentionSchedulerLastError string
 	tokenRateMu                 sync.Mutex
@@ -145,7 +152,7 @@ func New(config Config) *Server {
 	for _, host := range config.AllowedHosts {
 		hosts[strings.ToLower(strings.TrimSpace(host))] = struct{}{}
 	}
-	server := &Server{store: config.Store, gateway: gatewayclient.Client{SocketPath: config.GatewaySocket}, allowedHosts: hosts, logger: config.Logger, inventory: config.Inventory, keaLeasePath: config.KeaLeasePath, eventReader: config.EventReader, liveEventReader: config.LiveEventReader, ingestStatus: config.IngestStatus, eventSnapshots: config.EventSnapshots, savedViews: config.SavedViews, captureEventDeletions: config.CaptureEventDeletions, eventSelectionDeletions: config.EventSelectionDeletions, zeekCheckpointDeletions: config.ZeekCheckpointDeletions, suricataCheckpointDeletions: config.SuricataCheckpointDeletions, capabilities: config.Capabilities, recoveryObjectives: config.RecoveryObjectives, managementCACertPath: config.ManagementCACertPath, managementPKIStatusPath: config.ManagementPKIStatusPath, cases: config.Cases, apiTokens: config.APITokens, forwarders: config.Forwarders, nameResolver: &deviceinventory.NameResolver{Store: config.Inventory}, sessions: make(map[string]sessionRecord), authFailures: make(map[string]authFailureCounter), tokenRates: make(map[string]tokenRateWindow), liveSlots: make(chan struct{}, 16), openAPIPath: config.OpenAPIPath, adminResetRequestPath: config.AdminResetRequestPath}
+	server := &Server{store: config.Store, gateway: gatewayclient.Client{SocketPath: config.GatewaySocket}, allowedHosts: hosts, logger: config.Logger, inventory: config.Inventory, keaLeasePath: config.KeaLeasePath, eventReader: config.EventReader, liveEventReader: config.LiveEventReader, ingestStatus: config.IngestStatus, eventSnapshots: config.EventSnapshots, savedViews: config.SavedViews, captureEventDeletions: config.CaptureEventDeletions, eventSelectionDeletions: config.EventSelectionDeletions, zeekCheckpointDeletions: config.ZeekCheckpointDeletions, suricataCheckpointDeletions: config.SuricataCheckpointDeletions, capabilities: config.Capabilities, recoveryObjectives: config.RecoveryObjectives, managementCACertPath: config.ManagementCACertPath, managementPKIStatusPath: config.ManagementPKIStatusPath, cases: config.Cases, apiTokens: config.APITokens, forwarders: config.Forwarders, nameResolver: &deviceinventory.NameResolver{Store: config.Inventory}, sessions: make(map[string]sessionRecord), authFailures: make(map[string]authFailureCounter), tokenRates: make(map[string]tokenRateWindow), liveSlots: make(chan struct{}, 16), openAPIPath: config.OpenAPIPath, adminResetRequestPath: config.AdminResetRequestPath, syslogCollectorConfigPath: config.SyslogCollectorConfigPath, syslogCollectorStatusPath: config.SyslogCollectorStatusPath}
 	if config.Store != nil {
 		server.sessionsPath = config.Store.SessionsPath()
 		server.loadSessions()
@@ -198,6 +205,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/v1/integrations/forwarders/{forwarderID}/enabled", s.requireAuth(http.HandlerFunc(s.setForwarderEnabled)))
 	mux.Handle("PATCH /api/v1/integrations/forwarders/{forwarderID}", s.requireAuth(http.HandlerFunc(s.updateForwarder)))
 	mux.Handle("DELETE /api/v1/integrations/forwarders/{forwarderID}", s.requireAuth(http.HandlerFunc(s.deleteForwarder)))
+	mux.Handle("GET /api/v1/integrations/syslog-collector", s.requireAuthOrScope(apitoken.ScopeSystemRead, http.HandlerFunc(s.getSyslogCollector)))
+	mux.Handle("PUT /api/v1/integrations/syslog-collector", s.requireAuth(http.HandlerFunc(s.putSyslogCollector)))
 	mux.Handle("GET /api/v1/cases", s.requireAuthOrScope(apitoken.ScopeCasesRead, http.HandlerFunc(s.listCases)))
 	mux.Handle("POST /api/v1/cases", s.requireAuthOrScope(apitoken.ScopeCasesWrite, http.HandlerFunc(s.createCase)))
 	mux.Handle("GET /api/v1/cases/{caseID}", s.requireAuthOrScope(apitoken.ScopeCasesRead, http.HandlerFunc(s.getCase)))

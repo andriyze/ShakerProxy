@@ -3,6 +3,8 @@ set -eu
 
 if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   if [ -d /run/systemd/system ]; then
+    systemctl stop shakerproxy-syslog-collectord.service >/dev/null 2>&1 || true
+    systemctl disable shakerproxy-syslog-collectord.service >/dev/null 2>&1 || true
     systemctl stop shakerproxy-testlab.service >/dev/null 2>&1 || true
     systemctl disable shakerproxy-testlab.service >/dev/null 2>&1 || true
     systemctl stop shakerproxy-cloud-connector.service >/dev/null 2>&1 || true

@@ -461,6 +461,16 @@ when a device's traffic is missing. Input: `{}`. Scope: `devices:read`.
 `GrapheneOS phone`) and `platform_evidence` (the connectivity check or DHCP
 request that showed it) when the token has `traffic:read`.
 
+### `syslog_collector`
+
+Read-only status of the network-gear (UniFi) log collector, from
+`GET /api/v1/integrations/syslog-collector`: whether it is on, where it
+listens, which router addresses it accepts, and how many messages it received,
+parsed into events, delivered, dropped or rejected. It never returns log
+content, and there is no MCP action to enable or disable it (that needs the
+administrator in the dashboard or `shakerproxy syslog`). Input: `{}`. Scope:
+`system:read`.
+
 ### Renamed tools
 
 | Before | Now |

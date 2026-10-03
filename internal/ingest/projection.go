@@ -57,6 +57,8 @@ func ProjectNetworkFields(envelope Envelope) NetworkProjection {
 		projection.DestinationPort = projectionPort(fields["destination_port"])
 		projection.Protocol = projectionText(fields["protocol"])
 		projection.Service = projectionText(fields["service"])
+	case SourceNetworkGear:
+		return projectNetworkGear(envelope, fields)
 	case SourceHost:
 		// Only the DNS forwarder's lookups and the gateway's connection
 		// openings and blocked attempts describe a device's traffic; other

@@ -339,6 +339,7 @@ func (s PostgresSink) QueryObservedDHCP(ctx context.Context) (ObservedDHCP, erro
 	}{
 		{SourceZeek, "zeek.dhcp", parseZeekDHCP},
 		{SourceSuricata, "suricata.dhcp", parseSuricataDHCP},
+		{SourceNetworkGear, NetworkGearDHCPKind, parseNetgearDHCP},
 	} {
 		rows, err := s.DB.QueryContext(ctx, observedDHCPStatement, string(source.source), source.kind, generatedAt.Add(-ObservedDHCPWindow), maxObservedDHCPRows)
 		if err != nil {

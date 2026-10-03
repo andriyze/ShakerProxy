@@ -42,6 +42,11 @@ func StreamType(event RecentEvent) string {
 	switch {
 	case event.Blocked:
 		return StreamBlocked
+	case event.Source == SourceNetworkGear:
+		if stream, ok := streamTypeNetworkGear(event.Kind); ok {
+			return stream
+		}
+		return StreamOther
 	case isHostWiFi(event.Source, event.Kind):
 		return StreamWiFi
 	case contains(encryptedDNSApps, event.AppProtocol):
@@ -76,6 +81,11 @@ func StreamType(event RecentEvent) string {
 // normalized_events columns.
 var streamTypeSQL = `CASE
  WHEN ` + blockedFlagSQL + ` THEN '` + StreamBlocked + `'
+ WHEN source = 'NETWORK_GEAR' THEN CASE
+   WHEN kind = '` + NetworkGearWiFiKind + `' THEN '` + StreamWiFi + `'
+   WHEN kind = '` + NetworkGearIDSKind + `' THEN '` + StreamAlert + `'
+   WHEN kind = '` + NetworkGearDHCPKind + `' THEN '` + StreamDiscovery + `'
+   ELSE '` + StreamOther + `' END
  WHEN source = 'HOST' AND starts_with(kind, 'wifi.') THEN '` + StreamWiFi + `'
  WHEN COALESCE(app_protocol, '') IN (` + sqlStrings(encryptedDNSApps) + `) THEN '` + StreamDNS + `'
  WHEN kind = '` + HostConnKind + `' THEN CASE
