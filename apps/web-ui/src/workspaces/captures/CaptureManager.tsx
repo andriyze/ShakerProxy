@@ -5,6 +5,7 @@ import { useAppState } from "../../shell/AppContext"
 import { authFetch, responseError } from "../../shell/authFetch"
 import { ErrorBox } from "../../shell/common"
 import { usePolling, useResource } from "../../shell/hooks"
+import { CaptureImport } from "./CaptureImport"
 import { CaptureRetentionPreview } from "./CaptureRetention"
 import { CaptureDeletionControl, CaptureDeletionJobs } from "./CaptureDeletion"
 import { captureArtifactsWereDeleted } from "../../lib/captureDeletion"
@@ -226,6 +227,7 @@ export function CaptureManager({ canStart, blockedReason }: { canStart: boolean;
           <button disabled={busy}>{busy ? "Starting…" : "Start recording"}</button>
         </form>
       )}
+      <CaptureImport canImport={canStart} blockedReason={blockedReason} onImported={refresh} />
       {finished.length > 0 && (
         <div className="capture-history">
           <h3>Finished recordings</h3>

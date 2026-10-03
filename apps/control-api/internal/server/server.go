@@ -231,6 +231,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/traffic-policy/rollback", s.requireAuth(http.HandlerFunc(s.rollbackTrafficPolicy)))
 	mux.Handle("GET /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesRead, http.HandlerFunc(s.listCaptures)))
 	mux.Handle("POST /api/v1/captures", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.startCapture)))
+	mux.Handle("POST /api/v1/captures/import", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.importCapture)))
 	mux.Handle("PUT /api/v1/captures/lab-recording", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.setLabRecording)))
 	mux.Handle("GET /api/v1/captures/{sessionID}", s.requireAuthOrScope(apitoken.ScopeCapturesRead, http.HandlerFunc(s.captureStats)))
 	mux.Handle("POST /api/v1/captures/{sessionID}/stop", s.requireAuthOrScope(apitoken.ScopeCapturesWrite, http.HandlerFunc(s.stopCapture)))
