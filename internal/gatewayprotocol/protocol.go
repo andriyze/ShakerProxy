@@ -210,6 +210,30 @@ type ReadCaptureArtifactParams struct {
 	Length    int    `json:"length"`
 }
 
+type BeginCaptureImportParams struct {
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	Administrator string `json:"administrator"`
+}
+
+type BeginCaptureImportResult struct {
+	SessionID string `json:"session_id"`
+}
+
+type AppendCaptureImportParams struct {
+	SessionID string `json:"session_id"`
+	Offset    int64  `json:"offset"`
+	Data      []byte `json:"data,omitempty"`
+	EOF       bool   `json:"eof,omitempty"`
+}
+
+type AppendCaptureImportResult struct {
+	// Done is true once the upload is complete and the capture is finalized;
+	// Result is then populated.
+	Done   bool                  `json:"done"`
+	Result *capture.ImportResult `json:"result,omitempty"`
+}
+
 type Status struct {
 	APIVersion             string                    `json:"api_version"`
 	DaemonVersion          string                    `json:"daemon_version"`

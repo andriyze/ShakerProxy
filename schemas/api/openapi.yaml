@@ -816,6 +816,28 @@ paths:
         "400": {$ref: "#/components/responses/Error"}
         "401": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
+  /captures/import:
+    post:
+      operationId: importCapture
+      description: "Imports a .pcapng captured elsewhere (for example the UniFi gateway's own packet capture, or tcpdump on another box) as a finalized capture the offline analyzers process. The upload is multipart/form-data with a 'file' part and optional 'name' and 'description' fields, streamed to the gateway in bounded chunks. Events keep the packets' own timestamps, so the import appears under its real time window and is scoped by capture_session_id. A classic .pcap is refused with how to convert it; the uploaded file name is never used for any path."
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: {type: string, format: binary}
+                name: {type: string, maxLength: 96}
+                description: {type: string, maxLength: 1024}
+      responses:
+        "201": {description: Capture imported and queued for analysis}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "413": {$ref: "#/components/responses/Error"}
+        "415": {$ref: "#/components/responses/Error"}
   /captures/lab-recording:
     put:
       operationId: setLabRecording

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -462,11 +463,97 @@ func (c *cli) captureCommand(args []string) error {
 		return c.captureStats(args[1:])
 	case "export":
 		return c.captureExport(args[1:])
+	case "import":
+		return c.captureImport(args[1:])
 	case "auto":
 		return c.captureAuto(args[1:])
 	default:
-		return unknownSubcommand("capture", subcommand, []string{"start", "stop", "list", "stats", "export", "auto"})
+		return unknownSubcommand("capture", subcommand, []string{"start", "stop", "list", "stats", "export", "import", "auto"})
 	}
+}
+
+// captureImport uploads a .pcapng captured elsewhere (for example the UniFi
+// gateway's own packet capture) and analyzes it like any recording. The file
+// is streamed to the gateway in bounded chunks; the gateway validates it and
+// stores it as a finalized capture.
+func (c *cli) captureImport(args []string) error {
+	flags := newFlags("capture import")
+	name := flags.String("name", "", "capture name (default: the file name)")
+	description := flags.String("description", "", "capture description")
+	positional, err := parseFlags("capture", flags, args)
+	if err != nil {
+		return err
+	}
+	if len(positional) != 1 {
+		return usagef("capture", "Usage: shakerproxy capture import <file.pcapng>")
+	}
+	path := positional[0]
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return usagef("capture", "%q is not a readable file.", path)
+	}
+	if info.Size() < 1 {
+		return usagef("capture", "%q is empty.", path)
+	}
+	if info.Size() > capture.DefaultMaxImportBytes {
+		return usagef("capture", "the capture is larger than the %d MiB import limit.", capture.DefaultMaxImportBytes>>20)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return usagef("capture", "%q could not be opened.", path)
+	}
+	defer file.Close()
+
+	captureName := strings.TrimSpace(*name)
+	if captureName == "" {
+		captureName = filepath.Base(path)
+	}
+	var begun gatewayprotocol.BeginCaptureImportResult
+	begin := gatewayprotocol.BeginCaptureImportParams{Name: captureName, Description: strings.TrimSpace(*description), Administrator: "local-cli"}
+	if err := c.gatewayCall("BeginCaptureImport", begin, &begun); err != nil {
+		return err
+	}
+	sessionID := begun.SessionID
+
+	offset := int64(0)
+	buffer := make([]byte, capture.ImportChunkBytes)
+	var result capture.ImportResult
+	for {
+		read, readErr := io.ReadFull(file, buffer)
+		atEnd := readErr == io.EOF || readErr == io.ErrUnexpectedEOF
+		if readErr != nil && !atEnd {
+			c.abortImport(sessionID)
+			return fmt.Errorf("read %s: %w", path, readErr)
+		}
+		var appended gatewayprotocol.AppendCaptureImportResult
+		params := gatewayprotocol.AppendCaptureImportParams{SessionID: sessionID, Offset: offset, Data: buffer[:read], EOF: atEnd}
+		if err := c.gatewayCall("AppendCaptureImport", params, &appended); err != nil {
+			c.abortImport(sessionID)
+			return err
+		}
+		offset += int64(read)
+		if atEnd {
+			if appended.Result != nil {
+				result = *appended.Result
+			}
+			break
+		}
+	}
+
+	if c.jsonOutput {
+		return c.printJSON(result)
+	}
+	c.printf("Imported %q (%s): %d packets, %s. Analyzing now.\n", sanitize(captureName), result.SessionID, result.Packets, humanBytes(result.SizeBytes))
+	if !result.FirstPacket.IsZero() {
+		c.printf("Captured %s to %s.\n", result.FirstPacket.Format("2006-01-02 15:04"), result.LastPacket.Format("2006-01-02 15:04"))
+	}
+	c.println("It appears in the Traffic page, filtered to this capture, under its own time window.")
+	return nil
+}
+
+func (c *cli) abortImport(sessionID string) {
+	var discard gatewayprotocol.AppendCaptureImportResult
+	_ = c.gatewayCall("AppendCaptureImport", gatewayprotocol.AppendCaptureImportParams{SessionID: sessionID, Offset: -1}, &discard)
 }
 
 // captureAuto shows or changes automatic lab recording: gatewayd records the

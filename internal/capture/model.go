@@ -76,6 +76,11 @@ type StartRequest struct {
 	// the lab interface, for the visibility coverage check. gatewayd checks
 	// the bridge exists; the capture is otherwise a normal manual capture.
 	CoverageLab bool `json:"coverage_lab,omitempty"`
+	// Imported marks a capture that was uploaded and placed in the store
+	// already finalized, rather than recorded by dumpcap. The offline
+	// analyzers process it like any other finalized capture; there is no
+	// dumpcap process and no ring.
+	Imported bool `json:"imported,omitempty"`
 }
 
 func (r StartRequest) WithDefaults() StartRequest {
@@ -119,6 +124,9 @@ func (r StartRequest) Validate() error {
 	}
 	if r.CoverageLab && r.Automatic {
 		return errors.New("the automatic lab recording cannot record the coverage lab")
+	}
+	if r.Imported && (r.Automatic || r.CoverageLab) {
+		return errors.New("an imported capture cannot be the automatic lab recording or a coverage lab")
 	}
 	if !validOpaqueKey(r.IdempotencyKey) {
 		return errors.New("capture idempotency key must contain 16 to 128 ASCII letters, digits, hyphens, or underscores")
@@ -293,8 +301,15 @@ func (s Session) Validate() error {
 	if s.ReserveBytes < DefaultReserveBytes {
 		return errors.New("capture storage reserve is too small")
 	}
-	if s.OutputBaseName != "capture.pcapng" || s.DumpcapExecutable != "/usr/bin/dumpcap" {
-		return errors.New("capture executable or output name is not approved")
+	if s.OutputBaseName != "capture.pcapng" {
+		return errors.New("capture output name is not approved")
+	}
+	if s.Request.Imported {
+		if s.DumpcapExecutable != "" {
+			return errors.New("an imported capture has no dumpcap executable")
+		}
+	} else if s.DumpcapExecutable != "/usr/bin/dumpcap" {
+		return errors.New("capture executable is not approved")
 	}
 	if s.CaptureFilter != "" {
 		return errors.New("raw capture filters are unavailable in this schema")

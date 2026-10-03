@@ -22,6 +22,10 @@ func MethodTimeout(method string) time.Duration {
 		// Host inspection walks interfaces, firewall state, and SSH sessions;
 		// the connectivity probe alone has a 7 second internal budget.
 		return 20 * time.Second
+	case "BeginCaptureImport", "AppendCaptureImport":
+		// Appending a chunk is quick; the final chunk validates and finalizes
+		// the whole upload (a scan and a copy of up to the import size).
+		return MaxMethodTimeout
 	case "StartCapture", "StopCapture", "SetLabRecording", "GetCaptureStats", "ListCaptures", "ReadCaptureArtifact", "ReadCaptureFlow",
 		"ApplyTrafficPolicy", "RollbackTrafficPolicy", "PreviewTrafficPolicy",
 		"SetOperatingMode", "EnableEmergencyBypass", "DisableEmergencyBypass",
