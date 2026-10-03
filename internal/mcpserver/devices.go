@@ -43,6 +43,10 @@ type deviceLine struct {
 	// PlatformEvidence what showed it.
 	Platform         string `json:"platform,omitempty"`
 	PlatformEvidence string `json:"platform_evidence,omitempty"`
+	// DeviceType is what the device's mDNS/Bonjour services say it is
+	// ("Chromecast / Google Cast device"); Services lists those services.
+	DeviceType string   `json:"device_type,omitempty"`
+	Services   []string `json:"services,omitempty"`
 }
 
 // dhcpLine is what a device's DHCP request on the lab said about it when
@@ -121,6 +125,19 @@ func (s *Service) listDevices(ctx context.Context, _ *mcp.CallToolRequest, args 
 			identity = platform.Platform
 			if device.Vendor != "" && device.Vendor != platform.Platform {
 				identity += ", " + device.Vendor
+			}
+		}
+		if services := device.Services; services != nil {
+			line.DeviceType = services.Type
+			for _, service := range services.Services {
+				label := service.Label
+				if label == "" {
+					label = service.Service
+				}
+				line.Services = append(line.Services, label)
+			}
+			if identity == "" && services.Type != "" {
+				identity = services.Type
 			}
 		}
 		line.Summary = deviceSummary(device.DisplayName, identity, addresses, device.Online)

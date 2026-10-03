@@ -7,7 +7,7 @@ import { ErrorBox, FeatureBoundary } from "../../shell/common"
 import { api, describeError } from "../../api"
 import { sortedDeviceExtensions } from "../../features"
 import { DeviceAuditEntries } from "./DeviceHistory"
-import type { Device, DeviceMutationResult, DevicePlatformHint } from "../../types"
+import type { Device, DeviceMutationResult, DevicePlatformHint, DeviceServiceHint } from "../../types"
 import { PinnedAddressControls } from "./NamedDevices"
 import { DeviceWiFiPanel } from "./DeviceWiFiPanel"
 
@@ -17,12 +17,14 @@ export function DeviceDetailDrawer({
   onChanged,
   onViewTraffic,
   platformHint,
+  serviceHint,
 }: {
   deviceID: string
   onClose: () => void
   onChanged: () => Promise<void>
   onViewTraffic: () => void
   platformHint?: DevicePlatformHint
+  serviceHint?: DeviceServiceHint
 }) {
   const extensions = sortedDeviceExtensions()
   const [device, setDevice] = useState<Device | null>(null)
@@ -140,7 +142,7 @@ export function DeviceDetailDrawer({
         <header>
           <div>
             <p className="eyebrow">Device</p>
-            <h2 id="device-drawer-title">{device ? deviceTitle(device, "", platformHint) : deviceID}</h2>
+            <h2 id="device-drawer-title">{device ? deviceTitle(device, "", platformHint, serviceHint) : deviceID}</h2>
             <code>{deviceID}</code>
           </div>
           <button ref={closeButton} type="button" className="quiet" onClick={onClose} aria-label="Close device detail">
@@ -176,6 +178,13 @@ export function DeviceDetailDrawer({
                   <small>
                     {dhcpIdentityParts(device).join(" · ")} · last {new Date(device.observed_dhcp.last_seen).toLocaleString()}
                   </small>
+                </article>
+              )}
+              {serviceHint && serviceHint.services.length > 0 && (
+                <article title="From the mDNS/Bonjour the device broadcasts on the network — what it offers and looks for.">
+                  <span>Discovery</span>
+                  <strong>{serviceHint.type || "Network services"}</strong>
+                  <small>{serviceHint.services.map((service) => service.label || service.service).join(" · ")}</small>
                 </article>
               )}
             </section>

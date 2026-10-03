@@ -10,7 +10,7 @@ export function useDeviceDirectory(): DeviceDirectory | undefined {
   const inventory = useResource(
     async (signal) => {
       const result = await api<InventorySnapshot>("/api/v1/devices", { signal })
-      return deviceDirectory(Array.isArray(result.devices) ? result.devices : [], result.platform_hints ?? {})
+      return deviceDirectory(Array.isArray(result.devices) ? result.devices : [], result.platform_hints ?? {}, result.service_hints ?? {})
     },
     [],
     { intervalMs: 60_000 },

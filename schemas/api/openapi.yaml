@@ -1941,7 +1941,9 @@ paths:
         bounded address and hostname evidence, attribution, pinned_address (the IP address an administrator
         named the device by) and former_ids (device records merged into this one, e.g. earlier private MACs).
         Callers that may read traffic (a session or traffic:read) also get platform, what the device most
-        likely is (e.g. GrapheneOS phone) and the connectivity check or DHCP request that showed it.
+        likely is (e.g. GrapheneOS phone) and the connectivity check or DHCP request that showed it, and
+        services, the mDNS/Bonjour it offers and looks for (e.g. AirPlay, Google Cast) with the device type
+        that implies.
       security: [{bearerAuth: []}]
       parameters:
         - {in: query, name: q, schema: {type: string, maxLength: 128}}
@@ -4058,6 +4060,29 @@ components:
               last_seen: {type: string, format: date-time}
               source: {type: string, enum: [dhcp], description: "Present when the device's DHCP request identified it."}
               detail: {type: string, maxLength: 300, description: "The vendor class or option order that matched."}
+        service_hints:
+          type: object
+          description: "What each listed device offers and looks for on the network, keyed by device ID, from the mDNS/Bonjour it broadcast in the last 7 days (for example AirPlay, Google Cast, printing), and the device type that implies (for example Chromecast / Google Cast device). Works even for a device whose other traffic bypasses ShakerProxy, since mDNS is multicast. Derived on each request and never stored; best effort, and only for callers with traffic:read."
+          maxProperties: 50000
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            required: [services, last_seen]
+            properties:
+              type: {type: string, maxLength: 64, description: "The device type the services imply; absent when they imply nothing specific."}
+              last_seen: {type: string, format: date-time}
+              services:
+                type: array
+                maxItems: 12
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [service, last_seen]
+                  properties:
+                    service: {type: string, maxLength: 128, description: "The mDNS service type, for example _airplay._tcp."}
+                    label: {type: string, maxLength: 64, description: "A human label for the service, for example AirPlay."}
+                    category: {type: string, maxLength: 32}
+                    last_seen: {type: string, format: date-time}
         lab_routing:
           type: object
           description: "Keyed by device ID: whether each device seen on the lab recently sends its traffic through ShakerProxy (see GET /api/v1/lab-routing)."

@@ -42,6 +42,9 @@ type devicePlatformHint struct {
 type deviceListResponse struct {
 	deviceinventory.Snapshot
 	PlatformHints map[string]devicePlatformHint `json:"platform_hints,omitempty"`
+	// ServiceHints says what each device offers and looks for on the
+	// network (mDNS/Bonjour), and the device type that implies.
+	ServiceHints map[string]deviceServiceHint `json:"service_hints,omitempty"`
 	// LabRouting says, per device seen on the lab recently, whether its
 	// traffic goes through ShakerProxy (GET /api/v1/lab-routing).
 	LabRouting map[string]labRoutingDevice `json:"lab_routing,omitempty"`

@@ -85,6 +85,10 @@ type agentDevice struct {
 	// hint the Devices page shows. It is derived from traffic, so only
 	// callers that may read traffic get it.
 	Platform *agentDevicePlatform `json:"platform,omitempty"`
+	// Services are what the device offers and looks for on the network
+	// (mDNS/Bonjour), with the device type they imply. Derived from
+	// traffic, so only callers that may read traffic get it.
+	Services *agentDeviceServices `json:"services,omitempty"`
 }
 
 // agentDevicePlatform says what a device is and which evidence showed it:
@@ -115,6 +119,30 @@ func (s *Server) withAgentPlatforms(r *http.Request, devices []deviceinventory.D
 			source = "connectivity_check"
 		}
 		projected[index].Platform = &agentDevicePlatform{Platform: hint.Platform, Source: source, Domain: hint.Domain, Detail: hint.Detail, LastSeen: hint.LastSeen}
+	}
+}
+
+type agentDeviceServices struct {
+	// Type is the device type the services imply ("Chromecast / Google
+	// Cast device"), "" when they imply nothing specific.
+	Type     string                 `json:"type,omitempty"`
+	Services []ingest.DeviceService `json:"services"`
+	LastSeen time.Time              `json:"last_seen"`
+}
+
+// withAgentServices adds discovery services to projected devices when the
+// caller may read traffic, as GET /api/v1/devices does.
+func (s *Server) withAgentServices(r *http.Request, devices []deviceinventory.Device, projected []agentDevice) {
+	if !mayReadTraffic(r) || len(devices) == 0 {
+		return
+	}
+	hints := serviceHintsFor(devices, s.deviceServiceHints(r.Context()))
+	for index := range projected {
+		hint, ok := hints[projected[index].ID]
+		if !ok {
+			continue
+		}
+		projected[index].Services = &agentDeviceServices{Type: hint.Type, Services: hint.Services, LastSeen: hint.LastSeen}
 	}
 }
 
@@ -177,6 +205,7 @@ func (s *Server) listAgentDevices(w http.ResponseWriter, r *http.Request) {
 		devices = append(devices, projectAgentDevice(device))
 	}
 	s.withAgentPlatforms(r, matches, devices)
+	s.withAgentServices(r, matches, devices)
 	writeJSON(w, http.StatusOK, agentDevicePage{
 		Schema:      1,
 		GeneratedAt: snapshot.GeneratedAt,
@@ -214,6 +243,7 @@ func (s *Server) getAgentDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	projected := []agentDevice{projectAgentDevice(device)}
 	s.withAgentPlatforms(r, []deviceinventory.Device{device}, projected)
+	s.withAgentServices(r, []deviceinventory.Device{device}, projected)
 	writeJSON(w, http.StatusOK, projected[0])
 }
 

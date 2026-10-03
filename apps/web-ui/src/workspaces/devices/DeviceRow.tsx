@@ -1,11 +1,11 @@
 import React, { FormEvent, useRef, useState } from "react"
 import { uniqueAddresses } from "../../lib/deviceAddresses"
-import { deviceMAC, deviceTitle, dhcpIdentityParts, locallyAdministered, platformEvidence } from "../../lib/deviceTitle"
+import { deviceMAC, deviceTitle, dhcpIdentityParts, locallyAdministered, platformEvidence, serviceSummary } from "../../lib/deviceTitle"
 import { withPassword } from "../../shell/passwordPrompt"
 import { timeAgo, idempotencyKey } from "../../lib/format"
 import { DeviceTrafficDeletionPreviewControl } from "./DeviceTrafficDeletion"
 import { api, describeError } from "../../api"
-import type { Device, DevicePlatformHint, LabRoutingDevice } from "../../types"
+import type { Device, DevicePlatformHint, DeviceServiceHint, LabRoutingDevice } from "../../types"
 
 export function DeviceRow({
   device,
@@ -14,6 +14,7 @@ export function DeviceRow({
   onInspect,
   onViewTraffic,
   platformHint,
+  serviceHint,
   routing,
 }: {
   device: Device
@@ -22,6 +23,7 @@ export function DeviceRow({
   onInspect: () => void
   onViewTraffic: () => void
   platformHint?: DevicePlatformHint
+  serviceHint?: DeviceServiceHint
   routing?: LabRoutingDevice
 }) {
   const [busy, setBusy] = useState(false)
@@ -162,7 +164,7 @@ export function DeviceRow({
         <span className={device.online ? "online-dot" : "offline-dot"} />
         <div>
           <strong>
-            {deviceTitle(device, "", platformHint)}
+            {deviceTitle(device, "", platformHint, serviceHint)}
             {routing?.routing === "BYPASSING" && (
               <span className="device-routing-badge" title={routing.reason ?? "Its traffic does not go through ShakerProxy."}>
                 Not through ShakerProxy
@@ -190,6 +192,12 @@ export function DeviceRow({
           {device.observed_dhcp && (
             <small className="device-dhcp" title="From the DHCP exchanges the lab recording saw, when the network's router, not ShakerProxy, gave the device its address.">
               DHCP · {dhcpIdentityParts(device).join(" · ")} · {timeAgo(device.observed_dhcp.last_seen)}
+            </small>
+          )}
+          {serviceHint && serviceSummary(serviceHint) && (
+            <small className="device-services" title="From the mDNS/Bonjour the device broadcasts on the network — what it offers and looks for.">
+              {serviceHint.type ? `${serviceHint.type} · ` : ""}
+              {serviceSummary(serviceHint)}
             </small>
           )}
           <code>{device.id}</code>

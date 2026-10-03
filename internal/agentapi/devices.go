@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"shakerproxy.dev/shakerproxy/internal/ingest"
 )
 
 const (
@@ -83,6 +85,10 @@ type Device struct {
 	// Platform is what the device most likely is ("GrapheneOS phone"); only
 	// tokens that may read traffic get it.
 	Platform *DevicePlatform `json:"platform,omitempty"`
+	// Services are what the device offers and looks for on the network
+	// (mDNS/Bonjour) and the device type they imply; only tokens that may
+	// read traffic get it.
+	Services *DeviceServices `json:"services,omitempty"`
 }
 
 // DevicePlatform names a device's platform and the evidence: Source
@@ -94,6 +100,14 @@ type DevicePlatform struct {
 	Domain   string    `json:"domain,omitempty"`
 	Detail   string    `json:"detail,omitempty"`
 	LastSeen time.Time `json:"last_seen"`
+}
+
+// DeviceServices is a device's discovery identity: the device type its
+// mDNS/Bonjour services imply and the services themselves.
+type DeviceServices struct {
+	Type     string                 `json:"type,omitempty"`
+	Services []ingest.DeviceService `json:"services"`
+	LastSeen time.Time              `json:"last_seen"`
 }
 
 type DevicePage struct {
@@ -230,6 +244,16 @@ func validateAgentDevice(device Device) error {
 	if platform := device.Platform; platform != nil {
 		if !boundedAgentText(platform.Platform, 1, 64) || platform.Source != "connectivity_check" && platform.Source != "dhcp" || !boundedAgentText(platform.Domain, 0, 253) || !boundedAgentText(platform.Detail, 0, 255) {
 			return errors.New("agent device API returned an invalid platform hint")
+		}
+	}
+	if services := device.Services; services != nil {
+		if !boundedAgentText(services.Type, 0, 64) || len(services.Services) == 0 || len(services.Services) > ingest.MaxServicesPerDevice {
+			return errors.New("agent device API returned an invalid services hint")
+		}
+		for _, service := range services.Services {
+			if !boundedAgentText(service.Service, 1, 128) || !boundedAgentText(service.Label, 0, 64) || !boundedAgentText(service.Category, 0, 32) {
+				return errors.New("agent device API returned an invalid service")
+			}
 		}
 	}
 	return nil
