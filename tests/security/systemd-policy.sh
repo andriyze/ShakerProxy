@@ -17,6 +17,7 @@ readonly RADVD_UNIT="packaging/systemd/shakerproxy-radvd.service"
 readonly CA_ONBOARDING_UNIT="packaging/systemd/shakerproxy-ca-onboarding.service"
 readonly WIFI_CAPTURE_UNIT="packaging/systemd/shakerproxy-wifi-capture.service"
 readonly WIFI_WORKER_UNIT="packaging/systemd/shakerproxy-wifi-worker.service"
+readonly SYSLOG_COLLECTOR_UNIT="packaging/systemd/shakerproxy-syslog-collectord.service"
 readonly INSTALLER="packaging/install.sh"
 readonly RELEASE_SCHEMA="packaging/release-manifest.schema.json"
 
@@ -28,6 +29,28 @@ readonly RELEASE_SCHEMA="packaging/release-manifest.schema.json"
 [[ -f "$TRAFFIC_POLICY_UNIT" ]] || { printf 'missing traffic policy unit: %s\n' "$TRAFFIC_POLICY_UNIT" >&2; exit 1; }
 [[ -f "$HOSTAPD_UNIT" ]] || { printf 'missing Wi-Fi access point unit: %s\n' "$HOSTAPD_UNIT" >&2; exit 1; }
 [[ -f "$RADVD_UNIT" ]] || { printf 'missing radvd unit: %s\n' "$RADVD_UNIT" >&2; exit 1; }
+[[ -f "$SYSLOG_COLLECTOR_UNIT" ]] || { printf 'missing syslog collector unit: %s\n' "$SYSLOG_COLLECTOR_UNIT" >&2; exit 1; }
+
+# Network-gear log collector: unprivileged, no token, writes only its config
+# directory and its event spool. Every path it names must exist on the host or
+# be optional ("-"): /run/secrets (a container path) kept beta.31-34 in a
+# 226/NAMESPACE start loop on every real install.
+for exact in \
+  'User=shakerproxy-cloud' \
+  'Group=shakerproxy-app' \
+  'ExecStart=/usr/libexec/shakerproxy/shakerproxy-syslog-collectord' \
+  'Environment=SHAKERPROXY_SYSLOG_EVENT_SPOOL=/var/lib/shakerproxy/syslog-events/pending' \
+  'NoNewPrivileges=yes' \
+  'ProtectSystem=strict' \
+  'CapabilityBoundingSet=' \
+  'AmbientCapabilities=' \
+  'ReadWritePaths=-/var/lib/shakerproxy/syslog-collector -/var/lib/shakerproxy/syslog-events/pending'; do
+  grep -Fqx -- "$exact" "$SYSLOG_COLLECTOR_UNIT" || { printf 'required syslog collector policy is missing: %s\n' "$exact" >&2; exit 1; }
+done
+if grep -v '^[[:space:]]*#' "$SYSLOG_COLLECTOR_UNIT" | grep -Eq '/run/secrets|INGEST_TOKEN'; then
+  printf '%s\n' 'syslog collector unit must not reference container secrets or the ingest token' >&2
+  exit 1
+fi
 
 # Wi-Fi visibility: dumpcap only on the monitor interface, management frames
 # only; the frame parser has no network, no capabilities and no inventory.

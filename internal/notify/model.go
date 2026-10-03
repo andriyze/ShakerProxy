@@ -136,7 +136,7 @@ func DefaultConfig() Config {
 	return Config{
 		Schema:   ConfigSchema,
 		Channels: []Channel{{ID: InAppChannelID, Kind: ChannelInApp, Name: "In-app notifications", Enabled: true}},
-		Rules:    nil,
+		Rules:    []Rule{},
 	}
 }
 

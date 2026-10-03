@@ -39,3 +39,13 @@ test("Traffic and Devices show the lab recording banner, which toggles through t
   assert.match(banner, /"\/api\/v1\/captures\/lab-recording", \{ method: "PUT"/)
   assert.match(banner, /await refreshStatus\(\)/)
 })
+
+test("files that skip the live analysis queue are a note, not an error", () => {
+  const manager = webUIFile("workspaces/captures/CaptureManager.tsx")
+  // beta.34 showed this count in a red error box although the analyzers read
+  // those files from the saved recording and nothing was lost.
+  assert.doesNotMatch(manager, /left the bounded analyzer feed/)
+  assert.match(manager, /className="capture-note"[\s\S]{0,200}skipped the live analysis queue/)
+  // A real feed error is still an error.
+  assert.match(manager, /<ErrorBox message=\{`Analyzer rotation feed error:/)
+})

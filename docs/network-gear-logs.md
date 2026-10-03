@@ -45,12 +45,16 @@ collector therefore:
   dropping rather than queueing;
 - treats every byte as **data**: a log line is parsed into bounded fields and
   never interpreted, and these events carry a confidence below first-hand
-  capture.
+  capture;
+- holds **no ingest token**. It runs on the host as an unprivileged service
+  and leaves each event in `/var/lib/shakerproxy/syslog-events/pending/`; the
+  `syslog-event-forwarder` container delivers them to ingestd over the
+  internal network and accepts only network-gear events from that folder.
 
 ## Enable it on ShakerProxy
 
 The collector service runs continuously and stays inert until you enable the
-integration. Turn it on from the dashboard (**System → Network-gear logs**),
+integration. Turn it on from the dashboard (**Integrations → Router logs (UniFi)**),
 the API, or the CLI — each needs the administrator password and at least one
 allowed source:
 
@@ -67,6 +71,12 @@ The status says whether the collector is actually **listening**. If it cannot
 bind its port (another service holds it), it shows *Not listening* with the
 reason and retries every few seconds, so an enabled collector that receives
 nothing is never shown as working.
+
+If the status says the collector service has not reported, check the service
+itself: `systemctl status shakerproxy-syslog-collectord` (and `shakerproxy
+doctor`, which fails when a ShakerProxy service is stuck restarting). Events
+that the collector receives but that never show up in Traffic point at the
+forwarder: `shakerproxy status` lists `syslog-event-forwarder`.
 
 The default port is **1514** so the service needs no privileged-port
 capability. To listen on the standard syslog port **514**, add `--bind :514`

@@ -32,3 +32,13 @@ test("notifications is mounted in the Integrations workspace", () => {
   const workspace = webUIFile("workspaces/integrations/IntegrationsWorkspace.tsx")
   assert.match(workspace, /<Notifications \/>/)
 })
+
+test("an empty list from any server version cannot crash the page", () => {
+  // beta.33 sent "notifications": null and "rules": null on a fresh install,
+  // and reading .length took down the whole Integrations page.
+  assert.match(source, /notifications:\s*recent\.notifications \?\? \[\]/)
+  assert.match(source, /rules:\s*config\.rules \?\? \[\]/)
+  assert.match(source, /channels:\s*config\.channels \?\? \[\]/)
+  assert.match(source, /setView\(normalizeView\(config\)\)/)
+  assert.match(source, /setView\(normalizeView\(next\)\)/)
+})

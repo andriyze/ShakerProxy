@@ -115,13 +115,14 @@ var hostUnits = map[string]string{
 	"testlab": "shakerproxy-testlab.service",
 	"pki":     "shakerproxy-interception-pki.service", "interception-pki": "shakerproxy-interception-pki.service",
 	"cloud": "shakerproxy-cloud-connector.service", "cloud-connector": "shakerproxy-cloud-connector.service",
-	"dns-forwarder":  "shakerproxy-encrypted-dns-event-forwarder.service",
+	"dns-forwarder": "shakerproxy-encrypted-dns-event-forwarder.service",
+	"syslog":        "shakerproxy-syslog-collectord.service", "syslog-collector": "shakerproxy-syslog-collectord.service",
 	"mitm-forwarder": "shakerproxy-mitm-event-forwarder.service",
 	"app-service":    "shakerproxy-app.service",
 }
 
 // appContainers are the Compose services of the application stack.
-var appContainers = []string{"control-api", "web-ui", "edge", "ingestd", "forwarderd", "zeek", "suricata", "postgres", "mitmproxy", "mitm-event-forwarder", "dns-event-forwarder", "inventory-cloud-forwarder"}
+var appContainers = []string{"control-api", "web-ui", "edge", "ingestd", "forwarderd", "zeek", "suricata", "postgres", "mitmproxy", "mitm-event-forwarder", "dns-event-forwarder", "syslog-event-forwarder", "inventory-cloud-forwarder"}
 
 func firstExecutable(candidates ...string) string {
 	for _, candidate := range candidates {

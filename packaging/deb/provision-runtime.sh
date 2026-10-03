@@ -268,6 +268,11 @@ ensure_dir "$DATA_DIR/inventory" 65532 65532 0750
 ensure_dir "$DATA_DIR/spool" 65532 65532 0750
 ensure_dir "$DATA_DIR/forwarders" 65532 65532 0750
 ensure_dir "$DATA_DIR/syslog-collector" 65532 65532 2770
+# shakerproxy-syslog-collectord (group 65532, shakerproxy-app) leaves one
+# event per router log line in pending/; the syslog-event-forwarder container
+# (65532) delivers and removes them, and keeps rejects in quarantine/.
+ensure_dir "$DATA_DIR/syslog-events" 65532 65532 0750
+ensure_dir "$DATA_DIR/syslog-events/pending" 65532 65532 2770
 ensure_dir "$DATA_DIR/rulesets" root root 0700
 
 INGEST_TOKEN="$SECRET_DIR/ingest-token"

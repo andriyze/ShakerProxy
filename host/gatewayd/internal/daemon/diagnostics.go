@@ -154,6 +154,11 @@ func (s *Server) inspectDiagnostics(ctx context.Context) gatewayprotocol.Diagnos
 		add(diagnosticCheck("docker", gatewayprotocol.DiagnosticPass, "Docker service is active; no Docker socket was opened"))
 	}
 	add(diagnosticCheck("services", gatewayprotocol.DiagnosticPass, "The privileged gateway service is responding", "network apply: "+enabledDiagnosticValue(s.activation != nil), "capture service: "+enabledDiagnosticValue(s.captures != nil)))
+	if units, err := diagnosticShakerProxyUnits(ctx); err != nil {
+		add(diagnosticCheck("host_services", gatewayprotocol.DiagnosticUnknown, "ShakerProxy's host services could not be listed", err.Error()))
+	} else {
+		add(hostServicesDiagnostic(units))
+	}
 
 	diskPath := filepath.Dir(s.store.path)
 	if s.captures != nil && s.captures.Store.Root != "" {
@@ -399,6 +404,53 @@ func diagnosticServiceActive(ctx context.Context, service string) (bool, bool) {
 		return false, true
 	}
 	return false, false
+}
+
+// diagnosticShakerProxyUnits lists the loaded ShakerProxy units as
+// "UNIT LOAD ACTIVE SUB DESCRIPTION" lines.
+func diagnosticShakerProxyUnits(ctx context.Context) (string, error) {
+	command := exec.CommandContext(ctx, "/usr/bin/systemctl", "list-units", "--all", "--plain", "--no-legend", "--no-pager", "shakerproxy-*.service")
+	var output diagnosticCommandOutput
+	command.Stdout = &output
+	if err := command.Run(); err != nil {
+		return "", errors.New("systemctl list-units failed")
+	}
+	if output.Truncated {
+		return "", errors.New("the unit list was too long to inspect")
+	}
+	return string(output.Bytes), nil
+}
+
+// hostServicesDiagnostic fails when a ShakerProxy service is stuck restarting
+// or has failed. Before beta.35 the syslog collector failed to start on every
+// real install for days while every other check passed. Per-capture
+// instances (shakerproxy-capture@<id>) are left to the capture check.
+func hostServicesDiagnostic(units string) gatewayprotocol.DiagnosticCheck {
+	running := 0
+	var broken []string
+	for _, line := range strings.Split(units, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && !strings.HasPrefix(fields[0], "shakerproxy-") {
+			// systemctl marks failed units with a leading "●".
+			fields = fields[1:]
+		}
+		if len(fields) < 4 || !strings.HasPrefix(fields[0], "shakerproxy-") || strings.Contains(fields[0], "@") {
+			continue
+		}
+		unit, active, sub := fields[0], fields[2], fields[3]
+		switch {
+		case sub == "auto-restart":
+			broken = append(broken, fmt.Sprintf("%s keeps failing and restarting; see: journalctl -u %s", unit, unit))
+		case active == "failed":
+			broken = append(broken, fmt.Sprintf("%s has failed; see: journalctl -u %s", unit, unit))
+		case active == "active":
+			running++
+		}
+	}
+	if len(broken) > 0 {
+		return diagnosticCheck("host_services", gatewayprotocol.DiagnosticFail, fmt.Sprintf("%d ShakerProxy service(s) are not running", len(broken)), broken...)
+	}
+	return diagnosticCheck("host_services", gatewayprotocol.DiagnosticPass, fmt.Sprintf("%d ShakerProxy host service(s) running; none failing", running))
 }
 
 func diagnosticTimeSynchronized(ctx context.Context) (bool, bool) {

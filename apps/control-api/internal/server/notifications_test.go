@@ -87,6 +87,29 @@ func TestNotificationsConfigAndInApp(t *testing.T) {
 	}
 }
 
+// A fresh install has no rules and no notifications. The dashboard reads both
+// lists' lengths, so they must be [] and never null (beta.33 sent null and
+// the whole Integrations page failed to render).
+func TestNotificationsFreshInstallSendsEmptyListsNotNull(t *testing.T) {
+	dir := t.TempDir()
+	server, session := configuredAPIServerWithConfig(t, filepath.Join(t.TempDir(), "absent.sock"), func(config *Config) {
+		config.NotifyConfigPath = filepath.Join(dir, "notifications.json")
+		config.NotifyLogPath = filepath.Join(dir, "notification-log.json")
+	})
+	for _, check := range []struct{ path, want string }{
+		{"/api/v1/integrations/notifications", `"rules":[]`},
+		{"/api/v1/notifications", `"notifications":[]`},
+	} {
+		request := tokenRequest(http.MethodGet, check.path, session)
+		request.Host = "shakerproxy.test"
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), check.want) || strings.Contains(recorder.Body.String(), "null") {
+			t.Fatalf("GET %s = %d %s; want %s and no null", check.path, recorder.Code, recorder.Body.String(), check.want)
+		}
+	}
+}
+
 func TestNotificationSeedingWaitsForAnAvailableReport(t *testing.T) {
 	const present = "device-00000000000000000000000000000001"
 	server := &Server{notifyEvalState: &notifyState{lastFired: map[string]time.Time{}, known: map[string]bool{}}}
