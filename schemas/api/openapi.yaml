@@ -161,6 +161,26 @@ paths:
         "401": {$ref: "#/components/responses/Error"}
         "404": {$ref: "#/components/responses/Error"}
         "409": {$ref: "#/components/responses/Error"}
+  /integrations/syslog-collector:
+    get:
+      operationId: getSyslogCollector
+      description: "Session-only configuration and status of the network-gear (UniFi) log collector, which turns the lab router's own syslog into events and device identity. Off by default; status is counts and per-source liveness only, never log content."
+      security: [{bearerAuth: []}]
+      responses:
+        "200": {description: Collector configuration and status, content: {application/json: {schema: {$ref: "#/components/schemas/SyslogCollector"}}}}
+        "401": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+    put:
+      operationId: putSyslogCollector
+      description: "Freshly reauthenticated optimistic update of the collector configuration. Enabling requires a transport and at least one allowed source (the router's IP), so it never accepts logs from everywhere. The service picks the change up and starts or stops its listener."
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: "#/components/schemas/PutSyslogCollectorRequest"}}}}
+      responses:
+        "200": {description: Updated collector configuration and status, content: {application/json: {schema: {$ref: "#/components/schemas/SyslogCollector"}}}}
+        "400": {$ref: "#/components/responses/Error"}
+        "401": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /metrics:
     get:
       operationId: getOpenMetrics
@@ -2244,6 +2264,37 @@ components:
         destination: {type: string, maxLength: 2048, description: "Empty for fixed local JSONL; public https:// URL on 443 for webhooks; tls://host:6514 for syslog."}
         classes: {type: array, maxItems: 6, uniqueItems: true, items: {$ref: "#/components/schemas/ForwarderEventClass"}}
         password: {type: string, minLength: 1, maxLength: 1024}
+    PutSyslogCollectorRequest:
+      type: object
+      additionalProperties: false
+      required: [enabled, allowed_sources, password]
+      properties:
+        enabled: {type: boolean}
+        bind_address: {type: string, maxLength: 64, description: "host:port to listen on; default :1514"}
+        tcp: {type: boolean}
+        udp: {type: boolean, description: "UDP is spoofable; prefer TCP"}
+        allowed_sources: {type: array, maxItems: 64, uniqueItems: true, items: {type: string, maxLength: 45, description: "device IP to accept logs from (the router's address)"}}
+        expected_revision: {type: integer, minimum: 0}
+        password: {type: string, minLength: 1, maxLength: 1024}
+    SyslogCollector:
+      type: object
+      additionalProperties: false
+      required: [available, enabled, bind_address, tcp, udp, allowed_sources, revision, setup]
+      properties:
+        available: {const: true}
+        enabled: {type: boolean}
+        bind_address: {type: string, maxLength: 64}
+        tcp: {type: boolean}
+        udp: {type: boolean}
+        allowed_sources: {type: array, maxItems: 64, items: {type: string, maxLength: 45}}
+        revision: {type: integer, minimum: 0}
+        updated_at: {type: string, format: date-time}
+        updated_by: {type: string, maxLength: 256}
+        setup: {type: string, maxLength: 512}
+        status:
+          type: object
+          description: "Receiver counts and per-source liveness; never log content."
+          additionalProperties: true
     SetForwarderEnabledRequest:
       type: object
       additionalProperties: false
