@@ -121,7 +121,12 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			fail("syslog collector listener stopped; starting it again", stopped)
 			stop()
 		}
-		if active != nil && reflect.DeepEqual(next, current) {
+		// Nothing changed since the last pass: either already running this
+		// config, or already idle. Return before re-logging — in particular do
+		// not log "off" on every tick (~17k lines/day while disabled). The main
+		// loop still refreshes the status file each tick, so the dashboard keeps
+		// seeing a fresh heartbeat.
+		if reflect.DeepEqual(next, current) && (active != nil) == next.Enabled {
 			return
 		}
 		stop()
